@@ -1,0 +1,40 @@
+display_name: mothersday
+campaign_name: mothersday
+qualifier:
+title: Mother's Day Appreciation Sale
+objective: Drive in-store weekend traffic
+status: active
+start_date: 2026-05-01
+end_date: 2026-05-10
+offers:
+  - offer_name: flower-bundle
+    offer_type: bundle
+    offer_value: Buy 1 bouquet, get 1 half off
+    start_date: 2026-05-01
+    end_date: 2026-05-10
+    terms_text: In-store only while supplies last.
+assets:
+  - asset_type: hero_image
+    source_type: upload
+    mime_type: image/png
+    source_path: assets/mothersday-hero.png
+    width: 1200
+    height: 800
+    metadata:
+      alt: Mother and daughter holding flowers
+      focus: center
+template_binding:
+  template_name: flyer-standard
+  template_kind: flyer
+  size_spec: letter
+  layout:
+    headline_slot: top
+    hero_slot: center
+    footer_slot: bottom
+  default_values:
+    headline: Celebrate Mother's Day
+    cta: Visit us this weekend
+    accent: "#ecad0a"
+  override_values:
+    headline: Mother's Day Appreciation Sale
+    cta: Shop flowers, gifts, and treats

@@ -1,0 +1,37 @@
+display_name: merci
+legal_name: Merci Sales LLC
+timezone: America/New_York
+is_active: true
+contacts:
+  - contact_type: phone
+    contact_value: 555-0100
+    is_primary: true
+  - contact_type: email
+    contact_value: hello@merci.example
+    is_primary: false
+  - contact_type: website
+    contact_value: https://merci.example
+    is_primary: false
+locations:
+  - label: main
+    line1: 123 Main Street
+    line2: Suite 100
+    city: Raleigh
+    state: NC
+    postal_code: "27601"
+    country: US
+    hours:
+      monday: 9am-6pm
+      tuesday: 9am-6pm
+      wednesday: 9am-6pm
+      thursday: 9am-6pm
+      friday: 9am-6pm
+      saturday: 10am-4pm
+      sunday: closed
+brand_theme:
+  name: default
+  primary_color: "#209dd7"
+  secondary_color: "#753991"
+  accent_color: "#ecad0a"
+  font_family: Trebuchet MS
+  logo_path: assets/logo.png
