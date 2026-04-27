@@ -17,6 +17,8 @@ def initialize_database(config: AppConfig) -> None:
 
 
 def connect_database(config: AppConfig) -> sqlite3.Connection:
+    # Keep endpoint calls robust in tests and local scripts where startup hooks may not run.
+    initialize_database(config)
     connection = sqlite3.connect(config.database_path)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON;")
