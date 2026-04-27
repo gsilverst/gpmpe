@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from .chat import ChatSessionStore, apply_chat_command, parse_chat_command
 from .config import resolve_config
 from .db import connect_database, initialize_database
 
@@ -85,6 +86,11 @@ class CampaignTemplateBindingCreate(BaseModel):
     override_values: dict[str, Any] | None = None
 
 
+class ChatMessageRequest(BaseModel):
+    campaign_id: int
+    message: str = Field(min_length=1)
+
+
 ALLOWED_ASSET_MIME_TYPES = {
     "image/png",
     "image/jpeg",
@@ -143,6 +149,7 @@ def _campaign_row_to_dict(row: Any) -> dict[str, Any]:
 
 def create_app() -> FastAPI:
     app = FastAPI(title="GPMPG API", version="0.1.0", lifespan=lifespan)
+    chat_store = ChatSessionStore()
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -732,6 +739,41 @@ def create_app() -> FastAPI:
             "override_values": overrides,
             "effective_values": effective_values,
             "is_active": bool(row["is_active"]),
+        }
+
+    @app.post("/chat/sessions", status_code=201)
+    def create_chat_session() -> dict[str, str]:
+        return {"session_id": chat_store.create()}
+
+    @app.get("/chat/sessions/{session_id}")
+    def get_chat_session_history(session_id: str) -> dict[str, Any]:
+        if not chat_store.exists(session_id):
+            raise HTTPException(status_code=404, detail="Chat session not found")
+        return {"session_id": session_id, "history": chat_store.history(session_id)}
+
+    @app.post("/chat/sessions/{session_id}/messages")
+    def post_chat_message(session_id: str, payload: ChatMessageRequest) -> dict[str, Any]:
+        if not chat_store.exists(session_id):
+            raise HTTPException(status_code=404, detail="Chat session not found")
+
+        command = parse_chat_command(payload.message)
+
+        config = resolve_config()
+        with connect_database(config) as connection:
+            result = apply_chat_command(connection, payload.campaign_id, command)
+            connection.commit()
+
+        chat_store.append(session_id, "user", payload.message)
+        chat_store.append(
+            session_id,
+            "system",
+            f"Applied {result['target']} update for field '{result['field']}'",
+        )
+
+        return {
+            "session_id": session_id,
+            "result": result,
+            "history": chat_store.history(session_id),
         }
 
     return app
