@@ -1,0 +1,6 @@
+# GPMPG local config (KEY=VALUE)
+# Leave OUTPUT_DIR unset to default to your current working directory.
+# Leave DATABASE_PATH unset to default to backend/data/gpmpg.db.
+
+OUTPUT_DIR=./output
+DATABASE_PATH=./backend/data/gpmpg.db

@@ -1,0 +1,56 @@
+:root {
+  color-scheme: light;
+  --brand-blue: #209dd7;
+  --brand-yellow: #ecad0a;
+  --ink: #032147;
+  --surface: #f5f8fc;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: radial-gradient(circle at top, #ffffff 0%, var(--surface) 60%);
+}
+
+main {
+  min-height: 100vh;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 4rem;
+}
+
+h1 {
+  margin-bottom: 0.5rem;
+}
+
+.card {
+  background: #ffffff;
+  border: 1px solid #dbe4f3;
+  border-radius: 14px;
+  padding: 1rem;
+}
+
+button {
+  margin-top: 0.75rem;
+  border: 0;
+  border-radius: 10px;
+  padding: 0.7rem 1rem;
+  background: linear-gradient(140deg, var(--brand-blue), #0f6b97);
+  color: #ffffff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+small {
+  color: #3f526d;
+}

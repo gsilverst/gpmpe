@@ -1,0 +1,19 @@
+[project]
+name = "gpmpg-backend"
+version = "0.1.0"
+description = "Backend API for GPMPG"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.116.0,<1.0.0",
+  "uvicorn[standard]>=0.32.0,<1.0.0",
+]
+
+[dependency-groups]
+dev = [
+  "httpx>=0.28.0,<1.0.0",
+  "pytest>=8.3.0,<9.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
