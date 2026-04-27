@@ -73,5 +73,65 @@ CREATE TABLE IF NOT EXISTS campaigns (
 CREATE INDEX IF NOT EXISTS idx_campaigns_business_name
   ON campaigns (business_id, campaign_name);
 
+CREATE TABLE IF NOT EXISTS campaign_offers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  campaign_id INTEGER NOT NULL,
+  offer_name TEXT NOT NULL,
+  offer_type TEXT NOT NULL DEFAULT 'discount',
+  offer_value TEXT,
+  start_date TEXT,
+  end_date TEXT,
+  terms_text TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_campaign_offers_campaign
+  ON campaign_offers (campaign_id);
+
+CREATE TABLE IF NOT EXISTS campaign_assets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  campaign_id INTEGER NOT NULL,
+  asset_type TEXT NOT NULL,
+  source_type TEXT NOT NULL CHECK (source_type IN ('upload', 'url', 'generated')),
+  mime_type TEXT NOT NULL,
+  source_path TEXT NOT NULL,
+  width INTEGER,
+  height INTEGER,
+  metadata_json TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_campaign_assets_campaign
+  ON campaign_assets (campaign_id);
+
+CREATE TABLE IF NOT EXISTS template_definitions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  template_name TEXT NOT NULL UNIQUE,
+  template_kind TEXT NOT NULL,
+  size_spec TEXT,
+  layout_json TEXT,
+  default_values_json TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS campaign_template_bindings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  campaign_id INTEGER NOT NULL,
+  template_id INTEGER NOT NULL,
+  override_values_json TEXT,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE,
+  FOREIGN KEY (template_id) REFERENCES template_definitions(id) ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS idx_template_bindings_campaign
+  ON campaign_template_bindings (campaign_id, is_active);
+
 INSERT OR IGNORE INTO app_meta (key, value)
-VALUES ('schema_version', '002');
+VALUES ('schema_version', '003');
