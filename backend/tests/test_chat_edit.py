@@ -9,8 +9,10 @@ def _write_config(tmp_path: Path) -> Path:
     config_path = tmp_path / ".config"
     output_dir = tmp_path / "output"
     database_path = tmp_path / "data" / "test.db"
+    data_dir = tmp_path / "yaml-data"
     config_path.write_text(
-        f"OUTPUT_DIR={output_dir}\nDATABASE_PATH={database_path}\n", encoding="utf-8"
+        f"OUTPUT_DIR={output_dir}\nDATABASE_PATH={database_path}\nDATA_DIR={data_dir}\n",
+        encoding="utf-8",
     )
     return config_path
 

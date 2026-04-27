@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from .chat import ChatSessionStore, apply_chat_command, parse_chat_command
 from .config import resolve_config
+from .data_sync import sync_data_directory
 from .db import connect_database, initialize_database
 
 
@@ -18,7 +19,11 @@ from .db import connect_database, initialize_database
 async def lifespan(_: FastAPI):
     config = resolve_config()
     config.output_dir.mkdir(parents=True, exist_ok=True)
+    config.data_dir.mkdir(parents=True, exist_ok=True)
     initialize_database(config)
+    with connect_database(config) as connection:
+        sync_data_directory(connection, config.data_dir)
+        connection.commit()
     yield
 
 
@@ -144,6 +149,179 @@ def _campaign_row_to_dict(row: Any) -> dict[str, Any]:
         "status": row["status"],
         "start_date": row["start_date"],
         "end_date": row["end_date"],
+    }
+
+
+def _campaign_display_name(row: Any) -> str:
+    details = json.loads(row["details_json"] or "{}") if "details_json" in row.keys() else {}
+    return details.get("display_name") or row["campaign_name"]
+
+
+def _business_snapshot(connection: Any, display_name: str) -> dict[str, Any]:
+    business = connection.execute(
+        """
+        SELECT id, legal_name, display_name, timezone, is_active
+        FROM businesses
+        WHERE display_name = ?;
+        """,
+        (display_name,),
+    ).fetchone()
+    if business is None:
+        raise HTTPException(status_code=404, detail="Business not found")
+
+    contacts = connection.execute(
+        """
+        SELECT contact_type, contact_value, is_primary
+        FROM business_contacts
+        WHERE business_id = ?
+        ORDER BY is_primary DESC, id ASC;
+        """,
+        (business["id"],),
+    ).fetchall()
+    locations = connection.execute(
+        """
+        SELECT label, line1, line2, city, state, postal_code, country, hours_json
+        FROM business_locations
+        WHERE business_id = ?
+        ORDER BY id ASC;
+        """,
+        (business["id"],),
+    ).fetchall()
+    theme = connection.execute(
+        """
+        SELECT name, primary_color, secondary_color, accent_color, font_family, logo_path
+        FROM brand_themes
+        WHERE business_id = ? AND name = 'default';
+        """,
+        (business["id"],),
+    ).fetchone()
+
+    return {
+        "display_name": business["display_name"],
+        "legal_name": business["legal_name"],
+        "timezone": business["timezone"],
+        "is_active": bool(business["is_active"]),
+        "contacts": [
+            {
+                "contact_type": row["contact_type"],
+                "contact_value": row["contact_value"],
+                "is_primary": bool(row["is_primary"]),
+            }
+            for row in contacts
+        ],
+        "locations": [
+            {
+                "label": row["label"],
+                "line1": row["line1"],
+                "line2": row["line2"],
+                "city": row["city"],
+                "state": row["state"],
+                "postal_code": row["postal_code"],
+                "country": row["country"],
+                "hours": json.loads(row["hours_json"] or "{}"),
+            }
+            for row in locations
+        ],
+        "brand_theme": {
+            "name": theme["name"],
+            "primary_color": theme["primary_color"],
+            "secondary_color": theme["secondary_color"],
+            "accent_color": theme["accent_color"],
+            "font_family": theme["font_family"],
+            "logo_path": theme["logo_path"],
+        }
+        if theme is not None
+        else None,
+    }
+
+
+def _campaign_snapshot(connection: Any, display_name: str, campaign_name: str, qualifier: str | None) -> dict[str, Any]:
+    business = connection.execute(
+        "SELECT id FROM businesses WHERE display_name = ?;",
+        (display_name,),
+    ).fetchone()
+    if business is None:
+        raise HTTPException(status_code=404, detail="Business not found")
+
+    row = connection.execute(
+        """
+        SELECT id, campaign_name, campaign_key, title, objective, status, start_date, end_date, details_json
+        FROM campaigns
+        WHERE business_id = ? AND campaign_name = ? AND campaign_key = ?;
+        """,
+        (business["id"], campaign_name, qualifier or ""),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    offers = connection.execute(
+        """
+        SELECT offer_name, offer_type, offer_value, start_date, end_date, terms_text
+        FROM campaign_offers WHERE campaign_id = ? ORDER BY id ASC;
+        """,
+        (row["id"],),
+    ).fetchall()
+    assets = connection.execute(
+        """
+        SELECT asset_type, source_type, mime_type, source_path, width, height, metadata_json
+        FROM campaign_assets WHERE campaign_id = ? ORDER BY id ASC;
+        """,
+        (row["id"],),
+    ).fetchall()
+    binding = connection.execute(
+        """
+        SELECT t.template_name, t.template_kind, t.size_spec, t.layout_json, t.default_values_json, b.override_values_json
+        FROM campaign_template_bindings b
+        JOIN template_definitions t ON t.id = b.template_id
+        WHERE b.campaign_id = ? AND b.is_active = 1
+        ORDER BY b.id DESC
+        LIMIT 1;
+        """,
+        (row["id"],),
+    ).fetchone()
+
+    return {
+        "display_name": _campaign_display_name(row),
+        "campaign_name": row["campaign_name"],
+        "qualifier": row["campaign_key"] or None,
+        "title": row["title"],
+        "objective": row["objective"],
+        "status": row["status"],
+        "start_date": row["start_date"],
+        "end_date": row["end_date"],
+        "offers": [
+            {
+                "offer_name": item["offer_name"],
+                "offer_type": item["offer_type"],
+                "offer_value": item["offer_value"],
+                "start_date": item["start_date"],
+                "end_date": item["end_date"],
+                "terms_text": item["terms_text"],
+            }
+            for item in offers
+        ],
+        "assets": [
+            {
+                "asset_type": item["asset_type"],
+                "source_type": item["source_type"],
+                "mime_type": item["mime_type"],
+                "source_path": item["source_path"],
+                "width": item["width"],
+                "height": item["height"],
+                "metadata": json.loads(item["metadata_json"] or "{}"),
+            }
+            for item in assets
+        ],
+        "template_binding": {
+            "template_name": binding["template_name"],
+            "template_kind": binding["template_kind"],
+            "size_spec": binding["size_spec"],
+            "layout": json.loads(binding["layout_json"] or "{}"),
+            "default_values": json.loads(binding["default_values_json"] or "{}"),
+            "override_values": json.loads(binding["override_values_json"] or "{}"),
+        }
+        if binding is not None
+        else None,
     }
 
 
@@ -775,6 +953,84 @@ def create_app() -> FastAPI:
             "result": result,
             "history": chat_store.history(session_id),
         }
+
+    @app.get("/data-manager/businesses")
+    def list_data_manager_businesses() -> dict[str, Any]:
+        config = resolve_config()
+        with connect_database(config) as connection:
+            rows = connection.execute(
+                """
+                SELECT display_name, legal_name, timezone, is_active
+                FROM businesses
+                ORDER BY display_name ASC;
+                """
+            ).fetchall()
+
+        return {
+            "items": [
+                {
+                    "display_name": row["display_name"],
+                    "legal_name": row["legal_name"],
+                    "timezone": row["timezone"],
+                    "is_active": bool(row["is_active"]),
+                }
+                for row in rows
+            ]
+        }
+
+    @app.get("/data-manager/businesses/{business_name}")
+    def get_data_manager_business(business_name: str) -> dict[str, Any]:
+        config = resolve_config()
+        with connect_database(config) as connection:
+            return _business_snapshot(connection, business_name)
+
+    @app.get("/data-manager/businesses/{business_name}/campaigns")
+    def list_data_manager_campaigns(business_name: str) -> dict[str, Any]:
+        config = resolve_config()
+        with connect_database(config) as connection:
+            business = connection.execute(
+                "SELECT id FROM businesses WHERE display_name = ?;",
+                (business_name,),
+            ).fetchone()
+            if business is None:
+                raise HTTPException(status_code=404, detail="Business not found")
+
+            rows = connection.execute(
+                """
+                SELECT campaign_name, campaign_key, title, objective, status, start_date, end_date, details_json
+                FROM campaigns
+                WHERE business_id = ?
+                ORDER BY campaign_name ASC, campaign_key ASC;
+                """,
+                (business["id"],),
+            ).fetchall()
+
+        return {
+            "items": [
+                {
+                    "display_name": _campaign_display_name(row),
+                    "campaign_name": row["campaign_name"],
+                    "qualifier": row["campaign_key"] or None,
+                    "title": row["title"],
+                    "objective": row["objective"],
+                    "status": row["status"],
+                    "start_date": row["start_date"],
+                    "end_date": row["end_date"],
+                }
+                for row in rows
+            ]
+        }
+
+    @app.get("/data-manager/businesses/{business_name}/campaigns/{campaign_name}")
+    def get_data_manager_campaign(
+        business_name: str, campaign_name: str, qualifier: str | None = None
+    ) -> dict[str, Any]:
+        config = resolve_config()
+        with connect_database(config) as connection:
+            return {
+                "business": _business_snapshot(connection, business_name),
+                "campaign": _campaign_snapshot(connection, business_name, campaign_name, qualifier),
+            }
 
     return app
 

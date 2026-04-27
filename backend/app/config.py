@@ -10,6 +10,7 @@ class AppConfig:
     config_path: Path
     output_dir: Path
     database_path: Path
+    data_dir: Path
 
 
 def parse_key_value_text(text: str) -> dict[str, str]:
@@ -59,8 +60,14 @@ def resolve_config(repo_root: Path | None = None, cwd: Path | None = None) -> Ap
     else:
         database_path = (root / "backend" / "data" / "gpmpg.db").resolve()
 
+    data_dir_value = values.get("DATA_DIR")
+    if data_dir_value is None:
+        raise ValueError("DATA_DIR must be configured in .config")
+    data_dir = _resolve_path(data_dir_value, working_directory)
+
     return AppConfig(
         config_path=config_path,
         output_dir=output_dir,
         database_path=database_path,
+        data_dir=data_dir,
     )

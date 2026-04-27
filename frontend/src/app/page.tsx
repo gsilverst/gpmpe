@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import React, { useState } from "react";
 
 import { fetchBackendHealth, type HealthResponse } from "../lib/api";
 
@@ -27,8 +28,15 @@ export default function HomePage() {
 
   return (
     <main>
-      <h1>GPMPG</h1>
-      <p>General Purpose Marketing Promotions Generator</p>
+      <div className="page-header">
+        <div>
+          <h1>GPMPG</h1>
+          <p>General Purpose Marketing Promotions Generator</p>
+        </div>
+        <Link className="text-link" href="/data-manager">
+          Open Step 4a Data Manager
+        </Link>
+      </div>
 
       <section className="card">
         <h2>Backend Health Check</h2>
