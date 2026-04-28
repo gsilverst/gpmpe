@@ -108,12 +108,17 @@ small {
   background: #fff;
 }
 
-.stacked-label input {
+.stacked-label input:not([type="checkbox"]) {
   width: 100%;
   border: 1px solid #c9d8ef;
   border-radius: 10px;
   padding: 0.7rem 0.8rem;
   background: #fff;
+}
+
+.stacked-label input[type="checkbox"] {
+  width: auto;
+  transform: scale(1.1);
 }
 
 .grid-form {
@@ -136,6 +141,13 @@ small {
   border-radius: 10px;
   padding: 0.55rem 0.7rem;
   background: #fbfdff;
+}
+
+.collision-box {
+  border: 1px solid #f4d8a0;
+  background: #fff8ea;
+  border-radius: 10px;
+  padding: 0.75rem;
 }
 
 .save-controls {
