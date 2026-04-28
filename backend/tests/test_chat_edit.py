@@ -68,6 +68,33 @@ def _seed_component_for_campaign(campaign_id: int) -> None:
         connection.commit()
 
 
+def _seed_component_items_for_campaign(campaign_id: int) -> None:
+        config = resolve_config()
+        with connect_database(config) as connection:
+                component_id = connection.execute(
+                        """
+                        INSERT INTO campaign_components (
+                            campaign_id, component_key, component_kind, display_title, display_order
+                        )
+                        VALUES (?, 'main-street-appreciation', 'featured-offers', 'Main Street Appreciation', 1)
+                        RETURNING id;
+                        """,
+                        (campaign_id,),
+                ).fetchone()["id"]
+                connection.execute(
+                        """
+                        INSERT INTO campaign_component_items (
+                            component_id, item_name, item_kind, duration_label, item_value, description_text, terms_text, display_order
+                        )
+                        VALUES
+                            (?, 'Express Facial', 'service', '30 min', '$35', 'Quick glow-up', NULL, 1),
+                            (?, 'Signature Facial', 'service', '60 min', '$75', 'Full treatment', NULL, 2);
+                        """,
+                        (component_id, component_id),
+                )
+                connection.commit()
+
+
 def test_chat_message_updates_campaign_and_brand(monkeypatch, tmp_path: Path) -> None:
     config_path = _write_config(tmp_path)
     client = _make_client(monkeypatch, config_path)
@@ -300,6 +327,49 @@ def test_chat_message_component_key_field_phrase_without_new_name_returns_helpfu
     payload = response.json()
     assert payload["result"]["target"] == "clarify"
     assert "Please provide the new component-key" in payload["result"]["message"]
+
+
+def test_chat_message_can_update_component_item_field_by_ordinal(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_items_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "change the item_value field of the first item in the main-street-appreciation component to $45",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["target"] == "component_item"
+    assert payload["result"]["field"] == "item_value"
+    assert payload["result"]["component"]["component_key"] == "main-street-appreciation"
+    assert payload["result"]["item"]["item_name"] == "Express Facial"
+    assert payload["result"]["item"]["item_value"] == "$45"
+
+
+def test_chat_message_component_item_field_update_rejects_missing_ordinal_target(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_items_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "change the item_value field of the fifth item in the main-street-appreciation component to $45",
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Component item not found"
 
 
 def test_save_is_noop_when_commit_on_save_disabled(monkeypatch, tmp_path: Path) -> None:

@@ -14,6 +14,7 @@ CAMPAIGN_STATUS_VALUES = {"draft", "active", "paused", "completed", "archived"}
 CAMPAIGN_FIELDS = {"title", "objective", "status", "start_date", "end_date"}
 OFFER_FIELDS = {"offer_value", "start_date", "end_date", "terms_text"}
 BRAND_FIELDS = {"primary_color", "secondary_color", "accent_color", "font_family", "logo_path"}
+COMPONENT_ITEM_FIELDS = {"item_name", "item_kind", "duration_label", "item_value", "description_text", "terms_text"}
 
 # Matches: "clone <source> [and] rename [it] to <new_name> [for <business>]"
 # Also accepts more verbose natural-language phrasings ("cloning the X ... renaming it to Y").
@@ -57,15 +58,20 @@ COMPONENT_RENAME_PATTERN = re.compile(
     r"^rename\s+(?:the\s+)?component\s+(.+?)\s+to\s+(.+)$",
     re.IGNORECASE,
 )
+COMPONENT_ITEM_CHANGE_FIELD_PATTERN = re.compile(
+    r"^change\s+(?:the\s+)?(item_name|item_kind|duration_label|item_value|description_text|terms_text)\s+field\s+of\s+(.+?)\s+item\s+in\s+(?:the\s+)?(.+?)\s+component\s+to\s+(.+)$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
 class ParsedCommand:
-    target: Literal["campaign", "offer", "brand", "component", "clarify"]
+    target: Literal["campaign", "offer", "brand", "component", "component_item", "clarify"]
     field: str
     value: str
     offer_id: int | None = None
     component_ref: str | None = None
+    item_ref: str | None = None
 
 
 @dataclass(frozen=True)
@@ -189,6 +195,20 @@ def parse_chat_command(message: str) -> ParsedCommand:
         value = component_rename_match.group(2).strip()
         return ParsedCommand(target="component", field="component_key", value=value, component_ref=component_ref)
 
+    component_item_change_match = COMPONENT_ITEM_CHANGE_FIELD_PATTERN.match(text)
+    if component_item_change_match:
+        field = component_item_change_match.group(1).lower().strip()
+        item_ref = component_item_change_match.group(2).strip().strip("\"'")
+        component_ref = component_item_change_match.group(3).strip().strip("\"'")
+        value = component_item_change_match.group(4).strip()
+        return ParsedCommand(
+            target="component_item",
+            field=field,
+            value=value,
+            component_ref=component_ref,
+            item_ref=item_ref,
+        )
+
     raise HTTPException(
         status_code=400,
         detail=(
@@ -196,7 +216,8 @@ def parse_chat_command(message: str) -> ParsedCommand:
             "'set <campaign_field> to <value>', "
             "'set offer <offer_id> <offer_field> to <value>', "
             "'set brand <brand_field> to <value>', "
-            "or 'change the component-key field of <component> component to <new_component_key>'."
+            "'change the component-key field of <component> component to <new_component_key>', "
+            "or 'change the item_value field of the first item in <component> component to <value>'."
         ),
     )
 
@@ -230,6 +251,30 @@ def _normalize_component_key(value: str) -> str:
     normalized = re.sub(r"[^a-z0-9]+", "-", value.lower().strip())
     normalized = normalized.strip("-")
     return normalized
+
+
+def _resolve_item_selector_index(item_ref: str, item_count: int) -> int | None:
+    normalized = item_ref.lower().strip()
+    if normalized.startswith("the "):
+        normalized = normalized[4:].strip()
+    ordinal_map = {
+        "first": 0,
+        "second": 1,
+        "third": 2,
+        "fourth": 3,
+        "fifth": 4,
+        "last": item_count - 1,
+    }
+    if normalized in ordinal_map:
+        index = ordinal_map[normalized]
+        return index if 0 <= index < item_count else None
+
+    number_match = re.fullmatch(r"(\d+)(?:st|nd|rd|th)?", normalized)
+    if number_match:
+        index = int(number_match.group(1)) - 1
+        return index if 0 <= index < item_count else None
+
+    return None
 
 
 def apply_chat_command(connection: Any, campaign_id: int, command: ParsedCommand) -> dict[str, Any]:
@@ -483,6 +528,88 @@ def apply_chat_command(connection: Any, campaign_id: int, command: ParsedCommand
                 "subtitle": updated_component["subtitle"],
                 "description_text": updated_component["description_text"],
                 "display_order": updated_component["display_order"],
+            },
+        }
+
+    if command.target == "component_item":
+        if command.component_ref is None:
+            raise HTTPException(status_code=400, detail="Component reference is required")
+        if command.item_ref is None:
+            raise HTTPException(status_code=400, detail="Item reference is required")
+        if command.field not in COMPONENT_ITEM_FIELDS:
+            raise HTTPException(status_code=400, detail="Unsupported component item field")
+
+        value = command.value.strip()
+        if value == "":
+            raise HTTPException(status_code=400, detail=f"component item {command.field} cannot be empty")
+
+        component = connection.execute(
+            """
+            SELECT id, campaign_id, component_key, component_kind, display_title, footnote_text, subtitle, description_text, display_order
+            FROM campaign_components
+            WHERE campaign_id = ?
+              AND (LOWER(component_key) = LOWER(?) OR LOWER(display_title) = LOWER(?))
+            ORDER BY id ASC
+            LIMIT 1;
+            """,
+            (campaign_id, command.component_ref, command.component_ref),
+        ).fetchone()
+        if component is None:
+            raise HTTPException(status_code=404, detail="Component not found")
+
+        items = connection.execute(
+            """
+            SELECT id, component_id, item_name, item_kind, duration_label, item_value, description_text, terms_text, display_order
+            FROM campaign_component_items
+            WHERE component_id = ?
+            ORDER BY display_order ASC, id ASC;
+            """,
+            (component["id"],),
+        ).fetchall()
+        if not items:
+            raise HTTPException(status_code=404, detail="Component has no items")
+
+        item_index = _resolve_item_selector_index(command.item_ref, len(items))
+        if item_index is None:
+            raise HTTPException(status_code=404, detail="Component item not found")
+
+        item = items[item_index]
+        connection.execute(
+            f"UPDATE campaign_component_items SET {command.field} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;",
+            (value, item["id"]),
+        )
+        updated_item = connection.execute(
+            """
+            SELECT id, component_id, item_name, item_kind, duration_label, item_value, description_text, terms_text, display_order
+            FROM campaign_component_items
+            WHERE id = ?;
+            """,
+            (item["id"],),
+        ).fetchone()
+        if updated_item is None:
+            raise HTTPException(status_code=500, detail="Component item update failed")
+
+        return {
+            "target": "component_item",
+            "field": command.field,
+            "component": {
+                "id": component["id"],
+                "campaign_id": component["campaign_id"],
+                "component_key": component["component_key"],
+                "component_kind": component["component_kind"],
+                "display_title": component["display_title"],
+                "display_order": component["display_order"],
+            },
+            "item": {
+                "id": updated_item["id"],
+                "component_id": updated_item["component_id"],
+                "item_name": updated_item["item_name"],
+                "item_kind": updated_item["item_kind"],
+                "duration_label": updated_item["duration_label"],
+                "item_value": updated_item["item_value"],
+                "description_text": updated_item["description_text"],
+                "terms_text": updated_item["terms_text"],
+                "display_order": updated_item["display_order"],
             },
         }
 
