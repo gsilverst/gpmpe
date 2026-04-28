@@ -471,6 +471,79 @@ def test_chat_message_item_edit_without_component_context_returns_clarify(monkey
     assert "which component you are working on" in payload["result"]["message"]
 
 
+def test_component_rename_updates_active_component_context_automatically(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_items_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+
+    rename_response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "change the name of the main-street-appreciation component to other-services",
+        },
+    )
+    assert rename_response.status_code == 200
+    rename_payload = rename_response.json()
+    assert rename_payload["result"]["component"]["component_key"] == "other-services"
+
+    edit_response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "change the item_value field of the Signature Facial item to $45",
+        },
+    )
+    assert edit_response.status_code == 200
+    edit_payload = edit_response.json()
+    assert edit_payload["result"]["target"] == "component_item"
+    assert edit_payload["result"]["component"]["component_key"] == "other-services"
+    assert edit_payload["result"]["item"]["item_value"] == "$45"
+
+
+def test_changing_campaign_clears_stale_component_context(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    business_id, first_campaign_id = _seed_campaign(client)
+    _seed_component_items_for_campaign(first_campaign_id)
+
+    second_campaign_id = client.post(
+        f"/businesses/{business_id}/campaigns",
+        json={
+            "campaign_name": "Winter",
+            "title": "Winter Sale",
+            "objective": "Drive winter sales",
+        },
+    ).json()["id"]
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+
+    context_response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": first_campaign_id,
+            "message": "change the item_value field of the Signature Facial item in the main-street-appreciation component to $45",
+        },
+    )
+    assert context_response.status_code == 200
+
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": second_campaign_id,
+            "message": "change the item_value field of the Signature Facial item to $65",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["target"] == "clarify"
+    assert "which component you are working on" in payload["result"]["message"]
+
+
 def test_save_is_noop_when_commit_on_save_disabled(monkeypatch, tmp_path: Path) -> None:
     config_path = _write_config(tmp_path, commit_on_save=False)
     client = _make_client(monkeypatch, config_path)

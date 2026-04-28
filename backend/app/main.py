@@ -1510,6 +1510,12 @@ def create_app() -> FastAPI:
         if not chat_store.exists(session_id):
             raise HTTPException(status_code=404, detail="Chat session not found")
 
+        def _sync_active_campaign_context(active_campaign_id: int | None) -> None:
+            previous_campaign_id = chat_store.get_context(session_id).get("active_campaign_id")
+            if previous_campaign_id != active_campaign_id:
+                chat_store.set_context_value(session_id, "active_component_ref", None)
+            chat_store.set_context_value(session_id, "active_campaign_id", active_campaign_id)
+
         clone_cmd = parse_clone_command(payload.message)
         if clone_cmd is not None:
             config = resolve_config()
@@ -1539,6 +1545,7 @@ def create_app() -> FastAPI:
 
             new_campaign_id = int(new_row["campaign_id"]) if new_row else None
             new_business_id = int(new_row["business_id"]) if new_row else None
+            _sync_active_campaign_context(new_campaign_id)
             chat_store.append(session_id, "user", payload.message)
             chat_store.append(
                 session_id,
@@ -1560,6 +1567,8 @@ def create_app() -> FastAPI:
 
         if payload.campaign_id is None:
             raise HTTPException(status_code=400, detail="campaign_id is required for edit commands")
+
+        _sync_active_campaign_context(payload.campaign_id)
 
         context_cmd = parse_session_context_command(payload.message)
         if context_cmd is not None:
@@ -1633,6 +1642,16 @@ def create_app() -> FastAPI:
         if result.get("target") == "clarify":
             chat_store.append(session_id, "assistant", result.get("message", ""))
         else:
+            if result.get("target") == "component":
+                chat_store.set_context_value(
+                    session_id,
+                    "active_component_ref",
+                    result.get("component", {}).get("component_key"),
+                )
+            elif result.get("target") == "component_item":
+                component_key = result.get("component", {}).get("component_key")
+                if component_key is not None:
+                    chat_store.set_context_value(session_id, "active_component_ref", component_key)
             summary_field = result.get("field", result.get("target", "unknown"))
             chat_store.append(
                 session_id,
