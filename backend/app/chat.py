@@ -45,6 +45,14 @@ COMPONENT_CHANGE_NAME_INCOMPLETE_PATTERN = re.compile(
     r"^change\s+the\s+name\s+of\s+(?:the\s+)?(.+?)\s+component\s*[.!?]?$",
     re.IGNORECASE,
 )
+COMPONENT_CHANGE_KEY_FIELD_PATTERN = re.compile(
+    r"^change\s+(?:the\s+)?component[-_\s]?key\s+field\s+of\s+(?:the\s+)?(.+?)\s+component\s+to\s+(.+)$",
+    re.IGNORECASE,
+)
+COMPONENT_CHANGE_KEY_FIELD_INCOMPLETE_PATTERN = re.compile(
+    r"^change\s+(?:the\s+)?component[-_\s]?key\s+field\s+of\s+(?:the\s+)?(.+?)\s+component\s*[.!?]?$",
+    re.IGNORECASE,
+)
 COMPONENT_RENAME_PATTERN = re.compile(
     r"^rename\s+(?:the\s+)?component\s+(.+?)\s+to\s+(.+)$",
     re.IGNORECASE,
@@ -157,6 +165,21 @@ def parse_chat_command(message: str) -> ParsedCommand:
             ),
         )
 
+    component_change_key_field_match = COMPONENT_CHANGE_KEY_FIELD_PATTERN.match(text)
+    if component_change_key_field_match:
+        component_ref = component_change_key_field_match.group(1).strip().strip("\"'")
+        value = component_change_key_field_match.group(2).strip()
+        return ParsedCommand(target="component", field="component_key", value=value, component_ref=component_ref)
+
+    if COMPONENT_CHANGE_KEY_FIELD_INCOMPLETE_PATTERN.match(text):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Missing new component-key value. Use: "
+                "'change the component-key field of <component> component to <new_component_key>'."
+            ),
+        )
+
     component_rename_match = COMPONENT_RENAME_PATTERN.match(text)
     if component_rename_match:
         component_ref = component_rename_match.group(1).strip().strip("\"'")
@@ -170,7 +193,7 @@ def parse_chat_command(message: str) -> ParsedCommand:
             "'set <campaign_field> to <value>', "
             "'set offer <offer_id> <offer_field> to <value>', "
             "'set brand <brand_field> to <value>', "
-            "or 'change the name of <component> component to <new_component_key>'."
+            "or 'change the component-key field of <component> component to <new_component_key>'."
         ),
     )
 
