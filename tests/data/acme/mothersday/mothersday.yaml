@@ -33,8 +33,8 @@ template_binding:
     footer_slot: bottom
   default_values:
     headline: Celebrate Mother's Day
-    cta: Visit us this weekend
+    cta: Visit Acme this weekend
     accent: "#ecad0a"
   override_values:
     headline: Mother's Day Appreciation Sale
-    cta: Shop flowers, gifts, and treats
+    cta: Shop flowers, gifts, and treats at Acme

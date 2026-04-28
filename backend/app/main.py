@@ -7,6 +7,7 @@ from typing import Literal
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .chat import ChatSessionStore, apply_chat_command, parse_chat_command
@@ -328,6 +329,17 @@ def _campaign_snapshot(connection: Any, display_name: str, campaign_name: str, q
 def create_app() -> FastAPI:
     app = FastAPI(title="GPMPG API", version="0.1.0", lifespan=lifespan)
     chat_store = ChatSessionStore()
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://127.0.0.1:3100",
+            "http://localhost:3100",
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     @app.get("/health")
     def health() -> dict[str, str]:

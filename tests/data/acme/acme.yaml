@@ -1,5 +1,5 @@
-display_name: merci
-legal_name: Merci Sales LLC
+display_name: acme
+legal_name: Acme Promotions LLC
 timezone: America/New_York
 is_active: true
 contacts:
@@ -7,10 +7,10 @@ contacts:
     contact_value: 555-0100
     is_primary: true
   - contact_type: email
-    contact_value: hello@merci.example
+    contact_value: hello@acme.example
     is_primary: false
   - contact_type: website
-    contact_value: https://merci.example
+    contact_value: https://acme.example
     is_primary: false
 locations:
   - label: main
@@ -34,4 +34,4 @@ brand_theme:
   secondary_color: "#753991"
   accent_color: "#ecad0a"
   font_family: Trebuchet MS
-  logo_path: assets/logo.png
+  logo_path: assets/acme-logo.png

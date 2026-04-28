@@ -189,6 +189,10 @@ def _sync_business(connection: sqlite3.Connection, record: BusinessYamlRecord) -
         raise ValueError(f"brand_theme must be an object in {record.file_path}")
     theme_name = _optional_string(brand_theme, "name") or "default"
     connection.execute(
+        "DELETE FROM brand_themes WHERE business_id = ? AND name != ?;",
+        (business_id, theme_name),
+    )
+    connection.execute(
         """
         INSERT INTO brand_themes (
           business_id, name, primary_color, secondary_color, accent_color, font_family, logo_path
@@ -215,6 +219,46 @@ def _sync_business(connection: sqlite3.Connection, record: BusinessYamlRecord) -
     )
 
     return business_id
+
+
+def _reconcile_campaigns(
+    connection: sqlite3.Connection, business_id: int, campaign_records: list[CampaignYamlRecord]
+) -> None:
+    expected_campaigns = {
+        (
+            _required_string(record.payload, "campaign_name", record.file_path),
+            _optional_string(record.payload, "qualifier") or "",
+        )
+        for record in campaign_records
+    }
+    rows = connection.execute(
+        "SELECT id, campaign_name, campaign_key FROM campaigns WHERE business_id = ?;",
+        (business_id,),
+    ).fetchall()
+    for row in rows:
+        if (row["campaign_name"], row["campaign_key"] or "") not in expected_campaigns:
+            connection.execute("DELETE FROM campaigns WHERE id = ?;", (row["id"],))
+
+
+def _reconcile_businesses(connection: sqlite3.Connection, business_records: list[BusinessYamlRecord]) -> None:
+    expected_businesses = {
+        _required_string(record.payload, "display_name", record.file_path) for record in business_records
+    }
+    rows = connection.execute("SELECT id, display_name FROM businesses;").fetchall()
+    for row in rows:
+        if row["display_name"] not in expected_businesses:
+            connection.execute("DELETE FROM businesses WHERE id = ?;", (row["id"],))
+
+
+def _delete_orphaned_template_definitions(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        DELETE FROM template_definitions
+        WHERE id NOT IN (
+          SELECT DISTINCT template_id FROM campaign_template_bindings
+        );
+        """
+    )
 
 
 def _sync_campaign(connection: sqlite3.Connection, business_id: int, record: CampaignYamlRecord) -> None:
@@ -318,6 +362,8 @@ def _sync_campaign(connection: sqlite3.Connection, business_id: int, record: Cam
             ),
         )
 
+    connection.execute("DELETE FROM campaign_template_bindings WHERE campaign_id = ?;", (campaign_id,))
+
     binding = payload.get("template_binding") or {}
     if binding:
         if not isinstance(binding, dict):
@@ -354,8 +400,6 @@ def _sync_campaign(connection: sqlite3.Connection, business_id: int, record: Cam
                 """,
                 (template_kind, size_spec, json.dumps(layout), json.dumps(default_values), template_id),
             )
-
-        connection.execute("DELETE FROM campaign_template_bindings WHERE campaign_id = ?;", (campaign_id,))
         connection.execute(
             """
             INSERT INTO campaign_template_bindings (campaign_id, template_id, override_values_json, is_active)
@@ -370,7 +414,10 @@ def sync_data_directory(connection: sqlite3.Connection, data_dir: Path) -> SyncS
     campaigns_synced = 0
     for business_record in records:
         business_id = _sync_business(connection, business_record)
+        _reconcile_campaigns(connection, business_id, business_record.campaigns)
         for campaign_record in business_record.campaigns:
             _sync_campaign(connection, business_id, campaign_record)
             campaigns_synced += 1
+    _reconcile_businesses(connection, records)
+    _delete_orphaned_template_definitions(connection)
     return SyncSummary(businesses_synced=len(records), campaigns_synced=campaigns_synced)

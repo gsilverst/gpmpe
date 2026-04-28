@@ -100,6 +100,9 @@ Scope for MVP:
 - UI is intentionally single-context: one business and one campaign active at a time.
 - MVP is view-only in the UI; create/update UI flows are deferred to a later step.
 - YAML-backed sample data supports at least one business and one campaign in the data directory.
+- YAML is the repository-facing source format, but the Step 4a UI reads data from SQLite after startup sync rather than reading YAML files directly on each request.
+- Startup sync for Step 4a is authoritative for YAML-backed business and campaign records and removes SQLite records that are no longer present in the YAML tree.
+- Follow-up note: revisit this reconciliation model before broader rollout so startup sync removes only YAML-managed records and preserves future DB-only records safely.
 - Non-filesystem-safe business or campaign names are treated as startup validation errors in MVP and reported before the program exits.
 
 Schema and service highlights:
@@ -124,16 +127,17 @@ UI/UX highlights:
 - If startup validation fails for unsafe business/campaign names or malformed YAML, surface a clear error report before the program exits.
 
 Test-data fixture for MVP:
-- Sample Step 4a YAML data lives under `tests/data/merci/`.
-- Business fixture: `tests/data/merci/merci.yaml`
-- Campaign fixture: `tests/data/merci/mothersday/mothersday.yaml`
+- Sample Step 4a YAML data lives under `tests/data/acme/`.
+- Business fixture: `tests/data/acme/acme.yaml`
+- Campaign fixture: `tests/data/acme/mothersday/mothersday.yaml`
 
 How to run Step 4a MVP with sample data:
 - Ensure `.config` contains `DATA_DIR=./tests/data`.
 - Start the backend and frontend normally after Step 4a implementation is complete.
 - On GUI startup, the application should create the data directory if missing, read `DATA_DIR`, and sync the sample YAML into SQLite automatically.
+- After startup sync completes, the Step 4a UI should serve the synced records from SQLite.
 - Open the Step 4a standalone data-manager route in the frontend.
-- Select business `merci` from the business list.
+- Select business `acme` from the business list.
 - Select campaign `mothersday` from the campaign list.
 - Verify the read-only detail view shows the business profile, brand theme, campaign metadata, offer, asset, and template binding data from the sample YAML files.
 

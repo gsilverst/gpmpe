@@ -9,8 +9,8 @@ describe("data manager api client", () => {
       json: async () => ({
         items: [
           {
-            display_name: "merci",
-            legal_name: "Merci Sales LLC",
+            display_name: "acme",
+            legal_name: "Acme Promotions LLC",
             timezone: "America/New_York",
             is_active: true,
           },
@@ -22,7 +22,7 @@ describe("data manager api client", () => {
 
     const payload = await fetchDataManagerBusinesses("http://localhost:8000");
 
-    expect(payload[0].display_name).toBe("merci");
+    expect(payload[0].display_name).toBe("acme");
     expect(mockFetch).toHaveBeenCalledWith(
       "http://localhost:8000/data-manager/businesses",
       expect.any(Object)
@@ -33,7 +33,7 @@ describe("data manager api client", () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
-        business: { display_name: "merci" },
+        business: { display_name: "acme" },
         campaign: { campaign_name: "mothersday", qualifier: "2026" },
       }),
     });
@@ -41,7 +41,7 @@ describe("data manager api client", () => {
     vi.stubGlobal("fetch", mockFetch);
 
     const payload = await fetchDataManagerCampaignDetail(
-      "merci",
+      "acme",
       "mothersday",
       "2026",
       "http://localhost:8000"
@@ -49,7 +49,7 @@ describe("data manager api client", () => {
 
     expect(payload.campaign.qualifier).toBe("2026");
     expect(mockFetch).toHaveBeenCalledWith(
-      "http://localhost:8000/data-manager/businesses/merci/campaigns/mothersday?qualifier=2026",
+      "http://localhost:8000/data-manager/businesses/acme/campaigns/mothersday?qualifier=2026",
       expect.any(Object)
     );
   });

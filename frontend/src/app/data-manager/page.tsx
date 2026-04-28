@@ -144,6 +144,7 @@ export default function DataManagerPage() {
         <div>
           <h1>Step 4a Data Manager</h1>
           <p>Read-only inspection view for YAML-synced business and campaign data.</p>
+          <p>This screen reads from SQLite after the backend imports YAML into the database at startup.</p>
         </div>
         <Link className="text-link" href="/">
           Back to home
