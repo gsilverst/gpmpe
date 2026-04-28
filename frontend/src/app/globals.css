@@ -42,6 +42,10 @@ h1 {
   padding: 1rem;
 }
 
+.section-gap {
+  margin-top: 1rem;
+}
+
 button {
   margin-top: 0.75rem;
   border: 0;
@@ -112,6 +116,28 @@ small {
   background: #fff;
 }
 
+.grid-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.chat-history {
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.chat-history li {
+  border: 1px solid #dbe4f3;
+  border-radius: 10px;
+  padding: 0.55rem 0.7rem;
+  background: #fbfdff;
+}
+
 .save-controls {
   border-top: 1px solid #e2e9f5;
   padding-top: 0.75rem;
@@ -147,6 +173,10 @@ small {
   .data-manager-grid {
     grid-template-columns: 1fr;
     display: grid;
+  }
+
+  .grid-form {
+    grid-template-columns: 1fr;
   }
 }
 

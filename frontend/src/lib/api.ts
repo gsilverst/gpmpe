@@ -94,6 +94,53 @@ export type CampaignSaveResponse = {
   };
 };
 
+export type BusinessRecord = {
+  id: number;
+  legal_name: string;
+  display_name: string;
+  timezone: string;
+  is_active: boolean;
+};
+
+export type CampaignRecord = {
+  id: number;
+  business_id: number;
+  campaign_name: string;
+  campaign_key: string | null;
+  title: string;
+  objective: string | null;
+  status: string;
+  start_date: string | null;
+  end_date: string | null;
+};
+
+export type CampaignLookupResponse = {
+  campaign_name: string;
+  matches: CampaignRecord[];
+  prompt: string;
+};
+
+export type ChatSessionResponse = {
+  session_id: string;
+};
+
+export type ChatHistoryItem = {
+  role: string;
+  content: string;
+};
+
+export type ChatMessageResponse = {
+  session_id: string;
+  result: Record<string, unknown>;
+  history: ChatHistoryItem[];
+};
+
+export type DataSyncResponse = {
+  businesses_synced: number;
+  campaigns_synced: number;
+  data_dir: string;
+};
+
 export function apiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 }
@@ -108,7 +155,68 @@ async function fetchJson<T>(path: string, baseUrl = apiBaseUrl()): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+    let detail = "";
+    try {
+      const errorPayload = (await response.json()) as { detail?: unknown };
+      if (typeof errorPayload.detail === "string") {
+        detail = ` - ${errorPayload.detail}`;
+      }
+    } catch {
+      // Ignore JSON parse failures for non-JSON error responses.
+    }
+    throw new Error(`Request failed: ${response.status}${detail}`);
+  }
+
+  return (await response.json()) as T;
+}
+
+async function postJson<T>(path: string, body: unknown, baseUrl = apiBaseUrl()): Promise<T> {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const errorPayload = (await response.json()) as { detail?: unknown };
+      if (typeof errorPayload.detail === "string") {
+        detail = ` - ${errorPayload.detail}`;
+      }
+    } catch {
+      // Ignore JSON parse failures for non-JSON error responses.
+    }
+    throw new Error(`Request failed: ${response.status}${detail}`);
+  }
+
+  return (await response.json()) as T;
+}
+
+async function patchJson<T>(path: string, body: unknown, baseUrl = apiBaseUrl()): Promise<T> {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const errorPayload = (await response.json()) as { detail?: unknown };
+      if (typeof errorPayload.detail === "string") {
+        detail = ` - ${errorPayload.detail}`;
+      }
+    } catch {
+      // Ignore JSON parse failures for non-JSON error responses.
+    }
+    throw new Error(`Request failed: ${response.status}${detail}`);
   }
 
   return (await response.json()) as T;
@@ -224,4 +332,79 @@ export async function fetchArtifacts(
 
 export function artifactDownloadUrl(artifactId: number, baseUrl = apiBaseUrl()): string {
   return `${baseUrl}/artifacts/${artifactId}/download`;
+}
+
+export async function listBusinesses(baseUrl = apiBaseUrl()): Promise<BusinessRecord[]> {
+  return fetchJson<BusinessRecord[]>("/businesses", baseUrl);
+}
+
+export async function createBusiness(
+  payload: Pick<BusinessRecord, "legal_name" | "display_name" | "timezone">,
+  baseUrl = apiBaseUrl()
+): Promise<BusinessRecord> {
+  return postJson<BusinessRecord>("/businesses", payload, baseUrl);
+}
+
+export async function updateBusiness(
+  businessId: number,
+  payload: Partial<Pick<BusinessRecord, "legal_name" | "display_name" | "timezone" | "is_active">>,
+  baseUrl = apiBaseUrl()
+): Promise<BusinessRecord> {
+  return patchJson<BusinessRecord>(`/businesses/${businessId}`, payload, baseUrl);
+}
+
+export async function listCampaignsForBusiness(
+  businessId: number,
+  baseUrl = apiBaseUrl()
+): Promise<CampaignRecord[]> {
+  const payload = await fetchJson<{ items: CampaignRecord[] }>(`/businesses/${businessId}/campaigns`, baseUrl);
+  return payload.items;
+}
+
+export async function createCampaignForBusiness(
+  businessId: number,
+  payload: {
+    campaign_name: string;
+    campaign_key?: string;
+    title: string;
+    objective?: string;
+    status?: string;
+    start_date?: string;
+    end_date?: string;
+  },
+  baseUrl = apiBaseUrl()
+): Promise<CampaignRecord> {
+  return postJson<CampaignRecord>(`/businesses/${businessId}/campaigns`, payload, baseUrl);
+}
+
+export async function lookupCampaigns(
+  businessId: number,
+  campaignName: string,
+  baseUrl = apiBaseUrl()
+): Promise<CampaignLookupResponse> {
+  return fetchJson<CampaignLookupResponse>(
+    `/businesses/${businessId}/campaigns/lookup?campaign_name=${encodeURIComponent(campaignName)}`,
+    baseUrl
+  );
+}
+
+export async function createChatSession(baseUrl = apiBaseUrl()): Promise<ChatSessionResponse> {
+  return postJson<ChatSessionResponse>("/chat/sessions", {}, baseUrl);
+}
+
+export async function postChatMessage(
+  sessionId: string,
+  campaignId: number,
+  message: string,
+  baseUrl = apiBaseUrl()
+): Promise<ChatMessageResponse> {
+  return postJson<ChatMessageResponse>(
+    `/chat/sessions/${encodeURIComponent(sessionId)}/messages`,
+    { campaign_id: campaignId, message },
+    baseUrl
+  );
+}
+
+export async function syncYamlData(baseUrl = apiBaseUrl()): Promise<DataSyncResponse> {
+  return postJson<DataSyncResponse>("/data/sync", {}, baseUrl);
 }

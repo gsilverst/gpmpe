@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from datetime import date
 import json
 from pathlib import Path
+import sqlite3
 from typing import Literal
 from typing import Any
 
@@ -44,6 +45,13 @@ class BusinessResponse(BaseModel):
     display_name: str
     timezone: str
     is_active: bool
+
+
+class BusinessUpdate(BaseModel):
+    legal_name: str | None = None
+    display_name: str | None = None
+    timezone: str | None = None
+    is_active: bool | None = None
 
 
 class CampaignCreate(BaseModel):
@@ -483,6 +491,94 @@ def create_app() -> FastAPI:
             for row in rows
         ]
 
+    @app.get("/businesses/{business_id}", response_model=BusinessResponse)
+    def get_business(business_id: int) -> BusinessResponse:
+        config = resolve_config()
+        with connect_database(config) as connection:
+            row = connection.execute(
+                """
+                SELECT id, legal_name, display_name, timezone, is_active
+                FROM businesses
+                WHERE id = ?;
+                """,
+                (business_id,),
+            ).fetchone()
+
+        if row is None:
+            raise HTTPException(status_code=404, detail="Business not found")
+
+        return BusinessResponse(
+            id=row["id"],
+            legal_name=row["legal_name"],
+            display_name=row["display_name"],
+            timezone=row["timezone"],
+            is_active=bool(row["is_active"]),
+        )
+
+    @app.patch("/businesses/{business_id}", response_model=BusinessResponse)
+    def update_business(business_id: int, payload: BusinessUpdate) -> BusinessResponse:
+        updates = payload.model_dump(exclude_none=True)
+        if not updates:
+            raise HTTPException(status_code=400, detail="No business fields provided")
+
+        for field in ("legal_name", "display_name", "timezone"):
+            if field in updates:
+                value = str(updates[field]).strip()
+                if value == "":
+                    raise HTTPException(status_code=400, detail=f"{field} cannot be empty")
+                updates[field] = value
+
+        config = resolve_config()
+        with connect_database(config) as connection:
+            existing = connection.execute(
+                """
+                SELECT id, legal_name, display_name, timezone, is_active
+                FROM businesses
+                WHERE id = ?;
+                """,
+                (business_id,),
+            ).fetchone()
+            if existing is None:
+                raise HTTPException(status_code=404, detail="Business not found")
+
+            fields_sql = ", ".join([f"{field} = ?" for field in updates.keys()])
+            values = list(updates.values()) + [business_id]
+            try:
+                connection.execute(
+                    f"UPDATE businesses SET {fields_sql}, updated_at = CURRENT_TIMESTAMP WHERE id = ?;",
+                    values,
+                )
+            except sqlite3.IntegrityError as error:
+                raise HTTPException(status_code=409, detail="Business update conflicts with existing data") from error
+
+            row = connection.execute(
+                """
+                SELECT id, legal_name, display_name, timezone, is_active
+                FROM businesses
+                WHERE id = ?;
+                """,
+                (business_id,),
+            ).fetchone()
+
+            campaign_rows = connection.execute(
+                "SELECT id FROM campaigns WHERE business_id = ? ORDER BY id ASC;",
+                (business_id,),
+            ).fetchall()
+            for campaign in campaign_rows:
+                _persist_campaign_yaml_or_raise(connection, config, campaign["id"])
+            connection.commit()
+
+        if row is None:
+            raise HTTPException(status_code=500, detail="Business update failed")
+
+        return BusinessResponse(
+            id=row["id"],
+            legal_name=row["legal_name"],
+            display_name=row["display_name"],
+            timezone=row["timezone"],
+            is_active=bool(row["is_active"]),
+        )
+
     @app.get("/businesses/{business_id}/campaigns/lookup")
     def lookup_campaigns_by_name(business_id: int, campaign_name: str) -> dict[str, Any]:
         config = resolve_config()
@@ -650,6 +746,24 @@ def create_app() -> FastAPI:
             ).fetchall()
 
         return {"items": [_campaign_row_to_dict(row) for row in rows]}
+
+    @app.get("/businesses/{business_id}/campaigns/{campaign_id}")
+    def get_campaign(business_id: int, campaign_id: int) -> dict[str, Any]:
+        config = resolve_config()
+        with connect_database(config) as connection:
+            _require_business(connection, business_id)
+            row = connection.execute(
+                """
+                SELECT id, business_id, campaign_name, campaign_key, title, objective, status, start_date, end_date
+                FROM campaigns
+                WHERE id = ? AND business_id = ?;
+                """,
+                (campaign_id, business_id),
+            ).fetchone()
+
+        if row is None:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        return _campaign_row_to_dict(row)
 
     @app.post("/campaigns/{campaign_id}/offers", status_code=201)
     def create_campaign_offer(campaign_id: int, payload: CampaignOfferCreate) -> dict[str, Any]:
@@ -1164,6 +1278,18 @@ def create_app() -> FastAPI:
             media_type="application/pdf",
             filename=filename,
         )
+
+    @app.post("/data/sync")
+    def sync_yaml_data() -> dict[str, Any]:
+        config = resolve_config()
+        with connect_database(config) as connection:
+            summary = sync_data_directory(connection, config.data_dir)
+            connection.commit()
+        return {
+            "businesses_synced": summary.businesses_synced,
+            "campaigns_synced": summary.campaigns_synced,
+            "data_dir": str(config.data_dir),
+        }
 
     def _get_artifact_row(config, artifact_id: int) -> dict[str, Any]:
         with connect_database(config) as connection:

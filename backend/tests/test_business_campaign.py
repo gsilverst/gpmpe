@@ -49,6 +49,35 @@ def test_create_new_campaign_for_new_business(monkeypatch, tmp_path: Path) -> No
     assert payload["campaign_key"] is None
 
 
+def test_get_business_and_campaign_detail_endpoints(monkeypatch, tmp_path: Path) -> None:
+    client = _make_client(monkeypatch, tmp_path)
+
+    business_id = client.post(
+        "/businesses",
+        json={
+            "legal_name": "Acme LLC",
+            "display_name": "Acme",
+            "timezone": "America/New_York",
+        },
+    ).json()["id"]
+
+    campaign_id = client.post(
+        f"/businesses/{business_id}/campaigns",
+        json={
+            "campaign_name": "Spring",
+            "title": "Spring Promo",
+        },
+    ).json()["id"]
+
+    business_detail = client.get(f"/businesses/{business_id}")
+    assert business_detail.status_code == 200
+    assert business_detail.json()["display_name"] == "Acme"
+
+    campaign_detail = client.get(f"/businesses/{business_id}/campaigns/{campaign_id}")
+    assert campaign_detail.status_code == 200
+    assert campaign_detail.json()["campaign_name"] == "Spring"
+
+
 def test_create_new_campaign_for_existing_business(monkeypatch, tmp_path: Path) -> None:
     client = _make_client(monkeypatch, tmp_path)
 
@@ -242,3 +271,44 @@ def test_campaign_create_and_update_persist_to_yaml(monkeypatch, tmp_path: Path)
     assert payload["title"] == "Summer Launch Updated"
     assert payload["objective"] == "Increase store visits"
     assert payload["status"] == "active"
+
+
+def test_business_update_persists_to_yaml_when_campaign_exists(monkeypatch, tmp_path: Path) -> None:
+    client = _make_client(monkeypatch, tmp_path)
+
+    business_id = client.post(
+        "/businesses",
+        json={
+            "legal_name": "Acme LLC",
+            "display_name": "Acme",
+            "timezone": "America/New_York",
+        },
+    ).json()["id"]
+
+    client.post(
+        f"/businesses/{business_id}/campaigns",
+        json={
+            "campaign_name": "Summer",
+            "title": "Summer Launch",
+        },
+    )
+
+    updated = client.patch(
+        f"/businesses/{business_id}",
+        json={
+            "legal_name": "Acme Holdings LLC",
+            "timezone": "America/Chicago",
+            "is_active": False,
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["legal_name"] == "Acme Holdings LLC"
+    assert updated.json()["timezone"] == "America/Chicago"
+    assert updated.json()["is_active"] is False
+
+    business_yaml = tmp_path / "yaml-data" / "Acme" / "Acme.yaml"
+    assert business_yaml.exists()
+    payload = yaml.safe_load(business_yaml.read_text(encoding="utf-8"))
+    assert payload["legal_name"] == "Acme Holdings LLC"
+    assert payload["timezone"] == "America/Chicago"
+    assert payload["is_active"] is False

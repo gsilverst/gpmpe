@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  createChatSession,
   fetchArtifacts,
   fetchDataManagerBusinesses,
   fetchDataManagerCampaignDetail,
+  listBusinesses,
+  postChatMessage,
   renderArtifact,
   saveCampaign,
+  syncYamlData,
 } from "../src/lib/api";
 
 describe("data manager api client", () => {
@@ -142,6 +146,73 @@ describe("data manager api client", () => {
     expect(mockFetch).toHaveBeenCalledWith(
       "http://localhost:8000/campaigns/5/artifacts",
       expect.any(Object)
+    );
+  });
+
+  it("loads core business list endpoint", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [
+        {
+          id: 11,
+          legal_name: "Acme LLC",
+          display_name: "Acme",
+          timezone: "America/New_York",
+          is_active: true,
+        },
+      ],
+    });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const businesses = await listBusinesses("http://localhost:8000");
+
+    expect(businesses[0].id).toBe(11);
+    expect(mockFetch).toHaveBeenCalledWith("http://localhost:8000/businesses", expect.any(Object));
+  });
+
+  it("creates chat session and sends message", async () => {
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ session_id: "abc" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          session_id: "abc",
+          result: { target: "campaign" },
+          history: [{ role: "user", content: "set title to Summer" }],
+        }),
+      });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const session = await createChatSession("http://localhost:8000");
+    expect(session.session_id).toBe("abc");
+
+    const message = await postChatMessage("abc", 7, "set title to Summer", "http://localhost:8000");
+    expect(message.history).toHaveLength(1);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:8000/chat/sessions/abc/messages",
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
+  it("runs manual yaml sync", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ businesses_synced: 1, campaigns_synced: 1, data_dir: "/tmp/data" }),
+    });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await syncYamlData("http://localhost:8000");
+    expect(result.businesses_synced).toBe(1);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:8000/data/sync",
+      expect.objectContaining({ method: "POST" })
     );
   });
 });

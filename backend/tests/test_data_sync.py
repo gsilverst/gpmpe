@@ -186,6 +186,19 @@ def test_data_manager_api_reads_synced_sample_data(monkeypatch, tmp_path: Path) 
         assert payload["campaign"]["offers"][0]["offer_name"] == "flower-bundle"
 
 
+def test_manual_data_sync_endpoint_returns_summary(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path, _sample_data_dir())
+    monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
+
+    with TestClient(create_app()) as client:
+        response = client.post("/data/sync")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["businesses_synced"] == 1
+    assert payload["campaigns_synced"] == 1
+
+
 def test_sync_data_directory_removes_stale_businesses_and_campaigns(monkeypatch, tmp_path: Path) -> None:
     config_path = _write_config(tmp_path, _sample_data_dir())
     monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
