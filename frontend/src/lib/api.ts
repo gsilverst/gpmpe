@@ -142,7 +142,16 @@ export type DataSyncResponse = {
 };
 
 export function apiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+  const configured = process.env.NEXT_PUBLIC_API_BASE_URL;
+  if (configured && configured.trim() !== "") {
+    return configured;
+  }
+  // Default to same-origin in the browser so startup works for either
+  // http://127.0.0.1:8000 or http://localhost:8000 without CORS mismatches.
+  if (typeof window !== "undefined") {
+    return window.location.origin;
+  }
+  return "http://localhost:8000";
 }
 
 async function fetchJson<T>(path: string, baseUrl = apiBaseUrl()): Promise<T> {
