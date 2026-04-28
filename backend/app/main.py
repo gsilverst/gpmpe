@@ -17,7 +17,15 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator, model_validator
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from .chat import ChatSessionStore, ParsedCloneCommand, apply_chat_command, parse_chat_command, parse_clone_command
+from .chat import (
+    ChatSessionStore,
+    ParsedCloneCommand,
+    apply_chat_command,
+    parse_chat_command,
+    parse_clone_command,
+    parse_session_context_command,
+    resolve_component,
+)
 from .config import resolve_config
 from .data_sync import clone_campaign_directory, compare_db_to_yaml, discover_data_directory, sync_data_directory
 from .db import connect_database, initialize_database
@@ -1553,8 +1561,40 @@ def create_app() -> FastAPI:
         if payload.campaign_id is None:
             raise HTTPException(status_code=400, detail="campaign_id is required for edit commands")
 
+        context_cmd = parse_session_context_command(payload.message)
+        if context_cmd is not None:
+            config = resolve_config()
+            with connect_database(config) as connection:
+                component = resolve_component(connection, payload.campaign_id, context_cmd.component_ref)
+                if component is None:
+                    raise HTTPException(status_code=404, detail="Component not found")
+            chat_store.set_context_value(session_id, "active_component_ref", component["component_key"])
+            chat_store.append(session_id, "user", payload.message)
+            chat_store.append(
+                session_id,
+                "system",
+                f"Set active component context to '{component['component_key']}'",
+            )
+            return {
+                "session_id": session_id,
+                "result": {
+                    "target": "context",
+                    "context_type": "component",
+                    "component": {
+                        "id": component["id"],
+                        "campaign_id": component["campaign_id"],
+                        "component_key": component["component_key"],
+                        "component_kind": component["component_kind"],
+                        "display_title": component["display_title"],
+                    },
+                    "message": f"Working on component {component['component_key']}",
+                },
+                "history": chat_store.history(session_id),
+            }
+
         config = resolve_config()
         llm_warning: str | None = None
+        session_context = chat_store.get_context(session_id)
 
         if config.openrouter_api_key:
             # LLM path: translate natural language → structured command
@@ -1576,14 +1616,15 @@ def create_app() -> FastAPI:
                 llm_warning = "AI assistant unavailable; falling back to command syntax."
                 with connect_database(config) as connection:
                     command = parse_chat_command(payload.message)
-                    result = apply_chat_command(connection, payload.campaign_id, command)
-                    _persist_campaign_yaml_or_raise(connection, config, payload.campaign_id)
+                    result = apply_chat_command(connection, payload.campaign_id, command, session_context=session_context)
+                    if result.get("target") != "clarify":
+                        _persist_campaign_yaml_or_raise(connection, config, payload.campaign_id)
                     connection.commit()
         else:
             # Regex-only path (no API key configured)
             with connect_database(config) as connection:
                 command = parse_chat_command(payload.message)
-                result = apply_chat_command(connection, payload.campaign_id, command)
+                result = apply_chat_command(connection, payload.campaign_id, command, session_context=session_context)
                 if result.get("target") != "clarify":
                     _persist_campaign_yaml_or_raise(connection, config, payload.campaign_id)
                 connection.commit()

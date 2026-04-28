@@ -59,7 +59,11 @@ COMPONENT_RENAME_PATTERN = re.compile(
     re.IGNORECASE,
 )
 COMPONENT_ITEM_CHANGE_FIELD_PATTERN = re.compile(
-    r"^change\s+(?:the\s+)?(item_name|item_kind|duration_label|item_value|description_text|terms_text)\s+field\s+of\s+(.+?)\s+item\s+in\s+(?:the\s+)?(.+?)\s+component\s+to\s+(.+)$",
+    r"^change\s+(?:the\s+)?(item_name|item_kind|duration_label|item_value|description_text|terms_text)\s+field\s+of\s+(.+?)\s+item(?:\s+in\s+(?:the\s+)?(.+?)\s+component)?\s+to\s+(.+)$",
+    re.IGNORECASE,
+)
+COMPONENT_CONTEXT_PATTERN = re.compile(
+    r"^(?:i\s+am\s+working\s+on|i'?m\s+working\s+on|set\s+(?:the\s+)?active\s+component\s+to|use)\s+(?:the\s+)?(.+?)\s+component[.!?]?$",
     re.IGNORECASE,
 )
 
@@ -81,13 +85,21 @@ class ParsedCloneCommand:
     business_name: str | None  # optional business slug hint from the message
 
 
+@dataclass(frozen=True)
+class ParsedContextCommand:
+    context_type: Literal["component"]
+    component_ref: str
+
+
 class ChatSessionStore:
     def __init__(self) -> None:
         self._sessions: dict[str, list[dict[str, str]]] = {}
+        self._contexts: dict[str, dict[str, Any]] = {}
 
     def create(self) -> str:
         session_id = uuid.uuid4().hex
         self._sessions[session_id] = []
+        self._contexts[session_id] = {}
         return session_id
 
     def exists(self, session_id: str) -> bool:
@@ -102,6 +114,16 @@ class ChatSessionStore:
         if session_id not in self._sessions:
             raise KeyError(session_id)
         return list(self._sessions[session_id])
+
+    def get_context(self, session_id: str) -> dict[str, Any]:
+        if session_id not in self._contexts:
+            raise KeyError(session_id)
+        return dict(self._contexts[session_id])
+
+    def set_context_value(self, session_id: str, key: str, value: Any) -> None:
+        if session_id not in self._contexts:
+            raise KeyError(session_id)
+        self._contexts[session_id][key] = value
 
 
 def parse_clone_command(message: str) -> ParsedCloneCommand | None:
@@ -124,6 +146,17 @@ def parse_clone_command(message: str) -> ParsedCloneCommand | None:
         new_campaign_name=new_name,
         business_name=business,
     )
+
+
+def parse_session_context_command(message: str) -> ParsedContextCommand | None:
+    text = message.strip()
+    match = COMPONENT_CONTEXT_PATTERN.match(text)
+    if match is None:
+        return None
+    component_ref = match.group(1).strip().strip('"\'')
+    if component_ref == "":
+        return None
+    return ParsedContextCommand(context_type="component", component_ref=component_ref)
 
 
 def parse_chat_command(message: str) -> ParsedCommand:
@@ -199,7 +232,8 @@ def parse_chat_command(message: str) -> ParsedCommand:
     if component_item_change_match:
         field = component_item_change_match.group(1).lower().strip()
         item_ref = component_item_change_match.group(2).strip().strip("\"'")
-        component_ref = component_item_change_match.group(3).strip().strip("\"'")
+        component_ref = component_item_change_match.group(3)
+        component_ref = component_ref.strip().strip("\"'") if component_ref else None
         value = component_item_change_match.group(4).strip()
         return ParsedCommand(
             target="component_item",
@@ -253,6 +287,20 @@ def _normalize_component_key(value: str) -> str:
     return normalized
 
 
+def resolve_component(connection: Any, campaign_id: int, component_ref: str) -> Any | None:
+        return connection.execute(
+                """
+                SELECT id, campaign_id, component_key, component_kind, display_title, footnote_text, subtitle, description_text, display_order
+                FROM campaign_components
+                WHERE campaign_id = ?
+                    AND (LOWER(component_key) = LOWER(?) OR LOWER(display_title) = LOWER(?))
+                ORDER BY id ASC
+                LIMIT 1;
+                """,
+                (campaign_id, component_ref, component_ref),
+        ).fetchone()
+
+
 def _resolve_item_selector_index(item_ref: str, item_count: int) -> int | None:
     normalized = item_ref.lower().strip()
     if normalized.startswith("the "):
@@ -295,7 +343,12 @@ def _find_component_item(items: list[Any], item_ref: str) -> Any | None:
     return None
 
 
-def apply_chat_command(connection: Any, campaign_id: int, command: ParsedCommand) -> dict[str, Any]:
+def apply_chat_command(
+    connection: Any,
+    campaign_id: int,
+    command: ParsedCommand,
+    session_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     campaign = connection.execute(
         """
         SELECT id, business_id, campaign_name, campaign_key, title, objective, status, start_date, end_date
@@ -482,17 +535,7 @@ def apply_chat_command(connection: Any, campaign_id: int, command: ParsedCommand
         if value == "":
             raise HTTPException(status_code=400, detail=f"component {command.field} cannot be empty")
 
-        component = connection.execute(
-            """
-            SELECT id, campaign_id, component_key, component_kind, display_title, footnote_text, subtitle, description_text, display_order
-            FROM campaign_components
-            WHERE campaign_id = ?
-              AND (LOWER(component_key) = LOWER(?) OR LOWER(display_title) = LOWER(?))
-            ORDER BY id ASC
-            LIMIT 1;
-            """,
-            (campaign_id, command.component_ref, command.component_ref),
-        ).fetchone()
+        component = resolve_component(connection, campaign_id, command.component_ref)
         if component is None:
             raise HTTPException(status_code=404, detail="Component not found")
 
@@ -550,28 +593,25 @@ def apply_chat_command(connection: Any, campaign_id: int, command: ParsedCommand
         }
 
     if command.target == "component_item":
-        if command.component_ref is None:
-            raise HTTPException(status_code=400, detail="Component reference is required")
         if command.item_ref is None:
             raise HTTPException(status_code=400, detail="Item reference is required")
         if command.field not in COMPONENT_ITEM_FIELDS:
             raise HTTPException(status_code=400, detail="Unsupported component item field")
 
+        component_ref = command.component_ref
+        if component_ref is None and session_context is not None:
+            component_ref = session_context.get("active_component_ref")
+        if component_ref is None:
+            return {
+                "target": "clarify",
+                "message": "Please tell me which component you are working on first, for example: 'I am working on the main-street-appreciation component'.",
+            }
+
         value = command.value.strip()
         if value == "":
             raise HTTPException(status_code=400, detail=f"component item {command.field} cannot be empty")
 
-        component = connection.execute(
-            """
-            SELECT id, campaign_id, component_key, component_kind, display_title, footnote_text, subtitle, description_text, display_order
-            FROM campaign_components
-            WHERE campaign_id = ?
-              AND (LOWER(component_key) = LOWER(?) OR LOWER(display_title) = LOWER(?))
-            ORDER BY id ASC
-            LIMIT 1;
-            """,
-            (campaign_id, command.component_ref, command.component_ref),
-        ).fetchone()
+        component = resolve_component(connection, campaign_id, component_ref)
         if component is None:
             raise HTTPException(status_code=404, detail="Component not found")
 

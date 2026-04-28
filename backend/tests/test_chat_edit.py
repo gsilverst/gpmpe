@@ -414,6 +414,63 @@ def test_chat_message_component_item_field_update_rejects_missing_named_target(m
     assert response.json()["detail"] == "Component item not found"
 
 
+def test_chat_message_can_set_active_component_context_and_edit_item_without_component_name(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_items_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+
+    context_response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "I am working on the main-street-appreciation component",
+        },
+    )
+    assert context_response.status_code == 200
+    context_payload = context_response.json()
+    assert context_payload["result"]["target"] == "context"
+    assert context_payload["result"]["component"]["component_key"] == "main-street-appreciation"
+
+    edit_response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "change the item_value field of the Signature Facial item to $45",
+        },
+    )
+
+    assert edit_response.status_code == 200
+    edit_payload = edit_response.json()
+    assert edit_payload["result"]["target"] == "component_item"
+    assert edit_payload["result"]["component"]["component_key"] == "main-street-appreciation"
+    assert edit_payload["result"]["item"]["item_name"] == "Signature Facial"
+    assert edit_payload["result"]["item"]["item_value"] == "$45"
+
+
+def test_chat_message_item_edit_without_component_context_returns_clarify(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_items_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "change the item_value field of the Signature Facial item to $45",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["target"] == "clarify"
+    assert "which component you are working on" in payload["result"]["message"]
+
+
 def test_save_is_noop_when_commit_on_save_disabled(monkeypatch, tmp_path: Path) -> None:
     config_path = _write_config(tmp_path, commit_on_save=False)
     client = _make_client(monkeypatch, config_path)
