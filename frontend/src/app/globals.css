@@ -277,3 +277,61 @@ small {
   color: #666;
   margin: 0.25rem 0;
 }
+
+.section-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.section-header-row h2 {
+  margin: 0;
+}
+
+.business-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.75rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.business-list-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  margin-top: 0;
+  padding: 0.65rem 0.85rem;
+  background: #f4f8fd;
+  border: 1px solid #c9d8ef;
+  border-radius: 10px;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+  font-weight: 400;
+}
+
+.business-list-item:hover {
+  background: #e8f0fb;
+  border-color: var(--brand-blue);
+}
+
+.business-list-item--selected {
+  background: #ddedf8;
+  border-color: var(--brand-blue);
+  font-weight: 600;
+}
+
+.business-list-name {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.business-list-sub {
+  font-size: 0.8rem;
+  color: #556075;
+  margin-top: 0.1rem;
+}

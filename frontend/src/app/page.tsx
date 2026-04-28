@@ -54,11 +54,7 @@ export default function HomePage() {
   } | null>(null);
   const [reconciliationReport, setReconciliationReport] =
     useState<StartupStatusReport | null>(null);
-  const [businessForm, setBusinessForm] = useState({
-    legal_name: "",
-    display_name: "",
-    timezone: "America/New_York",
-  });
+  const [businessMode, setBusinessMode] = useState<"list" | "edit" | "create">("list");
   const [businessEditForm, setBusinessEditForm] = useState({
     legal_name: "",
     display_name: "",
@@ -137,7 +133,8 @@ export default function HomePage() {
       // Reload businesses after resolution
       const items = await listBusinesses();
       setBusinesses(items);
-      setSelectedBusinessId(items[0]?.id ?? null);
+      setSelectedBusinessId(null);
+      setBusinessMode(items.length > 0 ? "list" : "create");
     } catch (caught) {
       const message =
         caught instanceof Error ? caught.message : "Failed to resolve data conflict";
@@ -173,7 +170,7 @@ export default function HomePage() {
         const items = await listBusinesses();
         if (!active) return;
         setBusinesses(items);
-        setSelectedBusinessId(items[0]?.id ?? null);
+        setBusinessMode(items.length > 0 ? "list" : "create");
       } catch (caught) {
         if (!active) return;
         const message = caught instanceof Error ? caught.message : "Failed to load businesses";
@@ -313,15 +310,21 @@ export default function HomePage() {
     event.preventDefault();
     setError(null);
     try {
-      const created = await createBusiness(businessForm);
+      const created = await createBusiness({
+        legal_name: businessEditForm.legal_name,
+        display_name: businessEditForm.display_name,
+        timezone: businessEditForm.timezone,
+      });
       const updatedBusinesses = [...businesses, created].sort((a, b) => a.display_name.localeCompare(b.display_name));
       setBusinesses(updatedBusinesses);
       setSelectedBusinessId(created.id);
-      setBusinessForm({
-        legal_name: "",
-        display_name: "",
-        timezone: "America/New_York",
+      setBusinessEditForm({
+        legal_name: created.legal_name,
+        display_name: created.display_name,
+        timezone: created.timezone,
+        is_active: created.is_active,
       });
+      setBusinessMode("edit");
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Failed to create business";
       setError(message);
@@ -533,92 +536,128 @@ export default function HomePage() {
       </section>
 
       <section className="card section-gap">
-        <h2>Business Profile Management</h2>
-        <form className="grid-form" onSubmit={handleBusinessCreate}>
-          <label className="stacked-label" htmlFor="legal-name">
-            <span>Legal name</span>
-            <input
-              id="legal-name"
-              value={businessForm.legal_name}
-              onChange={(event) => setBusinessForm((prev) => ({ ...prev, legal_name: event.target.value }))}
-              required
-            />
-          </label>
-          <label className="stacked-label" htmlFor="display-name">
-            <span>Display name</span>
-            <input
-              id="display-name"
-              value={businessForm.display_name}
-              onChange={(event) => setBusinessForm((prev) => ({ ...prev, display_name: event.target.value }))}
-              required
-            />
-          </label>
-          <label className="stacked-label" htmlFor="timezone">
-            <span>Timezone</span>
-            <input
-              id="timezone"
-              value={businessForm.timezone}
-              onChange={(event) => setBusinessForm((prev) => ({ ...prev, timezone: event.target.value }))}
-              required
-            />
-          </label>
-          <button type="submit">Create Business</button>
-        </form>
+        <div className="section-header-row">
+          <h2>Business Profile</h2>
+          {businessMode !== "list" && (
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => setBusinessMode("list")}
+            >
+              ← Business List
+            </button>
+          )}
+        </div>
 
-        <label className="stacked-label" htmlFor="business-select">
-          <span>Active business</span>
-          <select
-            id="business-select"
-            value={selectedBusinessId ?? ""}
-            onChange={(event) => setSelectedBusinessId(parseSelectedId(event.target.value))}
-          >
-            {businesses.map((business) => (
-              <option key={business.id} value={business.id}>
-                {business.display_name}
-              </option>
-            ))}
-          </select>
-        </label>
+        {businessMode === "list" && (
+          <>
+            {businesses.length === 0 ? (
+              <p>No businesses yet. Create your first business profile below.</p>
+            ) : (
+              <ul className="business-list">
+                {businesses.map((biz) => (
+                  <li key={biz.id}>
+                    <button
+                      type="button"
+                      className={`business-list-item${selectedBusinessId === biz.id ? " business-list-item--selected" : ""}`}
+                      onClick={() => {
+                        setSelectedBusinessId(biz.id);
+                        setBusinessMode("edit");
+                      }}
+                    >
+                      <span className="business-list-name">{biz.display_name}</span>
+                      <span className="business-list-sub">{biz.legal_name}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setBusinessEditForm({ legal_name: "", display_name: "", timezone: "America/New_York", is_active: true });
+                setBusinessMode("create");
+              }}
+            >
+              Create New Business
+            </button>
+          </>
+        )}
 
-        <form className="grid-form" onSubmit={handleBusinessUpdate}>
-          <label className="stacked-label" htmlFor="edit-legal-name">
-            <span>Edit legal name</span>
-            <input
-              id="edit-legal-name"
-              value={businessEditForm.legal_name}
-              onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, legal_name: event.target.value }))}
-              required
-            />
-          </label>
-          <label className="stacked-label" htmlFor="edit-display-name">
-            <span>Edit display name</span>
-            <input
-              id="edit-display-name"
-              value={businessEditForm.display_name}
-              onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, display_name: event.target.value }))}
-              required
-            />
-          </label>
-          <label className="stacked-label" htmlFor="edit-timezone">
-            <span>Edit timezone</span>
-            <input
-              id="edit-timezone"
-              value={businessEditForm.timezone}
-              onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, timezone: event.target.value }))}
-              required
-            />
-          </label>
-          <label className="stacked-label" htmlFor="edit-active">
-            <span>Active</span>
-            <input
-              id="edit-active"
-              type="checkbox"
-              checked={businessEditForm.is_active}
-              onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, is_active: event.target.checked }))}
-            />
-          </label>
-          <button type="submit">Update Business</button>
-        </form>
+        {businessMode === "edit" && (
+          <form className="grid-form" onSubmit={handleBusinessUpdate}>
+            <label className="stacked-label" htmlFor="edit-legal-name">
+              <span>Legal name</span>
+              <input
+                id="edit-legal-name"
+                value={businessEditForm.legal_name}
+                onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, legal_name: event.target.value }))}
+                required
+              />
+            </label>
+            <label className="stacked-label" htmlFor="edit-display-name">
+              <span>Display name</span>
+              <input
+                id="edit-display-name"
+                value={businessEditForm.display_name}
+                onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, display_name: event.target.value }))}
+                required
+              />
+            </label>
+            <label className="stacked-label" htmlFor="edit-timezone">
+              <span>Timezone</span>
+              <input
+                id="edit-timezone"
+                value={businessEditForm.timezone}
+                onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, timezone: event.target.value }))}
+                required
+              />
+            </label>
+            <label className="stacked-label" htmlFor="edit-active">
+              <span>Active</span>
+              <input
+                id="edit-active"
+                type="checkbox"
+                checked={businessEditForm.is_active}
+                onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, is_active: event.target.checked }))}
+              />
+            </label>
+            <button type="submit">Save Changes</button>
+          </form>
+        )}
+
+        {businessMode === "create" && (
+          <form className="grid-form" onSubmit={handleBusinessCreate}>
+            <label className="stacked-label" htmlFor="new-legal-name">
+              <span>Legal name</span>
+              <input
+                id="new-legal-name"
+                value={businessEditForm.legal_name}
+                onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, legal_name: event.target.value }))}
+                required
+              />
+            </label>
+            <label className="stacked-label" htmlFor="new-display-name">
+              <span>Display name</span>
+              <input
+                id="new-display-name"
+                value={businessEditForm.display_name}
+                onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, display_name: event.target.value }))}
+                required
+              />
+            </label>
+            <label className="stacked-label" htmlFor="new-timezone">
+              <span>Timezone</span>
+              <input
+                id="new-timezone"
+                value={businessEditForm.timezone}
+                onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, timezone: event.target.value }))}
+                required
+              />
+            </label>
+            <button type="submit">Create Business</button>
+          </form>
+        )}
       </section>
 
       <section className="card section-gap">
