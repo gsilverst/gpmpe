@@ -214,3 +214,62 @@ def test_offer_asset_and_template_updates_persist_to_yaml(monkeypatch, tmp_path:
     assert payload["assets"][0]["source_path"] == "assets/summer-hero.png"
     assert payload["template_binding"]["template_name"] == "flyer-summer"
     assert payload["template_binding"]["override_values"]["headline"] == "Summer Savings"
+
+
+def test_component_yaml_round_trip_preserves_section_order(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / ".config"
+    output_dir = tmp_path / "output"
+    database_path = tmp_path / "data" / "test.db"
+    data_dir = tmp_path / "component-data"
+    business_dir = data_dir / "beacon"
+    campaign_dir = business_dir / "spring-refresh"
+    campaign_dir.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        f"OUTPUT_DIR={output_dir}\nDATABASE_PATH={database_path}\nDATA_DIR={data_dir}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GPMPG_CONFIG_FILE", str(config_path))
+
+    (business_dir / "beacon.yaml").write_text(
+        "display_name: beacon\nlegal_name: Beacon Wellness LLC\ntimezone: America/New_York\n",
+        encoding="utf-8",
+    )
+    (campaign_dir / "spring-refresh.yaml").write_text(
+        "\n".join(
+            [
+                "display_name: spring-refresh",
+                "campaign_name: spring-refresh",
+                "title: Spring Refresh",
+                "components:",
+                "  - component_key: featured",
+                "    component_kind: featured-offers",
+                "    display_title: Featured Services",
+                "    display_order: 0",
+                "    items:",
+                "      - item_name: Signature Facial",
+                "        item_kind: service",
+                "        duration_label: 60 min",
+                "        item_value: $95",
+                "        display_order: 0",
+                "  - component_key: discount-strip",
+                "    component_kind: discount-strip",
+                "    display_title: Bonus Savings",
+                "    display_order: 1",
+                "    items:",
+                "      - item_name: Package Discount",
+                "        item_kind: promo-note",
+                "        item_value: 10% off 3-session packages",
+                "        display_order: 0",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with TestClient(create_app()) as client:
+        response = client.get("/data-manager/businesses/beacon/campaigns/spring-refresh")
+
+    assert response.status_code == 200
+    payload = yaml.safe_load((campaign_dir / "spring-refresh.yaml").read_text(encoding="utf-8"))
+    assert [component["component_key"] for component in payload["components"]] == ["featured", "discount-strip"]
+    assert payload["components"][0]["items"][0]["item_name"] == "Signature Facial"

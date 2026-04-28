@@ -32,6 +32,35 @@ def _hex_to_rgb(hex_color: str | None, fallback: str) -> tuple[int, int, int]:
         return int(raw[0:2], 16), int(raw[2:4], 16), int(raw[4:6], 16)
 
 
+def _fallback_components(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not offers:
+        return []
+    return [
+        {
+            "component_key": "offers",
+            "component_kind": "featured-offers",
+            "display_title": "Offer Details",
+            "subtitle": None,
+            "description_text": None,
+            "display_order": 0,
+            "items": [
+                {
+                    "item_name": offer.get("offer_name"),
+                    "item_kind": offer.get("offer_type") or "service",
+                    "duration_label": None,
+                    "item_value": offer.get("offer_value"),
+                    "description_text": None,
+                    "terms_text": offer.get("terms_text"),
+                    "display_order": index,
+                    "start_date": offer.get("start_date"),
+                    "end_date": offer.get("end_date"),
+                }
+                for index, offer in enumerate(offers)
+            ],
+        }
+    ]
+
+
 def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) -> dict[str, Any]:
     row = connection.execute(
         """
@@ -89,6 +118,15 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
         """,
         (campaign_id,),
     ).fetchall()
+    components = connection.execute(
+        """
+        SELECT id, component_key, component_kind, display_title, subtitle, description_text, display_order
+        FROM campaign_components
+        WHERE campaign_id = ?
+        ORDER BY display_order ASC, id ASC;
+        """,
+        (campaign_id,),
+    ).fetchall()
 
     binding = connection.execute(
         """
@@ -110,6 +148,32 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
         effective = {**defaults, **overrides}
         template_name = binding["template_name"]
 
+    offer_payloads = [dict(o) for o in offers]
+    component_payloads: list[dict[str, Any]] = []
+    for component in components:
+        items = connection.execute(
+            """
+            SELECT item_name, item_kind, duration_label, item_value, description_text, terms_text, display_order
+            FROM campaign_component_items
+            WHERE component_id = ?
+            ORDER BY display_order ASC, id ASC;
+            """,
+            (component["id"],),
+        ).fetchall()
+        component_payloads.append(
+            {
+                "component_key": component["component_key"],
+                "component_kind": component["component_kind"],
+                "display_title": component["display_title"],
+                "subtitle": component["subtitle"],
+                "description_text": component["description_text"],
+                "display_order": component["display_order"],
+                "items": [dict(item) for item in items],
+            }
+        )
+    if not component_payloads:
+        component_payloads = _fallback_components(offer_payloads)
+
     return {
         "campaign_id": campaign_id,
         "campaign_name": row["campaign_name"],
@@ -122,7 +186,8 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
         "theme": dict(theme) if theme else {},
         "location": dict(location) if location else None,
         "contacts": [dict(c) for c in contacts],
-        "offers": [dict(o) for o in offers],
+        "offers": offer_payloads,
+        "components": component_payloads,
         "effective_values": effective,
         "template_name": template_name,
     }
@@ -203,35 +268,58 @@ class _FlyerPDF(FPDF):
         self.line(x, y, x + _CONTENT_W, y)
         self.ln(4)
 
-    def _draw_offers(self) -> None:
-        if not self.ctx["offers"]:
+    def _draw_components(self) -> None:
+        components = self.ctx.get("components") or _fallback_components(self.ctx.get("offers") or [])
+        if not components:
             return
         r, g, b = self._ink_rgb()
-        self.set_text_color(r, g, b)
-        self.set_font("Helvetica", "B", 13)
-        self.cell(_CONTENT_W, 7, "Offer Details", align="L", new_x="LMARGIN", new_y="NEXT")
-        self.ln(1)
-        for offer in self.ctx["offers"]:
-            value = offer.get("offer_value") or ""
-            name = offer.get("offer_name") or ""
-            self.set_font("Helvetica", "B", 11)
-            label = f"{name}: " if name else ""
+        for component in components:
             self.set_text_color(r, g, b)
-            self.multi_cell(_CONTENT_W, 6, f"{label}{value}", align="L")
-            if offer.get("start_date") and offer.get("end_date"):
-                self.set_font("Helvetica", "I", 9)
-                ar, ag, ab = _hex_to_rgb(self.ctx["theme"].get("secondary_color"), "#753991")
-                self.set_text_color(ar, ag, ab)
-                self.cell(
-                    _CONTENT_W, 5,
-                    f"Valid {offer['start_date']}-{offer['end_date']}",
-                    align="L", new_x="LMARGIN", new_y="NEXT",
-                )
-            if offer.get("terms_text"):
-                self.set_font("Helvetica", "I", 8)
+            self.set_font("Helvetica", "B", 13)
+            self.cell(_CONTENT_W, 7, component.get("display_title") or "Offer Details", align="L", new_x="LMARGIN", new_y="NEXT")
+            subtitle = component.get("subtitle")
+            description_text = component.get("description_text")
+            if subtitle:
+                sr, sg, sb = _hex_to_rgb(self.ctx["theme"].get("secondary_color"), "#753991")
+                self.set_text_color(sr, sg, sb)
+                self.set_font("Helvetica", "I", 10)
+                self.multi_cell(_CONTENT_W, 5, subtitle, align="L")
+            if description_text:
                 self.set_text_color(100, 100, 100)
-                self.multi_cell(_CONTENT_W, 4, offer["terms_text"], align="L")
-            self.ln(2)
+                self.set_font("Helvetica", "", 9)
+                self.multi_cell(_CONTENT_W, 5, description_text, align="L")
+            self.ln(1)
+            for item in component.get("items", []):
+                name = item.get("item_name") or ""
+                duration_label = item.get("duration_label") or ""
+                value = item.get("item_value") or ""
+                self.set_font("Helvetica", "B", 11)
+                self.set_text_color(r, g, b)
+                name_parts = [part for part in [name, duration_label] if part]
+                label = " ".join(name_parts)
+                content = f"{label}: {value}" if label and value else label or value
+                self.multi_cell(_CONTENT_W, 6, content, align="L")
+                if item.get("description_text"):
+                    self.set_font("Helvetica", "", 8)
+                    self.set_text_color(100, 100, 100)
+                    self.multi_cell(_CONTENT_W, 4, item["description_text"], align="L")
+                if item.get("start_date") and item.get("end_date"):
+                    self.set_font("Helvetica", "I", 9)
+                    ar, ag, ab = _hex_to_rgb(self.ctx["theme"].get("secondary_color"), "#753991")
+                    self.set_text_color(ar, ag, ab)
+                    self.cell(
+                        _CONTENT_W,
+                        5,
+                        f"Valid {item['start_date']}-{item['end_date']}",
+                        align="L",
+                        new_x="LMARGIN",
+                        new_y="NEXT",
+                    )
+                if item.get("terms_text"):
+                    self.set_font("Helvetica", "I", 8)
+                    self.set_text_color(100, 100, 100)
+                    self.multi_cell(_CONTENT_W, 4, item["terms_text"], align="L")
+                self.ln(2)
 
     def _draw_cta(self) -> None:
         cta = self.ctx["effective_values"].get("cta")
@@ -281,7 +369,7 @@ def render_flyer(ctx: dict[str, Any]) -> bytes:
     pdf._draw_headline()
     pdf._draw_dates()
     pdf._draw_divider()
-    pdf._draw_offers()
+    pdf._draw_components()
     pdf._draw_cta()
     pdf._draw_footer()
     return bytes(pdf.output())

@@ -309,6 +309,49 @@ def _campaign_snapshot(connection: Any, display_name: str, campaign_name: str, q
         """,
         (row["id"],),
     ).fetchone()
+    components = connection.execute(
+        """
+        SELECT id, component_key, component_kind, display_title, subtitle, description_text, display_order
+        FROM campaign_components
+        WHERE campaign_id = ?
+        ORDER BY display_order ASC, id ASC;
+        """,
+        (row["id"],),
+    ).fetchall()
+
+    component_payloads: list[dict[str, Any]] = []
+    for component in components:
+        items = connection.execute(
+            """
+            SELECT item_name, item_kind, duration_label, item_value, description_text, terms_text, display_order
+            FROM campaign_component_items
+            WHERE component_id = ?
+            ORDER BY display_order ASC, id ASC;
+            """,
+            (component["id"],),
+        ).fetchall()
+        component_payloads.append(
+            {
+                "component_key": component["component_key"],
+                "component_kind": component["component_kind"],
+                "display_title": component["display_title"],
+                "subtitle": component["subtitle"],
+                "description_text": component["description_text"],
+                "display_order": component["display_order"],
+                "items": [
+                    {
+                        "item_name": item["item_name"],
+                        "item_kind": item["item_kind"],
+                        "duration_label": item["duration_label"],
+                        "item_value": item["item_value"],
+                        "description_text": item["description_text"],
+                        "terms_text": item["terms_text"],
+                        "display_order": item["display_order"],
+                    }
+                    for item in items
+                ],
+            }
+        )
 
     return {
         "id": row["id"],
@@ -343,6 +386,7 @@ def _campaign_snapshot(connection: Any, display_name: str, campaign_name: str, q
             }
             for item in assets
         ],
+        "components": component_payloads,
         "template_binding": {
             "template_name": binding["template_name"],
             "template_kind": binding["template_kind"],

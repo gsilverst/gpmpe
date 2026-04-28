@@ -154,3 +154,83 @@ def test_sync_data_directory_removes_stale_businesses_and_campaigns(monkeypatch,
     assert [row["display_name"] for row in remaining_businesses] == ["acme"]
     assert [row["campaign_name"] for row in remaining_campaigns] == ["mothersday"]
     assert orphan_template is None
+
+
+def test_sync_data_directory_persists_components_and_export_round_trips(monkeypatch, tmp_path: Path) -> None:
+    data_dir = tmp_path / "component-data"
+    business_dir = data_dir / "beacon"
+    campaign_dir = business_dir / "spring-refresh"
+    campaign_dir.mkdir(parents=True, exist_ok=True)
+    (business_dir / "beacon.yaml").write_text(
+        "display_name: beacon\nlegal_name: Beacon Wellness LLC\ntimezone: America/New_York\n",
+        encoding="utf-8",
+    )
+    (campaign_dir / "spring-refresh.yaml").write_text(
+        "\n".join(
+            [
+                "display_name: spring-refresh",
+                "campaign_name: spring-refresh",
+                "title: Spring Refresh",
+                "objective: Drive bookings",
+                "status: active",
+                "components:",
+                "  - component_key: featured",
+                "    component_kind: featured-offers",
+                "    display_title: Featured Services",
+                "    subtitle: Limited time",
+                "    description_text: Seasonal appointment highlights",
+                "    items:",
+                "      - item_name: Signature Facial",
+                "        item_kind: service",
+                "        duration_label: 60 min",
+                "        item_value: $95",
+                "        description_text: Includes exfoliation",
+                "        terms_text: By appointment only",
+                "  - component_key: notes",
+                "    component_kind: legal-note",
+                "    display_title: Promotion Notes",
+                "    items:",
+                "      - item_name: Offer valid through April 30",
+                "        item_kind: promo-note",
+                "        item_value: See spa for details",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    config_path = _write_config(tmp_path, data_dir)
+    monkeypatch.setenv("GPMPG_CONFIG_FILE", str(config_path))
+    config = resolve_config(repo_root=_repo_root(), cwd=_repo_root())
+
+    initialize_database(config)
+    with connect_database(config) as connection:
+        sync_data_directory(connection, config.data_dir)
+        connection.commit()
+
+        components = connection.execute(
+            """
+            SELECT component_key, component_kind, display_title, subtitle, description_text, display_order
+            FROM campaign_components
+            ORDER BY display_order ASC, id ASC;
+            """
+        ).fetchall()
+        items = connection.execute(
+            """
+            SELECT item_name, item_kind, duration_label, item_value, description_text, terms_text, display_order
+            FROM campaign_component_items
+            ORDER BY display_order ASC, id ASC;
+            """
+        ).fetchall()
+
+        client = TestClient(create_app())
+        campaign_detail = client.get("/data-manager/businesses/beacon/campaigns/spring-refresh")
+
+    assert [row["component_key"] for row in components] == ["featured", "notes"]
+    assert components[0]["display_title"] == "Featured Services"
+    assert items[0]["item_name"] == "Signature Facial"
+    assert items[0]["duration_label"] == "60 min"
+    assert campaign_detail.status_code == 200
+    payload = campaign_detail.json()["campaign"]
+    assert payload["components"][0]["component_key"] == "featured"
+    assert payload["components"][0]["items"][0]["item_value"] == "$95"

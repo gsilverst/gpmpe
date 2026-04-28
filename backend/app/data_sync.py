@@ -261,6 +261,63 @@ def _delete_orphaned_template_definitions(connection: sqlite3.Connection) -> Non
     )
 
 
+def _sync_campaign_components(connection: sqlite3.Connection, campaign_id: int, record: CampaignYamlRecord) -> None:
+    components = record.payload.get("components", []) or []
+    if not isinstance(components, list):
+        raise ValueError(f"components must be a list in {record.file_path}")
+
+    connection.execute("DELETE FROM campaign_components WHERE campaign_id = ?;", (campaign_id,))
+    for component_index, component in enumerate(components):
+        if not isinstance(component, dict):
+            raise ValueError(f"components entries must be objects in {record.file_path}")
+
+        cursor = connection.execute(
+            """
+            INSERT INTO campaign_components (
+              campaign_id, component_key, component_kind, display_title, subtitle, description_text, display_order
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                campaign_id,
+                _required_string(component, "component_key", record.file_path),
+                _optional_string(component, "component_kind") or "featured-offers",
+                _required_string(component, "display_title", record.file_path),
+                _optional_string(component, "subtitle"),
+                _optional_string(component, "description_text"),
+                component.get("display_order", component_index),
+            ),
+        )
+        component_id = int(cursor.lastrowid)
+
+        items = component.get("items", []) or []
+        if not isinstance(items, list):
+            raise ValueError(f"component items must be a list in {record.file_path}")
+
+        for item_index, item in enumerate(items):
+            if not isinstance(item, dict):
+                raise ValueError(f"component items entries must be objects in {record.file_path}")
+            connection.execute(
+                """
+                INSERT INTO campaign_component_items (
+                  component_id, item_name, item_kind, duration_label, item_value,
+                  description_text, terms_text, display_order
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    component_id,
+                    _required_string(item, "item_name", record.file_path),
+                    _optional_string(item, "item_kind") or "service",
+                    _optional_string(item, "duration_label"),
+                    _optional_string(item, "item_value"),
+                    _optional_string(item, "description_text"),
+                    _optional_string(item, "terms_text"),
+                    item.get("display_order", item_index),
+                ),
+            )
+
+
 def _sync_campaign(connection: sqlite3.Connection, business_id: int, record: CampaignYamlRecord) -> None:
     payload = record.payload
     campaign_name = _required_string(payload, "campaign_name", record.file_path)
@@ -335,6 +392,8 @@ def _sync_campaign(connection: sqlite3.Connection, business_id: int, record: Cam
                 _optional_string(offer, "terms_text"),
             ),
         )
+
+    _sync_campaign_components(connection, campaign_id, record)
 
     assets = payload.get("assets", []) or []
     if not isinstance(assets, list):

@@ -228,3 +228,127 @@ def test_file_checksum_is_deterministic() -> None:
     expected = hashlib.sha256(data).hexdigest()
     assert _file_checksum(data) == expected
     assert _file_checksum(data) == _file_checksum(data)
+
+
+def test_collect_render_context_prefers_ordered_components(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_full_campaign(client)
+
+    with client:
+        pass
+
+    from app.config import resolve_config
+    from app.db import connect_database
+
+    config = resolve_config()
+    with connect_database(config) as connection:
+        component_id = connection.execute(
+            """
+            INSERT INTO campaign_components (
+              campaign_id, component_key, component_kind, display_title, subtitle, description_text, display_order
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                campaign_id,
+                "weekday-specials",
+                "weekday-specials",
+                "Weekday Specials",
+                "Tuesday through Thursday",
+                "Focused booking windows",
+                0,
+            ),
+        ).lastrowid
+        connection.execute(
+            """
+            INSERT INTO campaign_component_items (
+              component_id, item_name, item_kind, duration_label, item_value, description_text, terms_text, display_order
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                component_id,
+                "Deep Tissue Massage",
+                "service",
+                "90 min",
+                "$120",
+                "Includes hot towels",
+                "Weekdays only",
+                0,
+            ),
+        )
+        connection.commit()
+
+        ctx = _collect_render_context(connection, campaign_id)
+
+    assert ctx["components"][0]["component_key"] == "weekday-specials"
+    assert ctx["components"][0]["items"][0]["item_name"] == "Deep Tissue Massage"
+    assert ctx["components"][0]["items"][0]["item_value"] == "$120"
+
+
+def test_render_flyer_supports_multi_component_context() -> None:
+    ctx = {
+        "campaign_id": 1,
+        "campaign_name": "test-promo",
+        "title": "Test Promotion",
+        "objective": "Drive sales",
+        "start_date": "2026-01-01",
+        "end_date": "2026-01-31",
+        "business_display_name": "ACME",
+        "business_legal_name": "ACME LLC",
+        "theme": {
+            "primary_color": "#209dd7",
+            "secondary_color": "#753991",
+            "accent_color": "#ecad0a",
+        },
+        "location": None,
+        "contacts": [],
+        "offers": [],
+        "components": [
+            {
+                "component_key": "featured",
+                "component_kind": "featured-offers",
+                "display_title": "Featured Services",
+                "subtitle": "Popular this month",
+                "description_text": "A focused set of premium services",
+                "display_order": 0,
+                "items": [
+                    {
+                        "item_name": "Hydrating Facial",
+                        "item_kind": "service",
+                        "duration_label": "60 min",
+                        "item_value": "$89",
+                        "description_text": "Includes LED add-on",
+                        "terms_text": "Valid while appointments last",
+                    }
+                ],
+            },
+            {
+                "component_key": "legal",
+                "component_kind": "legal-note",
+                "display_title": "Offer Notes",
+                "subtitle": None,
+                "description_text": None,
+                "display_order": 1,
+                "items": [
+                    {
+                        "item_name": "Offer valid through January 31",
+                        "item_kind": "promo-note",
+                        "duration_label": None,
+                        "item_value": "See spa for full terms",
+                        "description_text": None,
+                        "terms_text": None,
+                    }
+                ],
+            },
+        ],
+        "effective_values": {
+            "headline": "January Blowout",
+            "cta": "Visit us today!",
+        },
+        "template_name": "flyer-standard",
+    }
+    pdf_bytes = render_flyer(ctx)
+    assert isinstance(pdf_bytes, bytes)
+    assert pdf_bytes.startswith(b"%PDF")
