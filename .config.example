@@ -12,11 +12,16 @@
 OUTPUT_DIR=./output
 DATABASE_PATH=./backend/data/gpmpe.db
 DATA_DIR=./tests/data
+TEST_DATABASE_PATH=./testdb/gpmpe.db
+TEST_DATA_DIR=./testdb
 IMAGES_PER_PAGE=
 COMMIT_ON_SAVE=true
 GIT_REPO_PATH=.
 GIT_USER_NAME=gsilverst
 GIT_USER_EMAIL=gsilverst@comcast.net
+
+# Tests use TEST_DATABASE_PATH and TEST_DATA_DIR only when
+# GPMPE_USE_TEST_PATHS=true is set in the test process environment.
 
 # OPENROUTER_API_KEY enables the AI-powered natural-language chat editing interface.
 # Without this key, the chat endpoint falls back to the rigid "set <field> to <value>" syntax.

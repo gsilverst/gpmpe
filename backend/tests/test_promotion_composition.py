@@ -4,19 +4,12 @@ import yaml
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from .conftest import enable_test_paths, make_test_client, write_isolated_config
 
 
 def _make_client(monkeypatch, tmp_path: Path) -> TestClient:
-    config_path = tmp_path / ".config"
-    output_dir = tmp_path / "output"
-    database_path = tmp_path / "data" / "test.db"
-    data_dir = tmp_path / "yaml-data"
-    config_path.write_text(
-        f"OUTPUT_DIR={output_dir}\nDATABASE_PATH={database_path}\nDATA_DIR={data_dir}\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
-    return TestClient(create_app())
+    config_path = write_isolated_config(tmp_path, test_data_dir=tmp_path / "yaml-data-test")
+    return make_test_client(monkeypatch, config_path)
 
 
 def _seed_campaign(client: TestClient) -> int:
@@ -206,7 +199,7 @@ def test_offer_asset_and_template_updates_persist_to_yaml(monkeypatch, tmp_path:
     )
     assert binding.status_code == 201
 
-    campaign_yaml = tmp_path / "yaml-data" / "Acme" / "Summer" / "Summer.yaml"
+    campaign_yaml = tmp_path / "yaml-data-test" / "Acme" / "Summer" / "Summer.yaml"
     assert campaign_yaml.exists()
 
     payload = yaml.safe_load(campaign_yaml.read_text(encoding="utf-8"))
@@ -217,18 +210,19 @@ def test_offer_asset_and_template_updates_persist_to_yaml(monkeypatch, tmp_path:
 
 
 def test_component_yaml_round_trip_preserves_section_order(monkeypatch, tmp_path: Path) -> None:
-    config_path = tmp_path / ".config"
     output_dir = tmp_path / "output"
-    database_path = tmp_path / "data" / "test.db"
-    data_dir = tmp_path / "component-data"
-    business_dir = data_dir / "beacon"
+    data_dir = tmp_path / "component-data-runtime"
+    test_data_dir = tmp_path / "component-data"
+    business_dir = test_data_dir / "beacon"
     campaign_dir = business_dir / "spring-refresh"
     campaign_dir.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(
-        f"OUTPUT_DIR={output_dir}\nDATABASE_PATH={database_path}\nDATA_DIR={data_dir}\n",
-        encoding="utf-8",
+    config_path = write_isolated_config(
+        tmp_path,
+        output_dir=output_dir,
+        runtime_data_dir=data_dir,
+        test_data_dir=test_data_dir,
     )
-    monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
+    enable_test_paths(monkeypatch, config_path)
 
     (business_dir / "beacon.yaml").write_text(
         "display_name: beacon\nlegal_name: Beacon Wellness LLC\ntimezone: America/New_York\n",

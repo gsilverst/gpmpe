@@ -41,6 +41,14 @@ export default function HomePage() {
   const [artifacts, setArtifacts] = useState<ArtifactItem[]>([]);
   const [rendering, setRendering] = useState(false);
   const [renderStatus, setRenderStatus] = useState<string | null>(null);
+  const [clonePreviewPrompt, setClonePreviewPrompt] = useState<{
+    campaignId: number;
+    campaignName: string;
+  } | null>(null);
+  const [latestCloneArtifact, setLatestCloneArtifact] = useState<{
+    artifactId: number;
+    campaignId: number;
+  } | null>(null);
   const [businessForm, setBusinessForm] = useState({
     legal_name: "",
     display_name: "",
@@ -58,6 +66,54 @@ export default function HomePage() {
     title: "",
     objective: "",
   });
+
+  async function handleClonePreviewChoice(shouldView: boolean): Promise<void> {
+    const pending = clonePreviewPrompt;
+    if (pending == null) {
+      return;
+    }
+    setClonePreviewPrompt(null);
+
+    if (!shouldView) {
+      setChatStatus(
+        `Campaign '${pending.campaignName}' is active. Continue editing it with the chatbot below.`
+      );
+      return;
+    }
+
+    try {
+      setRendering(true);
+      setRenderStatus(null);
+      const artifact = await renderArtifact(pending.campaignId, "flyer");
+      const items = await fetchArtifacts(pending.campaignId);
+      setArtifacts(items);
+      setLatestCloneArtifact({ artifactId: artifact.id, campaignId: pending.campaignId });
+      setRenderStatus("Flyer generated successfully.");
+      window.open(artifactDownloadUrl(artifact.id), "_blank", "noopener,noreferrer");
+      setChatStatus(
+        `Campaign '${pending.campaignName}' opened. Continue editing it with the chatbot below.`
+      );
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Artifact generation failed";
+      setRenderStatus(`Artifact generation failed: ${message}`);
+      setChatStatus(
+        `Campaign '${pending.campaignName}' is active, but opening the PDF failed. You can still continue editing.`
+      );
+    } finally {
+      setRendering(false);
+    }
+  }
+
+  function handleOpenLatestClonePdf(): void {
+    if (latestCloneArtifact == null) {
+      return;
+    }
+    window.open(
+      artifactDownloadUrl(latestCloneArtifact.artifactId),
+      "_blank",
+      "noopener,noreferrer"
+    );
+  }
 
   function parseSelectedId(value: string): number | null {
     if (value.trim() === "") {
@@ -324,9 +380,20 @@ export default function HomePage() {
           setCampaigns(refreshedCampaigns);
           setSelectedCampaignId(newCampaignId ?? (refreshedCampaigns[0]?.id ?? null));
         }
-        setChatStatus(
-          `Campaign '${String(result.new_campaign_name)}' created. It is now the active campaign — continue editing below.`
-        );
+
+        const activatedCampaignId = newCampaignId ?? null;
+        if (activatedCampaignId != null) {
+          const campaignName = String(result.new_campaign_name ?? "new-campaign");
+          setLatestCloneArtifact(null);
+          setClonePreviewPrompt({ campaignId: activatedCampaignId, campaignName });
+          setChatStatus(
+            `Campaign '${campaignName}' created and active. Do you want to view the new promotion PDF now?`
+          );
+        } else {
+          setChatStatus(
+            `Campaign '${String(result.new_campaign_name)}' created. It is now the active campaign — continue editing below.`
+          );
+        }
       }
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Failed to send chat edit";
@@ -380,6 +447,9 @@ export default function HomePage() {
     setCollisionMatches([]);
     setError(null);
   }
+
+  const canOpenLatestClonePdf =
+    latestCloneArtifact != null && latestCloneArtifact.campaignId === selectedCampaignId;
 
   return (
     <main>
@@ -598,7 +668,16 @@ export default function HomePage() {
           />
           <button type="submit">Send Edit</button>
         </form>
-        {chatStatus ? <p className="error-text">{chatStatus}</p> : null}
+        {chatStatus ? (
+          <div className="chat-status-row">
+            <p className="save-status">{chatStatus}</p>
+            {canOpenLatestClonePdf ? (
+              <button type="button" className="ghost-button" onClick={handleOpenLatestClonePdf}>
+                Open Latest PDF
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {chatHistory.length > 0 ? (
           <ul className="chat-history">
             {chatHistory.map((item, index) => (
@@ -649,6 +728,30 @@ export default function HomePage() {
       </section>
 
       {error ? <p className="error-text">{error}</p> : null}
+
+      {clonePreviewPrompt ? (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="clone-preview-title">
+          <div className="modal-card">
+            <h3 id="clone-preview-title">View New Promotion Now?</h3>
+            <p>
+              Campaign <strong>{clonePreviewPrompt.campaignName}</strong> is ready. Generate and open the flyer PDF now?
+            </p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => void handleClonePreviewChoice(false)}
+                disabled={rendering}
+              >
+                Not Now
+              </button>
+              <button type="button" onClick={() => void handleClonePreviewChoice(true)} disabled={rendering}>
+                {rendering ? "Generating..." : "Yes, Open PDF"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

@@ -3,20 +3,12 @@ import yaml
 
 from fastapi.testclient import TestClient
 
-from app.main import create_app
+from .conftest import make_test_client, write_isolated_config
 
 
 def _make_client(monkeypatch, tmp_path: Path) -> TestClient:
-    config_path = tmp_path / ".config"
-    output_dir = tmp_path / "output"
-    database_path = tmp_path / "data" / "test.db"
-    data_dir = tmp_path / "yaml-data"
-    config_path.write_text(
-        f"OUTPUT_DIR={output_dir}\nDATABASE_PATH={database_path}\nDATA_DIR={data_dir}\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
-    return TestClient(create_app())
+    config_path = write_isolated_config(tmp_path, test_data_dir=tmp_path / "yaml-data-test")
+    return make_test_client(monkeypatch, config_path)
 
 
 def test_create_new_campaign_for_new_business(monkeypatch, tmp_path: Path) -> None:
@@ -263,7 +255,7 @@ def test_campaign_create_and_update_persist_to_yaml(monkeypatch, tmp_path: Path)
     )
     assert updated.status_code == 200
 
-    campaign_yaml = tmp_path / "yaml-data" / "Acme" / "Summer" / "Summer.yaml"
+    campaign_yaml = tmp_path / "yaml-data-test" / "Acme" / "Summer" / "Summer.yaml"
     assert campaign_yaml.exists()
 
     payload = yaml.safe_load(campaign_yaml.read_text(encoding="utf-8"))
@@ -306,7 +298,7 @@ def test_business_update_persists_to_yaml_when_campaign_exists(monkeypatch, tmp_
     assert updated.json()["timezone"] == "America/Chicago"
     assert updated.json()["is_active"] is False
 
-    business_yaml = tmp_path / "yaml-data" / "Acme" / "Acme.yaml"
+    business_yaml = tmp_path / "yaml-data-test" / "Acme" / "Acme.yaml"
     assert business_yaml.exists()
     payload = yaml.safe_load(business_yaml.read_text(encoding="utf-8"))
     assert payload["legal_name"] == "Acme Holdings LLC"

@@ -410,6 +410,10 @@ Implementation highlights:
 - Update `post_chat_message` in `main.py` to check for clone intent before falling through to the existing `parse_chat_command` regex router.
 - Return `{"target": "clone", "source_campaign_name": ..., "new_campaign_name": ..., "new_campaign_title": ...}` on success.
 - Raise HTTP 400 if source is not found or destination already exists.
+- Phase 2 UX refinement in the main frontend chat screen:
+  - After clone success, immediately switch to the cloned campaign and present an in-page yes/no prompt asking whether to view the new promotion PDF.
+  - If the user chooses yes, trigger flyer render automatically, open the generated PDF in a new tab, and keep the cloned campaign active for chatbot edits.
+  - Provide an `Open Latest PDF` quick action in chat status so the just-generated cloned-campaign artifact can be reopened during the edit session.
 
 Testing highlights:
 - `parse_clone_command` unit tests for verbose natural language, short form, business-hint form, and non-matching messages.

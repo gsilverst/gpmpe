@@ -6,33 +6,20 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.main import create_app
 from app.renderer import _collect_render_context, _file_checksum, render_campaign_artifact, render_flyer
+from .conftest import make_test_client, write_isolated_config
 
 
 def _write_config(tmp_path: Path) -> Path:
-    config_path = tmp_path / ".config"
-    output_dir = tmp_path / "output"
-    database_path = tmp_path / "data" / "test.db"
-    data_dir = tmp_path / "yaml-data"
-    config_path.write_text(
-        "\n".join(
-            [
-                f"OUTPUT_DIR={output_dir}",
-                f"DATABASE_PATH={database_path}",
-                f"DATA_DIR={data_dir}",
-                "COMMIT_ON_SAVE=false",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
+    return write_isolated_config(
+        tmp_path,
+        test_data_dir=tmp_path / "yaml-data-test",
+        commit_on_save=False,
     )
-    return config_path
 
 
 def _make_client(monkeypatch, config_path: Path) -> TestClient:
-    monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
-    return TestClient(create_app())
+    return make_test_client(monkeypatch, config_path)
 
 
 def _seed_full_campaign(client: TestClient) -> tuple[int, int]:

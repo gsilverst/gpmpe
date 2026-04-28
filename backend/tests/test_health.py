@@ -3,19 +3,17 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from .conftest import enable_test_paths, write_isolated_config
 
 
 def test_health_returns_ok_and_output_dir(monkeypatch, tmp_path: Path) -> None:
-    config_path = tmp_path / ".config"
     output_dir = tmp_path / "output"
-    database_path = tmp_path / "data" / "test.db"
-    data_dir = tmp_path / "yaml-data"
-    config_path.write_text(
-        f"OUTPUT_DIR={output_dir}\nDATABASE_PATH={database_path}\nDATA_DIR={data_dir}\n",
-        encoding="utf-8",
+    config_path = write_isolated_config(
+        tmp_path,
+        output_dir=output_dir,
+        test_data_dir=tmp_path / "yaml-data-test",
     )
-
-    monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
+    enable_test_paths(monkeypatch, config_path)
 
     client = TestClient(create_app())
     response = client.get("/health")

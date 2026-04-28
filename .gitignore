@@ -24,6 +24,7 @@ test-results/
 .test-output/
 backend/data/
 backend/output/
+testdb/
 *.sqlite3
 *.db
 *.log

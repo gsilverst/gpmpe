@@ -20,6 +20,7 @@ from app.llm import (
     parse_llm_response,
     translate_and_apply,
 )
+from .conftest import make_test_client, write_isolated_config
 
 
 # ---------------------------------------------------------------------------
@@ -348,19 +349,15 @@ class TestTranslateAndApply:
 # ---------------------------------------------------------------------------
 
 def _write_config(tmp_path: Path, data_dir: Path, api_key: str | None = None) -> Path:
-    config_path = tmp_path / ".config"
-    output_dir = tmp_path / "output"
-    database_path = tmp_path / "db" / "test.db"
-    lines = [
-        f"OUTPUT_DIR={output_dir}",
-        f"DATABASE_PATH={database_path}",
-        f"DATA_DIR={data_dir}",
-        "COMMIT_ON_SAVE=false",
-    ]
-    if api_key:
-        lines.append(f"OPENROUTER_API_KEY={api_key}")
-    config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return config_path
+    return write_isolated_config(
+        tmp_path,
+        runtime_data_dir=tmp_path / "yaml-data-runtime",
+        test_data_dir=data_dir,
+        runtime_database_path=tmp_path / "db" / "runtime.db",
+        test_database_path=tmp_path / "db" / "test.db",
+        commit_on_save=False,
+        openrouter_api_key=api_key,
+    )
 
 
 def _seed_via_client(client) -> tuple[int, int]:
@@ -379,15 +376,10 @@ def _seed_via_client(client) -> tuple[int, int]:
 
 class TestChatEndpointWithLlm:
     def test_llm_applies_campaign_field(self, tmp_path, monkeypatch):
-        from fastapi.testclient import TestClient
-        from app.main import create_app
-
         data_dir = tmp_path / "data"
         data_dir.mkdir()
         config_path = _write_config(tmp_path, data_dir, api_key="test-key")
-        monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
-
-        client = TestClient(create_app())
+        client = make_test_client(monkeypatch, config_path)
         _, campaign_id = _seed_via_client(client)
         session_id = client.post("/chat/sessions").json()["session_id"]
 
@@ -403,15 +395,10 @@ class TestChatEndpointWithLlm:
         assert body["result"]["field"] == "title"
 
     def test_llm_clarify_forwarded_to_history(self, tmp_path, monkeypatch):
-        from fastapi.testclient import TestClient
-        from app.main import create_app
-
         data_dir = tmp_path / "data"
         data_dir.mkdir()
         config_path = _write_config(tmp_path, data_dir, api_key="test-key")
-        monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
-
-        client = TestClient(create_app())
+        client = make_test_client(monkeypatch, config_path)
         _, campaign_id = _seed_via_client(client)
         session_id = client.post("/chat/sessions").json()["session_id"]
 
@@ -428,15 +415,10 @@ class TestChatEndpointWithLlm:
         assert "assistant" in history_roles
 
     def test_no_api_key_falls_back_to_regex(self, tmp_path, monkeypatch):
-        from fastapi.testclient import TestClient
-        from app.main import create_app
-
         data_dir = tmp_path / "data"
         data_dir.mkdir()
         config_path = _write_config(tmp_path, data_dir, api_key=None)
-        monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
-
-        client = TestClient(create_app())
+        client = make_test_client(monkeypatch, config_path)
         _, campaign_id = _seed_via_client(client)
         session_id = client.post("/chat/sessions").json()["session_id"]
 
@@ -451,15 +433,10 @@ class TestChatEndpointWithLlm:
         assert "warning" not in body
 
     def test_llm_failure_falls_back_to_regex_with_warning(self, tmp_path, monkeypatch):
-        from fastapi.testclient import TestClient
-        from app.main import create_app
-
         data_dir = tmp_path / "data"
         data_dir.mkdir()
         config_path = _write_config(tmp_path, data_dir, api_key="test-key")
-        monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
-
-        client = TestClient(create_app())
+        client = make_test_client(monkeypatch, config_path)
         _, campaign_id = _seed_via_client(client)
         session_id = client.post("/chat/sessions").json()["session_id"]
 

@@ -7,6 +7,7 @@ from app.config import resolve_config
 from app.data_sync import discover_data_directory, sync_data_directory
 from app.db import connect_database, initialize_database
 from app.main import create_app
+from .conftest import enable_test_paths
 
 
 def _repo_root() -> Path:
@@ -20,9 +21,19 @@ def _sample_data_dir() -> Path:
 def _write_config(tmp_path: Path, data_dir: Path) -> Path:
     config_path = tmp_path / ".config"
     output_dir = tmp_path / "output"
-    database_path = tmp_path / "data" / "test.db"
+    database_path = tmp_path / "data" / "runtime.db"
+    test_database_path = tmp_path / "data" / "test.db"
     config_path.write_text(
-        f"OUTPUT_DIR={output_dir}\nDATABASE_PATH={database_path}\nDATA_DIR={data_dir}\n",
+        "\n".join(
+            [
+                f"OUTPUT_DIR={output_dir}",
+                f"DATABASE_PATH={database_path}",
+                f"DATA_DIR={tmp_path / 'yaml-data-runtime'}",
+                f"TEST_DATABASE_PATH={test_database_path}",
+                f"TEST_DATA_DIR={data_dir}",
+            ]
+        )
+        + "\n",
         encoding="utf-8",
     )
     return config_path
@@ -120,7 +131,7 @@ def test_discover_data_directory_ignores_non_campaign_subdirectories(tmp_path: P
 
 def test_sync_data_directory_populates_database(monkeypatch, tmp_path: Path) -> None:
     config_path = _write_config(tmp_path, _sample_data_dir())
-    monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
+    enable_test_paths(monkeypatch, config_path)
     config = resolve_config(repo_root=_repo_root(), cwd=_repo_root())
 
     initialize_database(config)
@@ -155,8 +166,7 @@ def test_resolve_config_uses_test_database_and_data_dir_together(monkeypatch, tm
         runtime_data_dir,
         test_data_dir,
     )
-    monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
-    monkeypatch.setenv("GPMPE_USE_TEST_PATHS", "true")
+    enable_test_paths(monkeypatch, config_path)
 
     with TestClient(create_app()):
         pass
@@ -189,7 +199,7 @@ def test_resolve_config_uses_test_database_and_data_dir_together(monkeypatch, tm
 
 def test_data_manager_api_reads_synced_sample_data(monkeypatch, tmp_path: Path) -> None:
     config_path = _write_config(tmp_path, _sample_data_dir())
-    monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
+    enable_test_paths(monkeypatch, config_path)
 
     with TestClient(create_app()) as client:
         businesses = client.get("/data-manager/businesses")
@@ -214,7 +224,7 @@ def test_data_manager_api_reads_synced_sample_data(monkeypatch, tmp_path: Path) 
 
 def test_manual_data_sync_endpoint_returns_summary(monkeypatch, tmp_path: Path) -> None:
     config_path = _write_config(tmp_path, _sample_data_dir())
-    monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
+    enable_test_paths(monkeypatch, config_path)
 
     with TestClient(create_app()) as client:
         response = client.post("/data/sync")
@@ -227,7 +237,7 @@ def test_manual_data_sync_endpoint_returns_summary(monkeypatch, tmp_path: Path) 
 
 def test_sync_data_directory_removes_stale_businesses_and_campaigns(monkeypatch, tmp_path: Path) -> None:
     config_path = _write_config(tmp_path, _sample_data_dir())
-    monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
+    enable_test_paths(monkeypatch, config_path)
     config = resolve_config(repo_root=_repo_root(), cwd=_repo_root())
 
     initialize_database(config)
@@ -327,7 +337,7 @@ def test_sync_data_directory_persists_components_and_export_round_trips(monkeypa
     )
 
     config_path = _write_config(tmp_path, data_dir)
-    monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
+    enable_test_paths(monkeypatch, config_path)
     config = resolve_config(repo_root=_repo_root(), cwd=_repo_root())
 
     initialize_database(config)

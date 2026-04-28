@@ -10,6 +10,7 @@ import yaml
 from app.chat import ParsedCloneCommand, parse_clone_command
 from app.data_sync import clone_campaign_directory
 from app.db import connect_database, initialize_database
+from .conftest import make_test_client, write_isolated_config
 
 
 # ---------------------------------------------------------------------------
@@ -210,25 +211,19 @@ def test_clone_raises_if_dest_exists(tmp_path):
 # ---------------------------------------------------------------------------
 
 def _write_config(tmp_path: Path, data_dir: Path) -> Path:
-    config_path = tmp_path / ".config"
-    output_dir = tmp_path / "output"
-    database_path = tmp_path / "db" / "test.db"
-    config_path.write_text(
-        f"OUTPUT_DIR={output_dir}\nDATABASE_PATH={database_path}\nDATA_DIR={data_dir}\n",
-        encoding="utf-8",
+    return write_isolated_config(
+        tmp_path,
+        runtime_data_dir=tmp_path / "data-runtime",
+        test_data_dir=data_dir,
+        runtime_database_path=tmp_path / "db" / "runtime.db",
+        test_database_path=tmp_path / "db" / "test.db",
     )
-    return config_path
 
 
 def test_chat_clone_via_endpoint(tmp_path, monkeypatch):
-    from fastapi.testclient import TestClient
-    from app.main import create_app
-
     data_dir = _setup_data_dir(tmp_path)
     config_path = _write_config(tmp_path, data_dir)
-    monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
-
-    client = TestClient(create_app())
+    client = make_test_client(monkeypatch, config_path)
 
     # Seed the DB by syncing the data dir
     resp = client.post("/data/sync")

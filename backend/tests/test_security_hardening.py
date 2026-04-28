@@ -3,20 +3,12 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.main import create_app
+from .conftest import make_test_client, write_isolated_config
 
 
 def _make_client(monkeypatch, tmp_path: Path) -> TestClient:
-    config_path = tmp_path / ".config"
-    output_dir = tmp_path / "output"
-    database_path = tmp_path / "data" / "test.db"
-    data_dir = tmp_path / "yaml-data"
-    config_path.write_text(
-        f"OUTPUT_DIR={output_dir}\nDATABASE_PATH={database_path}\nDATA_DIR={data_dir}\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
-    return TestClient(create_app())
+    config_path = write_isolated_config(tmp_path, test_data_dir=tmp_path / "yaml-data-test")
+    return make_test_client(monkeypatch, config_path)
 
 
 def _seed_business_and_campaign(client: TestClient) -> tuple[int, int]:

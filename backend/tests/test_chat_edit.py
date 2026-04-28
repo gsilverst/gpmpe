@@ -4,7 +4,7 @@ import subprocess
 from fastapi.testclient import TestClient
 import yaml
 
-from app.main import create_app
+from .conftest import make_test_client, write_isolated_config
 
 
 def _write_config(
@@ -13,34 +13,19 @@ def _write_config(
     commit_on_save: bool = True,
     with_git_settings: bool = False,
 ) -> Path:
-    config_path = tmp_path / ".config"
-    output_dir = tmp_path / "output"
-    database_path = tmp_path / "data" / "test.db"
-    data_dir = tmp_path / "yaml-data"
-    lines = [
-        f"OUTPUT_DIR={output_dir}",
-        f"DATABASE_PATH={database_path}",
-        f"DATA_DIR={data_dir}",
-        f"COMMIT_ON_SAVE={'true' if commit_on_save else 'false'}",
-    ]
-    if with_git_settings:
-        lines.extend(
-            [
-                "GIT_REPO_PATH=.",
-                "GIT_USER_NAME=Test User",
-                "GIT_USER_EMAIL=test@example.com",
-            ]
-        )
-    config_path.write_text(
-        "\n".join(lines) + "\n",
-        encoding="utf-8",
+    config_path = write_isolated_config(
+        tmp_path,
+        test_data_dir=tmp_path / "yaml-data-test",
+        commit_on_save=commit_on_save,
+        git_repo_path="." if with_git_settings else None,
+        git_user_name="Test User" if with_git_settings else None,
+        git_user_email="test@example.com" if with_git_settings else None,
     )
     return config_path
 
 
 def _make_client(monkeypatch, config_path: Path) -> TestClient:
-    monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
-    return TestClient(create_app())
+    return make_test_client(monkeypatch, config_path)
 
 
 def _seed_campaign(client: TestClient) -> tuple[int, int]:
@@ -175,8 +160,8 @@ def test_chat_edit_persists_updates_to_yaml_on_mutation(monkeypatch, tmp_path: P
     )
     assert update_brand.status_code == 200
 
-    business_yaml = tmp_path / "yaml-data" / "Acme" / "Acme.yaml"
-    campaign_yaml = tmp_path / "yaml-data" / "Acme" / "Summer" / "Summer.yaml"
+    business_yaml = tmp_path / "yaml-data-test" / "Acme" / "Acme.yaml"
+    campaign_yaml = tmp_path / "yaml-data-test" / "Acme" / "Summer" / "Summer.yaml"
 
     assert business_yaml.exists()
     assert campaign_yaml.exists()
