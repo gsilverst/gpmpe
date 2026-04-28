@@ -2,15 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
+# Project Overview
 
-GPMPG is a general purpose marketing promotions generator for small businesses to generate flyers, posters, and other marketing material in the form of pdfs. The app is deployed as a single Docker container serving both static frontend assets and the API. The goal is to refactor an existing proprietary single-promotion flyer generator into a general purpose engine that can implement arbitrary marketing promotions with all business specific information (logo, branding, colors, address, phone number, email, website, hours, etc.) stored in the database along with any information related to the promotion itself.
+GPMPE is a general purpose marketing promotions engine for small businesses to generate flyers, posters, and other marketing material in the form of pdfs. The app is deployed as a single Docker container serving both static frontend assets and the API. The goal is to refactor an existing proprietary single-promotion flyer generator into a general purpose engine that can implement arbitrary marketing promotions with all business specific information (logo, branding, colors, address, phone number, email, website, hours, etc.) stored in the database along with any information related to the promotion itself.
 
 ## Architecture
 
 ### Stack
 - **Frontend:** Next.js (App Router), React, TypeScript, Tailwind CSS v4, dnd-kit for drag-and-drop
-- **Backend:** Python 3.12, FastAPI, SQLite (auto-created at `backend/data/gpmpg.db`)
+- **Backend:** Python 3.12, FastAPI, SQLite (auto-created at `backend/data/gpmpe.db`)
 - **AI:** OpenRouter API (`openai/gpt-oss-120b`) via `OPENROUTER_API_KEY` in `.env`
 
 

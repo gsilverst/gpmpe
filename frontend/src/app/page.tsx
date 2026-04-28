@@ -30,11 +30,11 @@ export default function HomePage() {
     <main>
       <div className="page-header">
         <div>
-          <h1>GPMPG</h1>
-          <p>General Purpose Marketing Promotions Generator</p>
+          <h1>GPMPE</h1>
+          <p>General Purpose Marketing Promotions Engine</p>
         </div>
         <Link className="text-link" href="/data-manager">
-          Open Step 4a Data Manager
+          Open GPMPE Data Manager
         </Link>
       </div>
 

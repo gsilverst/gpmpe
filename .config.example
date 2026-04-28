@@ -1,6 +1,6 @@
-# GPMPG local config (KEY=VALUE)
+# GPMPE local config (KEY=VALUE)
 # Leave OUTPUT_DIR unset to default to your current working directory.
-# Leave DATABASE_PATH unset to default to backend/data/gpmpg.db.
+# Leave DATABASE_PATH unset to default to backend/data/gpmpe.db.
 # DATA_DIR points to the repository-managed YAML tree used for Step 4a+ data sync.
 # COMMIT_ON_SAVE controls whether explicit save actions attempt a git commit.
 # Default is true.
@@ -8,7 +8,7 @@
 # Save is also a no-op unless all git settings below are provided.
 
 OUTPUT_DIR=./output
-DATABASE_PATH=./backend/data/gpmpg.db
+DATABASE_PATH=./backend/data/gpmpe.db
 DATA_DIR=./tests/data
 COMMIT_ON_SAVE=true
 GIT_REPO_PATH=.

@@ -15,7 +15,7 @@ def test_health_returns_ok_and_output_dir(monkeypatch, tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("GPMPG_CONFIG_FILE", str(config_path))
+    monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
 
     client = TestClient(create_app())
     response = client.get("/health")

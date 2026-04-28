@@ -401,7 +401,7 @@ def _campaign_snapshot(connection: Any, display_name: str, campaign_name: str, q
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="GPMPG API", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="GPMPE API", version="0.1.0", lifespan=lifespan)
     chat_store = ChatSessionStore()
 
     app.add_middleware(

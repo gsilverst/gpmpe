@@ -39,7 +39,7 @@ def _write_config(
 
 
 def _make_client(monkeypatch, config_path: Path) -> TestClient:
-    monkeypatch.setenv("GPMPG_CONFIG_FILE", str(config_path))
+    monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
     return TestClient(create_app())
 
 

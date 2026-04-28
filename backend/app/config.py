@@ -61,7 +61,7 @@ def _resolve_path(value: str, cwd: Path) -> Path:
 def _use_test_paths_flag(explicit: bool | None) -> bool:
     if explicit is not None:
         return explicit
-    return _parse_bool(os.getenv("GPMPG_USE_TEST_PATHS"), default=False)
+    return _parse_bool(os.getenv("GPMPE_USE_TEST_PATHS"), default=False)
 
 
 def resolve_config(
@@ -72,7 +72,7 @@ def resolve_config(
     root = repo_root or Path(__file__).resolve().parents[2]
     working_directory = (cwd or Path.cwd()).resolve()
 
-    override_path = os.getenv("GPMPG_CONFIG_FILE")
+    override_path = os.getenv("GPMPE_CONFIG_FILE")
     config_path = Path(override_path).resolve() if override_path else (root / ".config")
     config_directory = config_path.parent.resolve()
 
@@ -99,7 +99,7 @@ def resolve_config(
         if database_value:
             database_path = _resolve_path(database_value, config_directory)
         else:
-            database_path = (root / "backend" / "data" / "gpmpg.db").resolve()
+            database_path = (root / "backend" / "data" / "gpmpe.db").resolve()
         data_dir = _resolve_path(data_dir_value, config_directory)
 
     commit_on_save = _parse_bool(values.get("COMMIT_ON_SAVE"), default=True)

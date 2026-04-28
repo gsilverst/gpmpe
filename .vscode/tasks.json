@@ -2,21 +2,21 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"label": "Run GPMPG Backend",
+			"label": "Run GPMPE Backend",
 			"type": "shell",
 			"command": "cd backend && ../.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000",
 			"isBackground": true,
 			"group": "build"
 		},
 		{
-			"label": "Run GPMPG Frontend",
+			"label": "Run GPMPE Frontend",
 			"type": "shell",
 			"command": "cd frontend && npm run dev -- --hostname 127.0.0.1",
 			"isBackground": true,
 			"group": "build"
 		},
 		{
-			"label": "Test GPMPG Backend",
+			"label": "Test GPMPE Backend",
 			"type": "shell",
 			"command": "cd backend && ../.venv/bin/python -m pytest -q",
 			"group": "test",
@@ -26,7 +26,7 @@
 			}
 		},
 		{
-			"label": "Test GPMPG Frontend",
+			"label": "Test GPMPE Frontend",
 			"type": "shell",
 			"command": "cd frontend && npm test",
 			"group": "test",

@@ -1,7 +1,7 @@
 [project]
-name = "gpmpg-backend"
+name = "gpmpe-backend"
 version = "0.1.0"
-description = "Backend API for GPMPG"
+description = "Backend API for GPMPE"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.116.0,<1.0.0",

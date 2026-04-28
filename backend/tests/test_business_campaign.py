@@ -15,7 +15,7 @@ def _make_client(monkeypatch, tmp_path: Path) -> TestClient:
         f"OUTPUT_DIR={output_dir}\nDATABASE_PATH={database_path}\nDATA_DIR={data_dir}\n",
         encoding="utf-8",
     )
-    monkeypatch.setenv("GPMPG_CONFIG_FILE", str(config_path))
+    monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
     return TestClient(create_app())
 
 

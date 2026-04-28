@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "GPMPG",
-  description: "General Purpose Marketing Promotions Generator",
+  title: "GPMPE",
+  description: "General Purpose Marketing Promotions Engine",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

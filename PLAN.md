@@ -1,4 +1,4 @@
-# GPMPG Implementation Plan
+# GPMPE Implementation Plan
 
 ## Goals
 - Refactor an existing proprietary single-promotion flyer generator into a general-purpose marketing promotions engine.
@@ -346,7 +346,7 @@ Implementation highlights:
 - Identify the exact input data and rendering rules required to reproduce the current PDF.
 - Rebuild those rules inside the generalized model without preserving old storage structures.
 - Add parity fixtures that prove the refactored system can emit the same PDF output.
-- Ensure parity scenarios can be represented through repository YAML data inputs used by GPMPG users.
+- Ensure parity scenarios can be represented through repository YAML data inputs used by GPMPE users.
 - Keep any proprietary source-specific notes, parity references, or local fixture details in ignored local planning files under `local/notes/` rather than in tracked repository files.
 
 Testing highlights:

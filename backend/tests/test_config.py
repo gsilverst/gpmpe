@@ -37,7 +37,7 @@ def test_resolve_config_loads_configured_data_dir(tmp_path: Path) -> None:
     config = resolve_config(repo_root=repo_root, cwd=tmp_path)
 
     assert config.output_dir == tmp_path.resolve()
-    assert config.database_path == (repo_root / "backend" / "data" / "gpmpg.db").resolve()
+    assert config.database_path == (repo_root / "backend" / "data" / "gpmpe.db").resolve()
     assert config.data_dir == (repo_root / "tests" / "data").resolve()
     assert config.using_test_paths is False
     assert config.commit_on_save is True

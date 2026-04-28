@@ -224,7 +224,7 @@ export default function DataManagerPage() {
     <main>
       <div className="page-header">
         <div>
-          <h1>Step 4a Data Manager</h1>
+          <h1>GPMPE Data Manager</h1>
           <p>Inspection view for YAML-synced business and campaign data.</p>
           <p>This screen reads from SQLite after the backend imports YAML into the database at startup.</p>
         </div>

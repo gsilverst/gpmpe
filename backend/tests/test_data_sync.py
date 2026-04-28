@@ -94,7 +94,7 @@ def test_discover_data_directory_rejects_unsafe_names(tmp_path: Path) -> None:
 
 def test_sync_data_directory_populates_database(monkeypatch, tmp_path: Path) -> None:
     config_path = _write_config(tmp_path, _sample_data_dir())
-    monkeypatch.setenv("GPMPG_CONFIG_FILE", str(config_path))
+    monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
     config = resolve_config(repo_root=_repo_root(), cwd=_repo_root())
 
     initialize_database(config)
@@ -129,8 +129,8 @@ def test_resolve_config_uses_test_database_and_data_dir_together(monkeypatch, tm
         runtime_data_dir,
         test_data_dir,
     )
-    monkeypatch.setenv("GPMPG_CONFIG_FILE", str(config_path))
-    monkeypatch.setenv("GPMPG_USE_TEST_PATHS", "true")
+    monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
+    monkeypatch.setenv("GPMPE_USE_TEST_PATHS", "true")
 
     with TestClient(create_app()):
         pass
@@ -163,7 +163,7 @@ def test_resolve_config_uses_test_database_and_data_dir_together(monkeypatch, tm
 
 def test_data_manager_api_reads_synced_sample_data(monkeypatch, tmp_path: Path) -> None:
     config_path = _write_config(tmp_path, _sample_data_dir())
-    monkeypatch.setenv("GPMPG_CONFIG_FILE", str(config_path))
+    monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
 
     with TestClient(create_app()) as client:
         businesses = client.get("/data-manager/businesses")
@@ -188,7 +188,7 @@ def test_data_manager_api_reads_synced_sample_data(monkeypatch, tmp_path: Path) 
 
 def test_sync_data_directory_removes_stale_businesses_and_campaigns(monkeypatch, tmp_path: Path) -> None:
     config_path = _write_config(tmp_path, _sample_data_dir())
-    monkeypatch.setenv("GPMPG_CONFIG_FILE", str(config_path))
+    monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
     config = resolve_config(repo_root=_repo_root(), cwd=_repo_root())
 
     initialize_database(config)
@@ -286,7 +286,7 @@ def test_sync_data_directory_persists_components_and_export_round_trips(monkeypa
     )
 
     config_path = _write_config(tmp_path, data_dir)
-    monkeypatch.setenv("GPMPG_CONFIG_FILE", str(config_path))
+    monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
     config = resolve_config(repo_root=_repo_root(), cwd=_repo_root())
 
     initialize_database(config)
