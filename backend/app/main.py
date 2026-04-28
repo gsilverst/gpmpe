@@ -17,9 +17,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator, model_validator
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from .chat import ChatSessionStore, apply_chat_command, parse_chat_command
+from .chat import ChatSessionStore, ParsedCloneCommand, apply_chat_command, parse_chat_command, parse_clone_command
 from .config import resolve_config
-from .data_sync import sync_data_directory
+from .data_sync import clone_campaign_directory, sync_data_directory
 from .db import connect_database, initialize_database
 from .git_store import GitStoreError, auto_commit_paths
 from .renderer import render_campaign_artifact
@@ -1181,6 +1181,39 @@ def create_app() -> FastAPI:
     def post_chat_message(session_id: str, payload: ChatMessageRequest) -> dict[str, Any]:
         if not chat_store.exists(session_id):
             raise HTTPException(status_code=404, detail="Chat session not found")
+
+        clone_cmd = parse_clone_command(payload.message)
+        if clone_cmd is not None:
+            config = resolve_config()
+            with connect_database(config) as connection:
+                try:
+                    record = clone_campaign_directory(
+                        connection,
+                        config.data_dir,
+                        source_campaign_name=clone_cmd.source_campaign_name,
+                        new_campaign_name=clone_cmd.new_campaign_name,
+                        business_name=clone_cmd.business_name,
+                    )
+                    connection.commit()
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+            chat_store.append(session_id, "user", payload.message)
+            chat_store.append(
+                session_id,
+                "system",
+                f"Cloned campaign '{clone_cmd.source_campaign_name}' to '{clone_cmd.new_campaign_name}'",
+            )
+            return {
+                "session_id": session_id,
+                "result": {
+                    "target": "clone",
+                    "source_campaign_name": clone_cmd.source_campaign_name,
+                    "new_campaign_name": clone_cmd.new_campaign_name,
+                    "new_campaign_title": record.payload.get("title"),
+                },
+                "history": chat_store.history(session_id),
+            }
 
         command = parse_chat_command(payload.message)
 

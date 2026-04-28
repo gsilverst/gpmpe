@@ -384,7 +384,95 @@ Testing and validation:
 Phase gate:
 - A developer can go from `git clone` to a running application with a single command (`docker compose up`).
 
-### Step 11: Repository Visibility Cutover (Private -> Public)
+### Step 10a: Campaign Cloning via Chat
+Objective:
+- Allow users to create a new campaign by cloning an existing one through a natural-language chat message, without requiring any manual file operations.
+
+Why this step is needed:
+- A typical campaign workflow starts from an existing promotion rather than from scratch.
+- Users should be able to say "clone merci-may-sales2 and rename it to main-street-appreciation" and have the system produce a ready-to-edit campaign with the correct directory structure, YAML file, and DB record.
+- Manual directory copying is error-prone and not discoverable from the UI.
+
+Implementation highlights:
+- Add `parse_clone_command()` to `chat.py` using a flexible regex that recognizes natural-language clone phrasings:
+  - `"clone <source> and rename it to <new_name>"`
+  - `"cloning the <source> promotion and renaming it to <new_name>"`
+  - Optional `"for <business>"` business-scope hint
+  - Trailing punctuation is stripped from matched slugs
+- Add `ParsedCloneCommand` dataclass (source slug, new slug, optional business hint).
+- Add `clone_campaign_directory()` to `data_sync.py`:
+  - Locates source campaign directory under `DATA_DIR` (optionally scoped by business)
+  - `shutil.copytree`s the directory to the new slug name
+  - Renames `<source>.yaml` to `<new_name>.yaml` inside the copy
+  - Updates `campaign_name`, `display_name`, and `title` in the YAML
+  - Auto-generates a human-readable title from the slug when no explicit title is provided (hyphens/underscores → spaces, title-case)
+  - Syncs the new campaign into the DB immediately
+- Update `post_chat_message` in `main.py` to check for clone intent before falling through to the existing `parse_chat_command` regex router.
+- Return `{"target": "clone", "source_campaign_name": ..., "new_campaign_name": ..., "new_campaign_title": ...}` on success.
+- Raise HTTP 400 if source is not found or destination already exists.
+
+Testing highlights:
+- `parse_clone_command` unit tests for verbose natural language, short form, business-hint form, and non-matching messages.
+- `clone_campaign_directory` tests for: directory and YAML creation, slug rename, auto-generated title, explicit title, DB sync, source-not-found error, destination-exists error.
+- Chat endpoint integration test: POST to `/chat/sessions/{id}/messages` with a clone message and verify new YAML directory exists.
+
+Phase gate:
+- Users can create a new campaign from an existing one via a single natural-language chat message.
+
+### Step 11: LLM-Backed Chat Interface
+Objective:
+- Replace the current regex-only command router with an AI-powered natural-language interface backed by OpenRouter, while keeping all mutations deterministic and schema-validated on the server side.
+
+Why this step is needed:
+- The current chat system only accepts rigid `set <field> to <value>` syntax and has no knowledge of the campaign schema or current data context.
+- Users need to issue commands like "change the title of the primary campaign to MAIN STREET APPRECIATION SPECIALS" or "update the display_title of the mothers-day-specials component" without memorizing exact field names and syntax.
+- The LLM acts as a natural-language-to-structured-command translator; it does not perform mutations itself.
+
+Design principles:
+- The LLM is a translator, not a data store. It converts user intent into structured edit commands that are then validated and applied by existing server-side handlers.
+- The server always validates the structured command before applying it; LLM output is never trusted as raw SQL or as a direct DB update.
+- The system prompt gives the LLM full context: data schema, current business record, current campaign record, all components, all offers, and available field names.
+- The LLM returns a JSON command object (or array of commands for multi-field updates) that maps to the existing `ParsedCommand` / `ParsedCloneCommand` types.
+- If the LLM cannot translate the request into a valid structured command, it returns a clarifying question instead of a malformed command; the server forwards this to the user as a chat reply.
+
+Implementation highlights:
+- Add `OPENROUTER_API_KEY` to `.config` (never committed; added to `.gitignore` / `.config.example`).
+- Add `openai` or `httpx`-based OpenRouter client in a new `backend/app/llm.py` module.
+- Model: `openai/gpt-oss-120b` via `https://openrouter.ai/api/v1`.
+- Build a `build_system_prompt(connection, campaign_id)` function that serializes:
+  - Full schema description (field names, types, allowed values for enums, component kinds)
+  - Current business record (name, contacts, locations, brand theme)
+  - Current campaign record (title, objective, status, dates, footnote_text)
+  - All campaign components (component_key, display_title, component_kind, items)
+  - All campaign offers (offer_name, offer_value, dates, terms_text)
+  - Available edit command structures with examples
+- The LLM responds with a JSON block: `{"action": "set_campaign_field", "field": "title", "value": "MAIN STREET APPRECIATION SPECIALS"}` or `{"action": "set_component_field", "component_key": "mothers-day-specials", "field": "display_title", "value": "..."}` or `{"action": "clone", ...}` or `{"action": "clarify", "message": "..."}`.
+- Add `parse_llm_response(response_text)` that extracts and validates the JSON command from the LLM reply.
+- Update `post_chat_message` to: detect clone intent (existing regex, fast path) → call LLM for all other messages → dispatch the structured command to existing handlers → persist YAML → return result.
+- Add `set_component_field` action support in `apply_chat_command` for updating `display_title`, `subtitle`, `description_text`, `footnote_text` on a component by `component_key`.
+- Keep the regex fast-path for clone commands (no LLM needed).
+- Add graceful degradation: if `OPENROUTER_API_KEY` is not set or the LLM call fails, fall back to the existing regex router and return a user-visible warning.
+
+Schema additions:
+- No new tables required. Component-field edits use existing `campaign_components` table columns.
+
+YAML write-back:
+- Component field updates must be reflected in YAML write-back (already supported by `yaml_store.py`).
+
+Testing highlights:
+- Unit tests for `build_system_prompt` output structure (contains field names, enum values, current campaign state).
+- Unit tests for `parse_llm_response` handling valid JSON, wrapped JSON (in markdown fences), missing fields, and unknown actions.
+- Integration test with a mocked LLM response verifying the full `post_chat_message` path: LLM mock returns a `set_campaign_field` command → handler applies it → YAML is updated.
+- Integration test for `set_component_field` action updating `display_title` on a named component.
+- Graceful-degradation test: no API key configured → falls back to regex router → returns warning in response.
+- LLM error test: API call raises exception → graceful error returned, no partial mutation applied.
+
+Phase gate:
+- Users can issue free-form natural-language commands to edit any campaign or component field.
+- All mutations remain server-side validated; LLM output is never applied without schema check.
+- Fallback to regex mode works when LLM is unavailable.
+
+### Step 12: Repository Visibility Cutover (Private -> Public)
 Objective:
 - Keep the GitHub repository private until all project requirements are fully met and accepted.
 
@@ -436,8 +524,12 @@ Phase gate:
   - Multiple offers with date constraints and conflict validation.
   - Template override precedence between business defaults and campaign overrides.
 - Chat-driven editing:
-  - User edit request updates the correct campaign fields.
-  - Invalid edit request is rejected with actionable validation output.
+  - User natural-language edit request is translated by LLM into a structured command and applied correctly.
+  - Component-level edits (display_title, subtitle, footnote_text) update the correct component by key.
+  - Clone command creates the correct directory structure and DB record from a natural-language message.
+  - Invalid structured command from LLM is rejected with actionable validation output.
+  - Clarification response from LLM is forwarded to the user without applying any mutation.
+  - Graceful degradation when OPENROUTER_API_KEY is absent: falls back to regex router.
   - Current-state persistence reflects the latest accepted edit only.
 - Artifacts:
   - PDF generation success path with checksum stored.
@@ -454,8 +546,8 @@ Phase gate:
 ## Risks and Mitigations
 - Risk: Overfitting schema to current flyer use case.
   - Mitigation: Keep offer/template/asset entities normalized and loosely coupled.
-- Risk: Chat interface grows into an unnecessary AI subsystem.
-  - Mitigation: Keep edit handling deterministic and limited to explicit state updates.
+- Risk: Chat interface grows into an uncontrolled AI subsystem that applies mutations without validation.
+  - Mitigation: LLM acts as a translator only; all mutations flow through schema-validated server-side handlers. LLM output is never trusted as raw SQL or as a direct DB update. Regex fast-path for clone commands keeps simple operations free of LLM latency.
 - Risk: YAML drift between repository files and runtime DB shape.
   - Mitigation: Define versioned YAML schema and enforce strict validation with actionable errors.
 - Risk: User-facing business/campaign names conflict with filesystem-safe naming requirements.

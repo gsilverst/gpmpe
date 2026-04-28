@@ -14,6 +14,15 @@ CAMPAIGN_FIELDS = {"title", "objective", "status", "start_date", "end_date"}
 OFFER_FIELDS = {"offer_value", "start_date", "end_date", "terms_text"}
 BRAND_FIELDS = {"primary_color", "secondary_color", "accent_color", "font_family", "logo_path"}
 
+# Matches: "clone <source> [and] rename [it] to <new_name> [for <business>]"
+# Also accepts more verbose natural-language phrasings ("cloning the X ... renaming it to Y").
+_CLONE_PATTERN = re.compile(
+    r"clon(?:e|ing)\s+(?:the\s+)?(?P<source>[A-Za-z0-9._-]+)"
+    r"(?:.*?renam(?:e|ing)(?:\s+it)?\s+to\s+(?P<new_name>[A-Za-z0-9._-]+))"
+    r"(?:.*?(?:for\s+(?P<business>[A-Za-z0-9._-]+)))?",
+    re.IGNORECASE | re.DOTALL,
+)
+
 CAMPAIGN_PATTERN = re.compile(r"^set\s+(title|objective|status|start_date|end_date)\s+to\s+(.+)$", re.IGNORECASE)
 OFFER_PATTERN = re.compile(
     r"^set\s+offer\s+(\d+)\s+(offer_value|start_date|end_date|terms_text)\s+to\s+(.+)$",
@@ -31,6 +40,13 @@ class ParsedCommand:
     field: str
     value: str
     offer_id: int | None = None
+
+
+@dataclass(frozen=True)
+class ParsedCloneCommand:
+    source_campaign_name: str  # slug of the campaign to clone
+    new_campaign_name: str     # slug for the new campaign
+    business_name: str | None  # optional business slug hint from the message
 
 
 class ChatSessionStore:
@@ -54,6 +70,28 @@ class ChatSessionStore:
         if session_id not in self._sessions:
             raise KeyError(session_id)
         return list(self._sessions[session_id])
+
+
+def parse_clone_command(message: str) -> ParsedCloneCommand | None:
+    """Return a ParsedCloneCommand if the message expresses a clone intent, else None."""
+    match = _CLONE_PATTERN.search(message)
+    if match is None:
+        return None
+    source = match.group("source")
+    new_name = match.group("new_name")
+    business = match.group("business")
+    if not source or not new_name:
+        return None
+    # Strip trailing punctuation that the regex may have included
+    source = source.rstrip(".,;:!?")
+    new_name = new_name.rstrip(".,;:!?")
+    if business:
+        business = business.rstrip(".,;:!?")
+    return ParsedCloneCommand(
+        source_campaign_name=source,
+        new_campaign_name=new_name,
+        business_name=business,
+    )
 
 
 def parse_chat_command(message: str) -> ParsedCommand:

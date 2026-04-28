@@ -5,6 +5,7 @@ from datetime import date
 import json
 from pathlib import Path
 import re
+import shutil
 import sqlite3
 from typing import Any
 
@@ -494,3 +495,87 @@ def sync_data_directory(connection: sqlite3.Connection, data_dir: Path) -> SyncS
     _reconcile_businesses(connection, records)
     _delete_orphaned_template_definitions(connection)
     return SyncSummary(businesses_synced=len(records), campaigns_synced=campaigns_synced)
+
+
+def clone_campaign_directory(
+    connection: sqlite3.Connection,
+    data_dir: Path,
+    source_campaign_name: str,
+    new_campaign_name: str,
+    business_name: str | None = None,
+    new_title: str | None = None,
+) -> CampaignYamlRecord:
+    """Copy a campaign YAML directory tree to a new slug name.
+
+    Locates *source_campaign_name* under *data_dir* (optionally scoped to
+    *business_name*).  Copies the directory, renames the YAML file, and
+    updates ``campaign_name``, ``display_name``, and ``title`` inside it.
+    Then syncs the new campaign into the database and returns the record.
+
+    Raises ``ValueError`` if the source campaign cannot be found or the
+    destination already exists.
+    """
+    _ensure_safe_name(new_campaign_name, "campaign")
+
+    # Locate source directory
+    source_dir: Path | None = None
+    source_business_dir: Path | None = None
+    for business_dir in sorted(p for p in data_dir.iterdir() if p.is_dir()):
+        if business_name and business_dir.name.lower() != business_name.lower():
+            continue
+        candidate = business_dir / source_campaign_name
+        if candidate.is_dir() and (candidate / f"{source_campaign_name}.yaml").exists():
+            source_dir = candidate
+            source_business_dir = business_dir
+            break
+
+    if source_dir is None or source_business_dir is None:
+        raise ValueError(
+            f"Source campaign '{source_campaign_name}' not found under '{data_dir}'"
+            + (f" for business '{business_name}'" if business_name else "")
+        )
+
+    dest_dir = source_business_dir / new_campaign_name
+    if dest_dir.exists():
+        raise ValueError(f"Destination '{dest_dir}' already exists")
+
+    # Copy tree
+    shutil.copytree(source_dir, dest_dir)
+
+    # Rename the YAML file inside the copy
+    old_yaml = dest_dir / f"{source_campaign_name}.yaml"
+    new_yaml = dest_dir / f"{new_campaign_name}.yaml"
+    old_yaml.rename(new_yaml)
+
+    # Update campaign_name, display_name, and title inside the YAML
+    payload = _load_yaml_file(new_yaml)
+    payload["campaign_name"] = new_campaign_name
+    payload["display_name"] = new_campaign_name
+    if new_title:
+        payload["title"] = new_title
+    else:
+        # Generate a title from the slug (replace hyphens/underscores with spaces, title-case)
+        payload["title"] = new_campaign_name.replace("-", " ").replace("_", " ").title()
+
+    with new_yaml.open("w", encoding="utf-8") as handle:
+        import yaml as _yaml
+        _yaml.dump(payload, handle, allow_unicode=True, sort_keys=False)
+
+    # Sync the new campaign into the DB
+    record = CampaignYamlRecord(
+        directory_name=new_campaign_name,
+        file_path=new_yaml,
+        payload=payload,
+    )
+    business_yaml = source_business_dir / f"{source_business_dir.name}.yaml"
+    business_payload = _load_yaml_file(business_yaml)
+    business_record = BusinessYamlRecord(
+        directory_name=source_business_dir.name,
+        file_path=business_yaml,
+        payload=business_payload,
+        campaigns=[record],
+    )
+    business_id = _sync_business(connection, business_record)
+    _sync_campaign(connection, business_id, record)
+
+    return record
