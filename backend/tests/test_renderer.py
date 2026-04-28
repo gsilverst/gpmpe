@@ -534,7 +534,7 @@ def test_render_flyer_preserves_weekday_item_order(monkeypatch) -> None:
     ]
 
 
-def test_render_flyer_appends_component_markers_and_footer_footnotes(monkeypatch) -> None:
+def test_render_flyer_places_component_footnote_in_box_and_campaign_footnote_in_footer(monkeypatch) -> None:
     from app import renderer as renderer_module
 
     centered_texts: list[str] = []
@@ -607,5 +607,5 @@ def test_render_flyer_appends_component_markers_and_footer_footnotes(monkeypatch
 
     assert pdf_bytes.startswith(b"%PDF")
     assert any(text.endswith(" **") for text in centered_texts if "FEATURED" in text.upper())
-    assert "** Featured section terms" in wrapped_texts
+    assert "** Featured section terms" in centered_texts
     assert "** Promotion-wide disclaimer" in wrapped_texts

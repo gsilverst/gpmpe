@@ -64,6 +64,8 @@ def _palette(ctx: dict[str, Any]) -> dict[str, Any]:
     blush = _hex(ev.get("color_blush"), "#E8D5F0")
     card_1_bg = _hex(ev.get("color_card_1_bg"), "#F0E0FF")
     primary_light = _hex(ev.get("color_primary_light"), "#D5C8E8")
+    legal_bg = _hex(ev.get("color_legal_bg"), _string_hex(primary_light))
+    legal_border = _hex(ev.get("color_legal_border"), _string_hex(secondary))
     return {
         "primary": primary,
         "secondary": secondary,
@@ -72,9 +74,19 @@ def _palette(ctx: dict[str, Any]) -> dict[str, Any]:
         "blush": blush,
         "card_1_bg": card_1_bg,
         "primary_light": primary_light,
+        "legal_bg": legal_bg,
+        "legal_border": legal_border,
         "ink": _COLOR_INK,
         "white": _COLOR_WHITE,
     }
+
+
+def _string_hex(color_value: Any) -> str:
+    # reportlab Color objects expose rgb() values in 0..1; convert to #RRGGBB.
+    if hasattr(color_value, "rgb"):
+        r, g, b = color_value.rgb()
+        return f"#{int(r * 255):02X}{int(g * 255):02X}{int(b * 255):02X}"
+    return "#000000"
 
 
 # ---------------------------------------------------------------------------
@@ -241,15 +253,12 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
     _draw_centered(pdf, biz_sub, w / 2, _HEADER_Y + 8,
                    "Times-Italic", 16, palette["primary_light"])
 
-    component_footnotes: list[str] = []
-
     def title_with_marker(component: dict[str, Any] | None) -> str:
         if component is None:
             return ""
         title = component.get("display_title") or ""
         footnote = (component.get("footnote_text") or "").strip()
         if footnote:
-            component_footnotes.append(footnote)
             return f"{title} **"
         return title
 
@@ -290,6 +299,11 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
                              i0.get("item_name") or "", i0.get("duration_label") or "",
                              i0.get("item_value") or "",
                              palette["card_1_bg"], palette["accent"], _COLOR_INK)
+
+        comp_note = (comp.get("footnote_text") or "").strip()
+        if comp_note:
+            _draw_centered(pdf, f"** {comp_note}", w / 2, _FEATURED_Y + 9,
+                           "Helvetica", 8.5, _COLOR_INK)
 
     # ----- Weekday specials panel -----
     _draw_rounded_panel(pdf, hx, _WEEKDAY_Y, panel_w, _WEEKDAY_H,
@@ -356,7 +370,7 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
     # ----- Legal strip (below weekday panel) -----
     legal_inner_w = panel_w - 40
     _draw_rounded_panel(pdf, hx + 20, _LEGAL_Y, legal_inner_w, _LEGAL_H,
-                        palette["primary_light"], palette["secondary"], radius=10, stroke_w=1)
+                        palette["legal_bg"], palette["legal_border"], radius=10, stroke_w=1)
 
     legal_text = ""
     if legal:
@@ -368,9 +382,9 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
                        "Helvetica-Bold", 10, _COLOR_INK)
 
     campaign_footnote = (ctx.get("campaign_footnote_text") or "").strip()
-    footer_notes = [f"** {note}" for note in component_footnotes]
+    footer_notes: list[str] = []
     if campaign_footnote:
-        footer_notes.append(f"** {campaign_footnote}")
+        footer_notes = [f"** {campaign_footnote}"]
     if footer_notes:
         note_y = 18.0
         for note in footer_notes[:2]:
