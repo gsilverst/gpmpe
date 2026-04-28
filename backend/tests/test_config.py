@@ -39,15 +39,28 @@ def test_resolve_config_loads_configured_data_dir(tmp_path: Path) -> None:
     assert config.output_dir == tmp_path.resolve()
     assert config.database_path == (repo_root / "backend" / "data" / "gpmpg.db").resolve()
     assert config.data_dir == (repo_root / "tests" / "data").resolve()
-    assert config.yaml_auto_commit is False
+    assert config.commit_on_save is True
+    assert config.git_repo_path is None
+    assert config.git_user_name is None
+    assert config.git_user_email is None
 
 
-def test_resolve_config_reads_yaml_auto_commit_flag(tmp_path: Path) -> None:
+def test_resolve_config_reads_commit_on_save_and_git_settings(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir(parents=True, exist_ok=True)
     config_path = repo_root / ".config"
-    config_path.write_text("DATA_DIR=./tests/data\nYAML_AUTO_COMMIT=true\n", encoding="utf-8")
+    config_path.write_text(
+        "DATA_DIR=./tests/data\n"
+        "COMMIT_ON_SAVE=false\n"
+        "GIT_REPO_PATH=.\n"
+        "GIT_USER_NAME=Test User\n"
+        "GIT_USER_EMAIL=test@example.com\n",
+        encoding="utf-8",
+    )
 
     config = resolve_config(repo_root=repo_root, cwd=tmp_path)
 
-    assert config.yaml_auto_commit is True
+    assert config.commit_on_save is False
+    assert config.git_repo_path == repo_root.resolve()
+    assert config.git_user_name == "Test User"
+    assert config.git_user_email == "test@example.com"

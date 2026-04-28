@@ -234,10 +234,6 @@ def test_campaign_create_and_update_persist_to_yaml(monkeypatch, tmp_path: Path)
     )
     assert updated.status_code == 200
 
-    saved = client.post(f"/campaigns/{campaign_id}/save")
-    assert saved.status_code == 200
-    assert saved.json()["auto_commit"]["enabled"] is False
-
     campaign_yaml = tmp_path / "yaml-data" / "Acme" / "Summer" / "Summer.yaml"
     assert campaign_yaml.exists()
 

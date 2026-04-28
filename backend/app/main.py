@@ -16,7 +16,7 @@ from .config import resolve_config
 from .data_sync import sync_data_directory
 from .db import connect_database, initialize_database
 from .git_store import GitStoreError, auto_commit_paths
-from .yaml_store import persist_yaml_state_for_campaign
+from .yaml_store import campaign_yaml_paths_for_id, persist_yaml_state_for_campaign
 
 
 @asynccontextmanager
@@ -165,8 +165,11 @@ def _campaign_display_name(row: Any) -> str:
     return details.get("display_name") or row["campaign_name"]
 
 
-def _repo_root_from_config_path(config_path: Path) -> Path:
-    return config_path.parent.resolve()
+def _persist_campaign_yaml_or_raise(connection: Any, config: Any, campaign_id: int) -> tuple[Path, Path]:
+    try:
+        return persist_yaml_state_for_campaign(connection, config.data_dir, campaign_id)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 def _business_snapshot(connection: Any, display_name: str) -> dict[str, Any]:
@@ -516,6 +519,7 @@ def create_app() -> FastAPI:
                 """,
                 (campaign_id,),
             ).fetchone()
+            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
             connection.commit()
 
         if row is None:
@@ -563,6 +567,7 @@ def create_app() -> FastAPI:
                 """,
                 (campaign_id,),
             ).fetchone()
+            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
             connection.commit()
 
         if updated is None:
@@ -645,6 +650,7 @@ def create_app() -> FastAPI:
                 """,
                 (offer_id,),
             ).fetchone()
+            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
             connection.commit()
 
         if row is None:
@@ -727,6 +733,7 @@ def create_app() -> FastAPI:
                 """,
                 (asset_id,),
             ).fetchone()
+            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
             connection.commit()
 
         if row is None:
@@ -881,6 +888,7 @@ def create_app() -> FastAPI:
                 """,
                 (binding_id,),
             ).fetchone()
+            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
             connection.commit()
 
         if row is None:
@@ -962,6 +970,7 @@ def create_app() -> FastAPI:
         config = resolve_config()
         with connect_database(config) as connection:
             result = apply_chat_command(connection, payload.campaign_id, command)
+            _persist_campaign_yaml_or_raise(connection, config, payload.campaign_id)
             connection.commit()
 
         chat_store.append(session_id, "user", payload.message)
@@ -981,36 +990,58 @@ def create_app() -> FastAPI:
     def save_campaign(campaign_id: int, payload: CampaignSaveRequest | None = None) -> dict[str, Any]:
         request = payload or CampaignSaveRequest()
         config = resolve_config()
+
         with connect_database(config) as connection:
             _require_campaign(connection, campaign_id)
+
+        if not config.commit_on_save:
+            return {
+                "campaign_id": campaign_id,
+                "saved": False,
+                "reason": "commit_on_save_disabled",
+                "auto_commit": {"enabled": False, "performed": False, "commit_id": None},
+            }
+
+        if config.git_repo_path is None or not config.git_user_name or not config.git_user_email:
+            return {
+                "campaign_id": campaign_id,
+                "saved": False,
+                "reason": "git_config_incomplete",
+                "auto_commit": {"enabled": True, "performed": False, "commit_id": None},
+            }
+
+        business_file: Path
+        campaign_file: Path
+        with connect_database(config) as connection:
             try:
-                business_file, campaign_file = persist_yaml_state_for_campaign(connection, config.data_dir, campaign_id)
+                business_file, campaign_file = campaign_yaml_paths_for_id(connection, config.data_dir, campaign_id)
             except ValueError as error:
                 raise HTTPException(status_code=409, detail=str(error)) from error
-            connection.commit()
-
-        auto_commit_performed = False
-        commit_id: str | None = None
-        if config.yaml_auto_commit:
-            repo_root = _repo_root_from_config_path(config.config_path)
-            default_message = f"Save campaign {campaign_id} YAML"
-            commit_message = (request.commit_message or default_message).strip()
-            if commit_message == "":
-                raise HTTPException(status_code=400, detail="commit_message cannot be empty")
-            try:
-                commit_id = auto_commit_paths(repo_root, [business_file, campaign_file], commit_message)
-            except GitStoreError as error:
-                raise HTTPException(status_code=409, detail=str(error)) from error
-            auto_commit_performed = commit_id is not None and commit_id != ""
+        repo_root = config.git_repo_path
+        default_message = f"Save campaign {campaign_id} YAML"
+        commit_message = (request.commit_message or default_message).strip()
+        if commit_message == "":
+            raise HTTPException(status_code=400, detail="commit_message cannot be empty")
+        try:
+            commit_id = auto_commit_paths(
+                repo_root,
+                [business_file, campaign_file],
+                commit_message,
+                user_name=config.git_user_name,
+                user_email=config.git_user_email,
+            )
+        except GitStoreError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        auto_commit_performed = commit_id != ""
 
         return {
             "campaign_id": campaign_id,
-            "saved": True,
+            "saved": auto_commit_performed,
             "files": [str(business_file), str(campaign_file)],
             "auto_commit": {
-                "enabled": config.yaml_auto_commit,
+                "enabled": True,
                 "performed": auto_commit_performed,
-                "commit_id": commit_id,
+                "commit_id": commit_id or None,
             },
         }
 

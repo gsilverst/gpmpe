@@ -7,18 +7,32 @@ import yaml
 from app.main import create_app
 
 
-def _write_config(tmp_path: Path, *, yaml_auto_commit: bool = False) -> Path:
+def _write_config(
+    tmp_path: Path,
+    *,
+    commit_on_save: bool = True,
+    with_git_settings: bool = False,
+) -> Path:
     config_path = tmp_path / ".config"
     output_dir = tmp_path / "output"
     database_path = tmp_path / "data" / "test.db"
     data_dir = tmp_path / "yaml-data"
+    lines = [
+        f"OUTPUT_DIR={output_dir}",
+        f"DATABASE_PATH={database_path}",
+        f"DATA_DIR={data_dir}",
+        f"COMMIT_ON_SAVE={'true' if commit_on_save else 'false'}",
+    ]
+    if with_git_settings:
+        lines.extend(
+            [
+                "GIT_REPO_PATH=.",
+                "GIT_USER_NAME=Test User",
+                "GIT_USER_EMAIL=test@example.com",
+            ]
+        )
     config_path.write_text(
-        (
-            f"OUTPUT_DIR={output_dir}\n"
-            f"DATABASE_PATH={database_path}\n"
-            f"DATA_DIR={data_dir}\n"
-            f"YAML_AUTO_COMMIT={'true' if yaml_auto_commit else 'false'}\n"
-        ),
+        "\n".join(lines) + "\n",
         encoding="utf-8",
     )
     return config_path
@@ -142,7 +156,7 @@ def test_chat_history_is_transient_but_campaign_state_persists(monkeypatch, tmp_
     assert campaigns[0]["title"] == "Persisted Title"
 
 
-def test_chat_edit_requires_explicit_save_to_persist_yaml(monkeypatch, tmp_path: Path) -> None:
+def test_chat_edit_persists_updates_to_yaml_on_mutation(monkeypatch, tmp_path: Path) -> None:
     config_path = _write_config(tmp_path)
     client = _make_client(monkeypatch, config_path)
     _, campaign_id = _seed_campaign(client)
@@ -164,13 +178,6 @@ def test_chat_edit_requires_explicit_save_to_persist_yaml(monkeypatch, tmp_path:
     business_yaml = tmp_path / "yaml-data" / "Acme" / "Acme.yaml"
     campaign_yaml = tmp_path / "yaml-data" / "Acme" / "Summer" / "Summer.yaml"
 
-    assert not business_yaml.exists()
-    assert not campaign_yaml.exists()
-
-    saved = client.post(f"/campaigns/{campaign_id}/save")
-    assert saved.status_code == 200
-    assert saved.json()["auto_commit"]["enabled"] is False
-
     assert business_yaml.exists()
     assert campaign_yaml.exists()
 
@@ -183,14 +190,34 @@ def test_chat_edit_requires_explicit_save_to_persist_yaml(monkeypatch, tmp_path:
     assert campaign_payload["title"] == "YAML Persisted Title"
 
 
-def test_explicit_save_can_auto_commit_when_enabled(monkeypatch, tmp_path: Path) -> None:
-    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
-    subprocess.run(["git", "config", "user.name", "Test User"], cwd=tmp_path, check=True, capture_output=True, text=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True, capture_output=True, text=True
-    )
+def test_save_is_noop_when_commit_on_save_disabled(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path, commit_on_save=False)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
 
-    config_path = _write_config(tmp_path, yaml_auto_commit=True)
+    save = client.post(f"/campaigns/{campaign_id}/save")
+    assert save.status_code == 200
+    payload = save.json()
+    assert payload["saved"] is False
+    assert payload["reason"] == "commit_on_save_disabled"
+
+
+def test_save_is_noop_when_git_config_is_incomplete(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path, commit_on_save=True, with_git_settings=False)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+
+    save = client.post(f"/campaigns/{campaign_id}/save")
+    assert save.status_code == 200
+    payload = save.json()
+    assert payload["saved"] is False
+    assert payload["reason"] == "git_config_incomplete"
+
+
+def test_save_can_commit_when_enabled_and_git_configured(monkeypatch, tmp_path: Path) -> None:
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
+
+    config_path = _write_config(tmp_path, commit_on_save=True, with_git_settings=True)
     client = _make_client(monkeypatch, config_path)
     _, campaign_id = _seed_campaign(client)
 
@@ -204,6 +231,7 @@ def test_explicit_save_can_auto_commit_when_enabled(monkeypatch, tmp_path: Path)
     save = client.post(f"/campaigns/{campaign_id}/save", json={"commit_message": "Save from test"})
     assert save.status_code == 200
     payload = save.json()
+    assert payload["saved"] is True
     assert payload["auto_commit"]["enabled"] is True
     assert payload["auto_commit"]["performed"] is True
     assert payload["auto_commit"]["commit_id"]

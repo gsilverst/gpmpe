@@ -11,7 +11,10 @@ class AppConfig:
     output_dir: Path
     database_path: Path
     data_dir: Path
-    yaml_auto_commit: bool
+    commit_on_save: bool
+    git_repo_path: Path | None
+    git_user_name: str | None
+    git_user_email: str | None
 
 
 def _parse_bool(value: str | None, *, default: bool = False) -> bool:
@@ -77,12 +80,20 @@ def resolve_config(repo_root: Path | None = None, cwd: Path | None = None) -> Ap
     if data_dir_value is None:
         raise ValueError("DATA_DIR must be configured in .config")
     data_dir = _resolve_path(data_dir_value, config_directory)
-    yaml_auto_commit = _parse_bool(values.get("YAML_AUTO_COMMIT"), default=False)
+
+    commit_on_save = _parse_bool(values.get("COMMIT_ON_SAVE"), default=True)
+    git_repo_value = values.get("GIT_REPO_PATH")
+    git_repo_path = _resolve_path(git_repo_value, config_directory) if git_repo_value else None
+    git_user_name = values.get("GIT_USER_NAME")
+    git_user_email = values.get("GIT_USER_EMAIL")
 
     return AppConfig(
         config_path=config_path,
         output_dir=output_dir,
         database_path=database_path,
         data_dir=data_dir,
-        yaml_auto_commit=yaml_auto_commit,
+        commit_on_save=commit_on_save,
+        git_repo_path=git_repo_path,
+        git_user_name=git_user_name,
+        git_user_email=git_user_email,
     )

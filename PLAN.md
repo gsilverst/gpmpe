@@ -161,8 +161,8 @@ Schema and service highlights:
 - Server-side validation so edits remain simple, explicit, and reproducible.
 - Transient in-process chat state that survives until the user exits the process, without database persistence.
 - YAML write service that updates business and campaign files in the configured data directory.
-- YAML write behavior is explicit-save driven (no automatic file writes on each mutation).
-- Optional git auto-commit is controlled by `YAML_AUTO_COMMIT` (default off) and is executed only as part of explicit save actions.
+- YAML write behavior runs on each mutation so repository files stay current with edited campaign state.
+- Optional git commit-on-save is controlled by `COMMIT_ON_SAVE` (default on) and Save performs no action when commit-on-save is disabled or git settings are incomplete.
 - Maintain one business YAML per business directory and one campaign YAML per campaign directory.
 - Add future rename/normalization workflow for non-filesystem-safe names, including user choice of safe path name versus display name.
 - Add database-versus-data-directory reconciliation flow on startup when differences are detected.

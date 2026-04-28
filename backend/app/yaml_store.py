@@ -195,7 +195,7 @@ def _campaign_payload(connection: sqlite3.Connection, campaign_id: int) -> tuple
     return campaign["business_display_name"], payload
 
 
-def persist_yaml_state_for_campaign(connection: sqlite3.Connection, data_dir: Path, campaign_id: int) -> tuple[Path, Path]:
+def _campaign_yaml_paths(connection: sqlite3.Connection, data_dir: Path, campaign_id: int) -> tuple[Path, Path, int]:
     campaign = connection.execute(
         """
         SELECT c.business_id, c.campaign_name, b.display_name AS business_display_name
@@ -208,21 +208,31 @@ def persist_yaml_state_for_campaign(connection: sqlite3.Connection, data_dir: Pa
     if campaign is None:
         raise ValueError("Campaign not found")
 
-    business_name = campaign["business_display_name"]
-    campaign_name = campaign["campaign_name"]
-    business_path_name = _filesystem_name(business_name)
-    campaign_path_name = _filesystem_name(campaign_name)
-
-    business_payload = _business_payload(connection, campaign["business_id"])
-    _, campaign_payload = _campaign_payload(connection, campaign_id)
+    business_path_name = _filesystem_name(campaign["business_display_name"])
+    campaign_path_name = _filesystem_name(campaign["campaign_name"])
 
     business_dir = data_dir / business_path_name
     campaign_dir = business_dir / campaign_path_name
-    business_dir.mkdir(parents=True, exist_ok=True)
-    campaign_dir.mkdir(parents=True, exist_ok=True)
-
     business_file = business_dir / f"{business_path_name}.yaml"
     campaign_file = campaign_dir / f"{campaign_path_name}.yaml"
+    return business_file, campaign_file, int(campaign["business_id"])
+
+
+def campaign_yaml_paths_for_id(connection: sqlite3.Connection, data_dir: Path, campaign_id: int) -> tuple[Path, Path]:
+    business_file, campaign_file, _ = _campaign_yaml_paths(connection, data_dir, campaign_id)
+    return business_file, campaign_file
+
+
+def persist_yaml_state_for_campaign(connection: sqlite3.Connection, data_dir: Path, campaign_id: int) -> tuple[Path, Path]:
+    business_file, campaign_file, business_id = _campaign_yaml_paths(connection, data_dir, campaign_id)
+
+    business_payload = _business_payload(connection, business_id)
+    _, campaign_payload = _campaign_payload(connection, campaign_id)
+
+    business_dir = business_file.parent
+    campaign_dir = campaign_file.parent
+    business_dir.mkdir(parents=True, exist_ok=True)
+    campaign_dir.mkdir(parents=True, exist_ok=True)
 
     business_file.write_text(yaml.safe_dump(business_payload, sort_keys=False, allow_unicode=False), encoding="utf-8")
     campaign_file.write_text(yaml.safe_dump(campaign_payload, sort_keys=False, allow_unicode=False), encoding="utf-8")
