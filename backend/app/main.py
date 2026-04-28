@@ -3,14 +3,18 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from datetime import date
 import json
+import logging
 from pathlib import Path
 import sqlite3
 from typing import Literal
 from typing import Any
+from urllib.parse import urlparse
+import uuid
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from .chat import ChatSessionStore, apply_chat_command, parse_chat_command
 from .config import resolve_config
@@ -33,10 +37,26 @@ async def lifespan(_: FastAPI):
     yield
 
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+_logger = logging.getLogger("gpmpe")
+
+
+class RequestIDMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
+        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        _logger.info("[%s] %s %s", request_id, request.method, request.url.path)
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+
+
 class BusinessCreate(BaseModel):
-    legal_name: str = Field(min_length=1)
-    display_name: str = Field(min_length=1)
-    timezone: str = Field(default="America/New_York", min_length=1)
+    legal_name: str = Field(min_length=1, max_length=200)
+    display_name: str = Field(min_length=1, max_length=100)
+    timezone: str = Field(default="America/New_York", min_length=1, max_length=60)
 
 
 class BusinessResponse(BaseModel):
@@ -48,53 +68,68 @@ class BusinessResponse(BaseModel):
 
 
 class BusinessUpdate(BaseModel):
-    legal_name: str | None = None
-    display_name: str | None = None
-    timezone: str | None = None
+    legal_name: str | None = Field(default=None, max_length=200)
+    display_name: str | None = Field(default=None, max_length=100)
+    timezone: str | None = Field(default=None, max_length=60)
     is_active: bool | None = None
 
 
 class CampaignCreate(BaseModel):
-    campaign_name: str = Field(min_length=1)
-    campaign_key: str | None = None
-    title: str = Field(min_length=1)
-    objective: str | None = None
+    campaign_name: str = Field(min_length=1, max_length=200)
+    campaign_key: str | None = Field(default=None, max_length=100)
+    title: str = Field(min_length=1, max_length=300)
+    objective: str | None = Field(default=None, max_length=1000)
     status: Literal["draft", "active", "paused", "completed", "archived"] = "draft"
     start_date: str | None = None
     end_date: str | None = None
 
 
 class CampaignUpdate(BaseModel):
-    title: str | None = None
-    objective: str | None = None
+    title: str | None = Field(default=None, max_length=300)
+    objective: str | None = Field(default=None, max_length=1000)
     status: Literal["draft", "active", "paused", "completed", "archived"] | None = None
     start_date: str | None = None
     end_date: str | None = None
 
 
 class CampaignOfferCreate(BaseModel):
-    offer_name: str = Field(min_length=1)
-    offer_type: str = Field(default="discount", min_length=1)
-    offer_value: str | None = None
+    offer_name: str = Field(min_length=1, max_length=200)
+    offer_type: str = Field(default="discount", min_length=1, max_length=100)
+    offer_value: str | None = Field(default=None, max_length=200)
     start_date: str | None = None
     end_date: str | None = None
-    terms_text: str | None = None
+    terms_text: str | None = Field(default=None, max_length=2000)
 
 
 class CampaignAssetCreate(BaseModel):
-    asset_type: str = Field(min_length=1)
+    asset_type: str = Field(min_length=1, max_length=100)
     source_type: Literal["upload", "url", "generated"]
-    mime_type: str = Field(min_length=1)
-    source_path: str = Field(min_length=1)
+    mime_type: str = Field(min_length=1, max_length=100)
+    source_path: str = Field(min_length=1, max_length=500)
     width: int | None = Field(default=None, ge=1)
     height: int | None = Field(default=None, ge=1)
     metadata: dict[str, Any] | None = None
 
+    @field_validator("source_path")
+    @classmethod
+    def validate_no_path_traversal(cls, v: str) -> str:
+        if ".." in Path(v).parts:
+            raise ValueError("source_path must not contain path traversal sequences")
+        return v
+
+    @model_validator(mode="after")
+    def validate_url_source(self) -> "CampaignAssetCreate":
+        if self.source_type == "url":
+            parsed = urlparse(self.source_path)
+            if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                raise ValueError("source_path must be a valid http or https URL when source_type is url")
+        return self
+
 
 class TemplateDefinitionCreate(BaseModel):
-    template_name: str = Field(min_length=1)
-    template_kind: str = Field(min_length=1)
-    size_spec: str | None = None
+    template_name: str = Field(min_length=1, max_length=200)
+    template_kind: str = Field(min_length=1, max_length=100)
+    size_spec: str | None = Field(default=None, max_length=50)
     layout: dict[str, Any] | None = None
     default_values: dict[str, Any] | None = None
 
@@ -106,11 +141,11 @@ class CampaignTemplateBindingCreate(BaseModel):
 
 class ChatMessageRequest(BaseModel):
     campaign_id: int
-    message: str = Field(min_length=1)
+    message: str = Field(min_length=1, max_length=4000)
 
 
 class CampaignSaveRequest(BaseModel):
-    commit_message: str | None = None
+    commit_message: str | None = Field(default=None, max_length=500)
 
 
 class ArtifactRenderRequest(BaseModel):
@@ -422,6 +457,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(RequestIDMiddleware)
 
     @app.get("/health")
     def health() -> dict[str, str]:
