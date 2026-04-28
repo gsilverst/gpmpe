@@ -1,0 +1,27 @@
+services:
+  gpmpe:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: gpmpe:local
+    container_name: gpmpe
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./.config:/app/.config:ro
+      - ./output:/app/output
+      - ./backend/data:/app/backend/data
+      - ./data:/app/data
+      - ./local:/app/local
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s

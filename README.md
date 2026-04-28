@@ -115,3 +115,37 @@ Notes:
 - Keep proprietary reference files under ignored local paths only.
 - Do not commit proprietary PDFs, assets, or notes to this repository.
 - A non-zero exit code indicates mismatch and should block migration sign-off.
+
+## One-Line Startup (Step 10)
+
+### Docker (recommended)
+
+From a clean clone (with `.config` present):
+
+```bash
+docker compose up
+```
+
+This builds and runs a single container that serves both API and frontend on `http://127.0.0.1:8000`.
+
+The compose file mounts:
+
+- `.config` as container runtime config
+- `output/` for generated artifacts
+- `backend/data/` for SQLite persistence
+- `local/` and `data/` for YAML-backed campaign data
+
+### Local Script
+
+For non-Docker local startup:
+
+```bash
+./start.sh
+```
+
+The script:
+
+- builds the frontend static export
+- copies static output into `backend/app/static/`
+- starts uvicorn
+- waits for `/health` readiness before reporting success
