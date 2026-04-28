@@ -46,6 +46,25 @@ h1 {
   margin-top: 1rem;
 }
 
+.workspace-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 1rem;
+  align-items: start;
+}
+
+.workspace-main,
+.workspace-side {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.chat-panel {
+  position: sticky;
+  top: 1rem;
+}
+
 button {
   margin-top: 0.75rem;
   border: 0;
@@ -213,8 +232,16 @@ small {
     display: grid;
   }
 
+  .workspace-layout {
+    grid-template-columns: 1fr;
+  }
+
   .grid-form {
     grid-template-columns: 1fr;
+  }
+
+  .chat-panel {
+    position: static;
   }
 }
 

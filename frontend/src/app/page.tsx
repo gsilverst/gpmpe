@@ -979,7 +979,9 @@ export default function HomePage() {
         )}
       </section>
 
-      <section className="card section-gap">
+      <div className="workspace-layout section-gap">
+        <div className="workspace-main">
+      <section className="card">
         <h2>Campaign Builder</h2>
 
         <label className="stacked-label" htmlFor="campaign-select">
@@ -1139,45 +1141,6 @@ export default function HomePage() {
       </section>
 
       <section className="card section-gap">
-        <h2>Chat Campaign Editing</h2>
-        <p>
-          Edit commands: <code>set title to Weekend Blowout</code>, <code>set status to active</code>, <code>set brand primary_color to #112233</code>.
-          <br />
-          Clone commands: <code>clone summer-sale and rename it to fall-clearance</code> — creates a new campaign and makes it active.
-        </p>
-        <form className="stacked-label" onSubmit={handleChatSend}>
-          <span>Edit command</span>
-          <input
-            value={chatMessage}
-            onChange={(event) => setChatMessage(event.target.value)}
-            placeholder="set title to Memorial Day Mega Sale"
-          />
-          <button type="submit">Send Edit</button>
-        </form>
-        {chatStatus ? (
-          <div className="chat-status-row">
-            <p className="save-status">{chatStatus}</p>
-            {canOpenLatestClonePdf ? (
-              <button type="button" className="ghost-button" onClick={handleOpenLatestClonePdf}>
-                Open Latest PDF
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-        {chatHistory.length > 0 ? (
-          <ul className="chat-history">
-            {chatHistory.map((item, index) => (
-              <li key={`${item.role}-${index}`}>
-                <strong>{item.role}:</strong> {item.content}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>No chat edits yet.</p>
-        )}
-      </section>
-
-      <section className="card section-gap">
         <h2>YAML Sync Controls</h2>
         <button type="button" onClick={() => void handleSyncNow()}>
           Sync From Data Directory
@@ -1236,6 +1199,49 @@ export default function HomePage() {
           <p>No artifacts generated for the selected campaign yet.</p>
         )}
       </section>
+        </div>
+
+        <aside className="workspace-side">
+      <section className="card chat-panel">
+        <h2>Chat Campaign Editing</h2>
+        <p>
+          Edit commands: <code>set title to Weekend Blowout</code>, <code>set status to active</code>, <code>set brand primary_color to #112233</code>.
+          <br />
+          Clone commands: <code>clone summer-sale and rename it to fall-clearance</code> — creates a new campaign and makes it active.
+        </p>
+        <form className="stacked-label" onSubmit={handleChatSend}>
+          <span>Edit command</span>
+          <input
+            value={chatMessage}
+            onChange={(event) => setChatMessage(event.target.value)}
+            placeholder="set title to Memorial Day Mega Sale"
+          />
+          <button type="submit">Send Edit</button>
+        </form>
+        {chatStatus ? (
+          <div className="chat-status-row">
+            <p className="save-status">{chatStatus}</p>
+            {canOpenLatestClonePdf ? (
+              <button type="button" className="ghost-button" onClick={handleOpenLatestClonePdf}>
+                Open Latest PDF
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {chatHistory.length > 0 ? (
+          <ul className="chat-history">
+            {chatHistory.map((item, index) => (
+              <li key={`${item.role}-${index}`}>
+                <strong>{item.role}:</strong> {item.content}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>No chat edits yet.</p>
+        )}
+      </section>
+        </aside>
+      </div>
 
       {error ? <p className="error-text">{error}</p> : null}
 
