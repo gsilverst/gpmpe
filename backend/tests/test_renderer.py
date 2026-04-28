@@ -223,6 +223,70 @@ def test_render_flyer_returns_valid_pdf() -> None:
     assert len(checksum) == 64  # sha256 hex
 
 
+    def test_render_flyer_is_deterministic_for_same_context() -> None:
+        ctx = {
+            "campaign_id": 99,
+            "campaign_name": "determinism-check",
+            "title": "Determinism Check",
+            "objective": "Verify stable rendering",
+            "start_date": "2026-05-01",
+            "end_date": "2026-05-31",
+            "business_display_name": "ACME",
+            "business_legal_name": "ACME LLC",
+            "theme": {
+                "primary_color": "#209dd7",
+                "secondary_color": "#753991",
+                "accent_color": "#ecad0a",
+            },
+            "location": None,
+            "contacts": [],
+            "offers": [],
+            "components": [
+                {
+                    "component_key": "featured",
+                    "component_kind": "featured-offers",
+                    "display_title": "Featured",
+                    "subtitle": "Deterministic content",
+                    "description_text": None,
+                    "display_order": 0,
+                    "items": [
+                        {
+                            "item_name": "Swedish",
+                            "item_kind": "service",
+                            "duration_label": "60 min",
+                            "item_value": "$65",
+                            "description_text": None,
+                            "terms_text": None,
+                            "display_order": 0,
+                        },
+                        {
+                            "item_name": "Deep Tissue",
+                            "item_kind": "service",
+                            "duration_label": "60 min",
+                            "item_value": "$75",
+                            "description_text": None,
+                            "terms_text": None,
+                            "display_order": 1,
+                        },
+                    ],
+                }
+            ],
+            "effective_values": {
+                "business_name": "ACME",
+                "business_subtitle": "LLC",
+                "footer": "acme.example • 555-0100",
+                "legal": "Offer valid while supplies last.",
+            },
+            "template_name": "flyer-standard",
+        }
+
+        first = render_flyer(ctx)
+        second = render_flyer(ctx)
+
+        assert first == second
+        assert _file_checksum(first) == _file_checksum(second)
+
+
 def test_file_checksum_is_deterministic() -> None:
     data = b"hello world"
     expected = hashlib.sha256(data).hexdigest()
@@ -352,3 +416,119 @@ def test_render_flyer_supports_multi_component_context() -> None:
     pdf_bytes = render_flyer(ctx)
     assert isinstance(pdf_bytes, bytes)
     assert pdf_bytes.startswith(b"%PDF")
+
+
+    def test_render_flyer_preserves_weekday_item_order(monkeypatch) -> None:
+        from app import renderer as renderer_module
+
+        captured_titles: list[str] = []
+
+        original_draw_weekday_strip = renderer_module._draw_weekday_strip
+
+        def _capture_strip(pdf, x, y, w, title, detail, price, palette):
+            captured_titles.append(title)
+            return original_draw_weekday_strip(pdf, x, y, w, title, detail, price, palette)
+
+        monkeypatch.setattr(renderer_module, "_draw_weekday_strip", _capture_strip)
+
+        ctx = {
+            "campaign_id": 42,
+            "campaign_name": "weekday-order",
+            "title": "Weekday Order",
+            "objective": "Preserve item ordering",
+            "start_date": "2026-05-01",
+            "end_date": "2026-05-31",
+            "business_display_name": "ACME",
+            "business_legal_name": "ACME LLC",
+            "theme": {
+                "primary_color": "#3E1C5C",
+                "secondary_color": "#6E4A8E",
+                "accent_color": "#E0559A",
+            },
+            "location": None,
+            "contacts": [],
+            "offers": [],
+            "components": [
+                {
+                    "component_key": "featured",
+                    "component_kind": "featured-offers",
+                    "display_title": "Featured",
+                    "subtitle": "Subtitle",
+                    "description_text": None,
+                    "display_order": 0,
+                    "items": [
+                        {
+                            "item_name": "A",
+                            "item_kind": "service",
+                            "duration_label": "60 min",
+                            "item_value": "$10",
+                            "description_text": None,
+                            "terms_text": None,
+                            "display_order": 0,
+                        },
+                        {
+                            "item_name": "B",
+                            "item_kind": "service",
+                            "duration_label": "60 min",
+                            "item_value": "$20",
+                            "description_text": None,
+                            "terms_text": None,
+                            "display_order": 1,
+                        },
+                    ],
+                },
+                {
+                    "component_key": "weekday-specials",
+                    "component_kind": "weekday-specials",
+                    "display_title": "Weekday Specials",
+                    "subtitle": "Wednesday-Friday",
+                    "description_text": None,
+                    "display_order": 1,
+                    "items": [
+                        {
+                            "item_name": "Chair Massage",
+                            "item_kind": "service",
+                            "duration_label": "30 minutes",
+                            "item_value": "$40",
+                            "description_text": None,
+                            "terms_text": None,
+                            "display_order": 0,
+                        },
+                        {
+                            "item_name": "Lymphatic Drainage",
+                            "item_kind": "service",
+                            "duration_label": "60 minutes",
+                            "item_value": "$135",
+                            "description_text": None,
+                            "terms_text": None,
+                            "display_order": 1,
+                        },
+                        {
+                            "item_name": "Body Sculpting Lymphatic",
+                            "item_kind": "service",
+                            "duration_label": "90 minutes",
+                            "item_value": "$195",
+                            "description_text": None,
+                            "terms_text": None,
+                            "display_order": 2,
+                        },
+                    ],
+                },
+            ],
+            "effective_values": {
+                "business_name": "ACME",
+                "business_subtitle": "LLC",
+                "footer": "acme.example • 555-0100",
+                "legal": "Offer valid while supplies last.",
+            },
+            "template_name": "flyer-standard",
+        }
+
+        pdf_bytes = render_flyer(ctx)
+
+        assert pdf_bytes.startswith(b"%PDF")
+        assert captured_titles == [
+            "Chair Massage",
+            "Lymphatic Drainage",
+            "Body Sculpting Lymphatic",
+        ]

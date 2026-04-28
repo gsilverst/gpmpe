@@ -96,3 +96,22 @@ Then open:
 
 - `http://127.0.0.1:8000/` for the frontend
 - `http://127.0.0.1:8000/health` for backend health
+
+## Migration Parity Workflow (Step 9)
+
+To validate refactor parity against a proprietary reference PDF, use local-only files
+outside git-tracked content and run the parity helper script.
+
+Example:
+
+```bash
+.venv/bin/python backend/scripts/local_parity_check.py \
+	output/your-generated.pdf \
+	/absolute/path/to/your/reference.pdf
+```
+
+Notes:
+
+- Keep proprietary reference files under ignored local paths only.
+- Do not commit proprietary PDFs, assets, or notes to this repository.
+- A non-zero exit code indicates mismatch and should block migration sign-off.
