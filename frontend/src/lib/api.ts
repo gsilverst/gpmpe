@@ -100,6 +100,13 @@ export type BusinessRecord = {
   display_name: string;
   timezone: string;
   is_active: boolean;
+  phone: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  country: string | null;
 };
 
 export type CampaignRecord = {
@@ -348,7 +355,19 @@ export async function listBusinesses(baseUrl = apiBaseUrl()): Promise<BusinessRe
 }
 
 export async function createBusiness(
-  payload: Pick<BusinessRecord, "legal_name" | "display_name" | "timezone">,
+  payload: Pick<
+    BusinessRecord,
+    | "legal_name"
+    | "display_name"
+    | "timezone"
+    | "phone"
+    | "address_line1"
+    | "address_line2"
+    | "city"
+    | "state"
+    | "postal_code"
+    | "country"
+  >,
   baseUrl = apiBaseUrl()
 ): Promise<BusinessRecord> {
   return postJson<BusinessRecord>("/businesses", payload, baseUrl);
@@ -356,7 +375,22 @@ export async function createBusiness(
 
 export async function updateBusiness(
   businessId: number,
-  payload: Partial<Pick<BusinessRecord, "legal_name" | "display_name" | "timezone" | "is_active">>,
+  payload: Partial<
+    Pick<
+      BusinessRecord,
+      | "legal_name"
+      | "display_name"
+      | "timezone"
+      | "is_active"
+      | "phone"
+      | "address_line1"
+      | "address_line2"
+      | "city"
+      | "state"
+      | "postal_code"
+      | "country"
+    >
+  >,
   baseUrl = apiBaseUrl()
 ): Promise<BusinessRecord> {
   return patchJson<BusinessRecord>(`/businesses/${businessId}`, payload, baseUrl);

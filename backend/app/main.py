@@ -98,6 +98,13 @@ class BusinessCreate(BaseModel):
     legal_name: str = Field(min_length=1, max_length=200)
     display_name: str = Field(min_length=1, max_length=100)
     timezone: str = Field(default="America/New_York", min_length=1, max_length=60)
+    phone: str | None = Field(default=None, max_length=50)
+    address_line1: str | None = Field(default=None, max_length=200)
+    address_line2: str | None = Field(default=None, max_length=200)
+    city: str | None = Field(default=None, max_length=100)
+    state: str | None = Field(default=None, max_length=100)
+    postal_code: str | None = Field(default=None, max_length=20)
+    country: str | None = Field(default="US", max_length=100)
 
 
 class BusinessResponse(BaseModel):
@@ -106,6 +113,13 @@ class BusinessResponse(BaseModel):
     display_name: str
     timezone: str
     is_active: bool
+    phone: str | None = None
+    address_line1: str | None = None
+    address_line2: str | None = None
+    city: str | None = None
+    state: str | None = None
+    postal_code: str | None = None
+    country: str | None = None
 
 
 class BusinessUpdate(BaseModel):
@@ -113,6 +127,13 @@ class BusinessUpdate(BaseModel):
     display_name: str | None = Field(default=None, max_length=100)
     timezone: str | None = Field(default=None, max_length=60)
     is_active: bool | None = None
+    phone: str | None = Field(default=None, max_length=50)
+    address_line1: str | None = Field(default=None, max_length=200)
+    address_line2: str | None = Field(default=None, max_length=200)
+    city: str | None = Field(default=None, max_length=100)
+    state: str | None = Field(default=None, max_length=100)
+    postal_code: str | None = Field(default=None, max_length=20)
+    country: str | None = Field(default=None, max_length=100)
 
 
 class CampaignCreate(BaseModel):
@@ -493,6 +514,79 @@ def _campaign_snapshot(connection: Any, display_name: str, campaign_name: str, q
     }
 
 
+def _business_select_sql() -> str:
+        return """
+                SELECT b.id, b.legal_name, b.display_name, b.timezone, b.is_active,
+                             (
+                                 SELECT contact_value
+                                 FROM business_contacts bc
+                                 WHERE bc.business_id = b.id AND bc.contact_type = 'phone'
+                                 ORDER BY bc.is_primary DESC, bc.id ASC
+                                 LIMIT 1
+                             ) AS phone,
+                             (
+                                 SELECT line1
+                                 FROM business_locations bl
+                                 WHERE bl.business_id = b.id
+                                 ORDER BY bl.id ASC
+                                 LIMIT 1
+                             ) AS address_line1,
+                             (
+                                 SELECT line2
+                                 FROM business_locations bl
+                                 WHERE bl.business_id = b.id
+                                 ORDER BY bl.id ASC
+                                 LIMIT 1
+                             ) AS address_line2,
+                             (
+                                 SELECT city
+                                 FROM business_locations bl
+                                 WHERE bl.business_id = b.id
+                                 ORDER BY bl.id ASC
+                                 LIMIT 1
+                             ) AS city,
+                             (
+                                 SELECT state
+                                 FROM business_locations bl
+                                 WHERE bl.business_id = b.id
+                                 ORDER BY bl.id ASC
+                                 LIMIT 1
+                             ) AS state,
+                             (
+                                 SELECT postal_code
+                                 FROM business_locations bl
+                                 WHERE bl.business_id = b.id
+                                 ORDER BY bl.id ASC
+                                 LIMIT 1
+                             ) AS postal_code,
+                             (
+                                 SELECT country
+                                 FROM business_locations bl
+                                 WHERE bl.business_id = b.id
+                                 ORDER BY bl.id ASC
+                                 LIMIT 1
+                             ) AS country
+                FROM businesses b
+        """
+
+
+def _business_row_to_response(row: Any) -> BusinessResponse:
+        return BusinessResponse(
+                id=row["id"],
+                legal_name=row["legal_name"],
+                display_name=row["display_name"],
+                timezone=row["timezone"],
+                is_active=bool(row["is_active"]),
+                phone=row["phone"],
+                address_line1=row["address_line1"],
+                address_line2=row["address_line2"],
+                city=row["city"],
+                state=row["state"],
+                postal_code=row["postal_code"],
+                country=row["country"],
+        )
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="GPMPE API", version="0.1.0", lifespan=lifespan)
     chat_store = ChatSessionStore()
@@ -545,6 +639,22 @@ def create_app() -> FastAPI:
 
     @app.post("/businesses", response_model=BusinessResponse, status_code=201)
     def create_business(payload: BusinessCreate) -> BusinessResponse:
+        phone = (payload.phone or "").strip()
+        address_line1 = (payload.address_line1 or "").strip()
+        address_line2 = (payload.address_line2 or "").strip()
+        city = (payload.city or "").strip()
+        state = (payload.state or "").strip()
+        postal_code = (payload.postal_code or "").strip()
+        country = (payload.country or "US").strip() or "US"
+
+        has_any_address = any((address_line1, address_line2, city, state, postal_code))
+        has_required_address = all((address_line1, city, state, postal_code))
+        if has_any_address and not has_required_address:
+            raise HTTPException(
+                status_code=400,
+                detail="Address requires address_line1, city, state, and postal_code",
+            )
+
         config = resolve_config()
         with connect_database(config) as connection:
             cursor = connection.execute(
@@ -555,12 +665,37 @@ def create_app() -> FastAPI:
                 (payload.legal_name.strip(), payload.display_name.strip(), payload.timezone.strip()),
             )
             business_id = int(cursor.lastrowid)
+
+            if phone:
+                connection.execute(
+                    """
+                    INSERT INTO business_contacts (business_id, contact_type, contact_value, is_primary)
+                    VALUES (?, 'phone', ?, 1);
+                    """,
+                    (business_id, phone),
+                )
+
+            if has_required_address:
+                connection.execute(
+                    """
+                    INSERT INTO business_locations (
+                      business_id, label, line1, line2, city, state, postal_code, country, hours_json
+                    )
+                    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, '{}');
+                    """,
+                    (
+                        business_id,
+                        address_line1,
+                        address_line2 or None,
+                        city,
+                        state,
+                        postal_code,
+                        country,
+                    ),
+                )
+
             row = connection.execute(
-                """
-                SELECT id, legal_name, display_name, timezone, is_active
-                FROM businesses
-                WHERE id = ?;
-                """,
+                _business_select_sql() + " WHERE b.id = ?;",
                 (business_id,),
             ).fetchone()
             connection.commit()
@@ -568,66 +703,47 @@ def create_app() -> FastAPI:
         if row is None:
             raise HTTPException(status_code=500, detail="Business creation failed")
 
-        return BusinessResponse(
-            id=row["id"],
-            legal_name=row["legal_name"],
-            display_name=row["display_name"],
-            timezone=row["timezone"],
-            is_active=bool(row["is_active"]),
-        )
+        return _business_row_to_response(row)
 
     @app.get("/businesses", response_model=list[BusinessResponse])
     def list_businesses() -> list[BusinessResponse]:
         config = resolve_config()
         with connect_database(config) as connection:
             rows = connection.execute(
-                """
-                SELECT id, legal_name, display_name, timezone, is_active
-                FROM businesses
-                ORDER BY id ASC;
-                """
+                _business_select_sql() + " ORDER BY b.id ASC;"
             ).fetchall()
 
-        return [
-            BusinessResponse(
-                id=row["id"],
-                legal_name=row["legal_name"],
-                display_name=row["display_name"],
-                timezone=row["timezone"],
-                is_active=bool(row["is_active"]),
-            )
-            for row in rows
-        ]
+        return [_business_row_to_response(row) for row in rows]
 
     @app.get("/businesses/{business_id}", response_model=BusinessResponse)
     def get_business(business_id: int) -> BusinessResponse:
         config = resolve_config()
         with connect_database(config) as connection:
             row = connection.execute(
-                """
-                SELECT id, legal_name, display_name, timezone, is_active
-                FROM businesses
-                WHERE id = ?;
-                """,
+                _business_select_sql() + " WHERE b.id = ?;",
                 (business_id,),
             ).fetchone()
 
         if row is None:
             raise HTTPException(status_code=404, detail="Business not found")
 
-        return BusinessResponse(
-            id=row["id"],
-            legal_name=row["legal_name"],
-            display_name=row["display_name"],
-            timezone=row["timezone"],
-            is_active=bool(row["is_active"]),
-        )
+        return _business_row_to_response(row)
 
     @app.patch("/businesses/{business_id}", response_model=BusinessResponse)
     def update_business(business_id: int, payload: BusinessUpdate) -> BusinessResponse:
         updates = payload.model_dump(exclude_none=True)
         if not updates:
             raise HTTPException(status_code=400, detail="No business fields provided")
+
+        location_fields = {"address_line1", "address_line2", "city", "state", "postal_code", "country"}
+        location_updates: dict[str, str] = {}
+        for field in list(location_fields):
+            if field in updates:
+                location_updates[field] = str(updates.pop(field) or "").strip()
+
+        phone_update = None
+        if "phone" in updates:
+            phone_update = str(updates.pop("phone") or "").strip()
 
         for field in ("legal_name", "display_name", "timezone"):
             if field in updates:
@@ -639,32 +755,85 @@ def create_app() -> FastAPI:
         config = resolve_config()
         with connect_database(config) as connection:
             existing = connection.execute(
-                """
-                SELECT id, legal_name, display_name, timezone, is_active
-                FROM businesses
-                WHERE id = ?;
-                """,
+                _business_select_sql() + " WHERE b.id = ?;",
                 (business_id,),
             ).fetchone()
             if existing is None:
                 raise HTTPException(status_code=404, detail="Business not found")
 
-            fields_sql = ", ".join([f"{field} = ?" for field in updates.keys()])
-            values = list(updates.values()) + [business_id]
-            try:
+            if updates:
+                fields_sql = ", ".join([f"{field} = ?" for field in updates.keys()])
+                values = list(updates.values()) + [business_id]
+                try:
+                    connection.execute(
+                        f"UPDATE businesses SET {fields_sql}, updated_at = CURRENT_TIMESTAMP WHERE id = ?;",
+                        values,
+                    )
+                except sqlite3.IntegrityError as error:
+                    raise HTTPException(status_code=409, detail="Business update conflicts with existing data") from error
+
+            if phone_update is not None:
                 connection.execute(
-                    f"UPDATE businesses SET {fields_sql}, updated_at = CURRENT_TIMESTAMP WHERE id = ?;",
-                    values,
+                    "DELETE FROM business_contacts WHERE business_id = ? AND contact_type = 'phone';",
+                    (business_id,),
                 )
-            except sqlite3.IntegrityError as error:
-                raise HTTPException(status_code=409, detail="Business update conflicts with existing data") from error
+                if phone_update:
+                    connection.execute(
+                        """
+                        INSERT INTO business_contacts (business_id, contact_type, contact_value, is_primary)
+                        VALUES (?, 'phone', ?, 1);
+                        """,
+                        (business_id, phone_update),
+                    )
+
+            if location_updates:
+                current_line1 = (existing["address_line1"] or "").strip()
+                current_city = (existing["city"] or "").strip()
+                current_state = (existing["state"] or "").strip()
+                current_postal = (existing["postal_code"] or "").strip()
+                current_line2 = (existing["address_line2"] or "").strip()
+                current_country = (existing["country"] or "US").strip() or "US"
+
+                next_line1 = location_updates.get("address_line1", current_line1)
+                next_city = location_updates.get("city", current_city)
+                next_state = location_updates.get("state", current_state)
+                next_postal = location_updates.get("postal_code", current_postal)
+                next_line2 = location_updates.get("address_line2", current_line2)
+                next_country = location_updates.get("country", current_country) or "US"
+
+                required = (next_line1, next_city, next_state, next_postal)
+                has_any = any((next_line1, next_line2, next_city, next_state, next_postal))
+                if has_any and not all(required):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Address requires address_line1, city, state, and postal_code",
+                    )
+
+                connection.execute(
+                    "DELETE FROM business_locations WHERE business_id = ?;",
+                    (business_id,),
+                )
+                if all(required):
+                    connection.execute(
+                        """
+                        INSERT INTO business_locations (
+                          business_id, label, line1, line2, city, state, postal_code, country, hours_json
+                        )
+                        VALUES (?, NULL, ?, ?, ?, ?, ?, ?, '{}');
+                        """,
+                        (
+                            business_id,
+                            next_line1,
+                            next_line2 or None,
+                            next_city,
+                            next_state,
+                            next_postal,
+                            next_country,
+                        ),
+                    )
 
             row = connection.execute(
-                """
-                SELECT id, legal_name, display_name, timezone, is_active
-                FROM businesses
-                WHERE id = ?;
-                """,
+                _business_select_sql() + " WHERE b.id = ?;",
                 (business_id,),
             ).fetchone()
 
@@ -679,13 +848,7 @@ def create_app() -> FastAPI:
         if row is None:
             raise HTTPException(status_code=500, detail="Business update failed")
 
-        return BusinessResponse(
-            id=row["id"],
-            legal_name=row["legal_name"],
-            display_name=row["display_name"],
-            timezone=row["timezone"],
-            is_active=bool(row["is_active"]),
-        )
+        return _business_row_to_response(row)
 
     @app.get("/businesses/{business_id}/campaigns/lookup")
     def lookup_campaigns_by_name(business_id: int, campaign_name: str) -> dict[str, Any]:

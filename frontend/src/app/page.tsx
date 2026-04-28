@@ -60,6 +60,13 @@ export default function HomePage() {
     display_name: "",
     timezone: "America/New_York",
     is_active: true,
+    phone: "",
+    address_line1: "",
+    address_line2: "",
+    city: "",
+    state: "",
+    postal_code: "",
+    country: "US",
   });
   const [campaignForm, setCampaignForm] = useState({
     campaign_name: "",
@@ -231,6 +238,13 @@ export default function HomePage() {
         display_name: "",
         timezone: "America/New_York",
         is_active: true,
+        phone: "",
+        address_line1: "",
+        address_line2: "",
+        city: "",
+        state: "",
+        postal_code: "",
+        country: "US",
       });
       return;
     }
@@ -239,6 +253,13 @@ export default function HomePage() {
       display_name: selected.display_name,
       timezone: selected.timezone,
       is_active: selected.is_active,
+      phone: selected.phone ?? "",
+      address_line1: selected.address_line1 ?? "",
+      address_line2: selected.address_line2 ?? "",
+      city: selected.city ?? "",
+      state: selected.state ?? "",
+      postal_code: selected.postal_code ?? "",
+      country: selected.country ?? "US",
     });
   }, [businesses, selectedBusinessId]);
 
@@ -325,6 +346,13 @@ export default function HomePage() {
         legal_name: businessEditForm.legal_name,
         display_name: businessEditForm.display_name,
         timezone: businessEditForm.timezone,
+        phone: businessEditForm.phone || null,
+        address_line1: businessEditForm.address_line1 || null,
+        address_line2: businessEditForm.address_line2 || null,
+        city: businessEditForm.city || null,
+        state: businessEditForm.state || null,
+        postal_code: businessEditForm.postal_code || null,
+        country: businessEditForm.country || null,
       });
       const updatedBusinesses = [...businesses, created].sort((a, b) => a.display_name.localeCompare(b.display_name));
       setBusinesses(updatedBusinesses);
@@ -334,6 +362,13 @@ export default function HomePage() {
         display_name: created.display_name,
         timezone: created.timezone,
         is_active: created.is_active,
+        phone: created.phone ?? "",
+        address_line1: created.address_line1 ?? "",
+        address_line2: created.address_line2 ?? "",
+        city: created.city ?? "",
+        state: created.state ?? "",
+        postal_code: created.postal_code ?? "",
+        country: created.country ?? "US",
       });
       setBusinessMode("edit");
     } catch (caught) {
@@ -359,6 +394,13 @@ export default function HomePage() {
         display_name: updated.display_name,
         timezone: updated.timezone,
         is_active: updated.is_active,
+        phone: updated.phone ?? "",
+        address_line1: updated.address_line1 ?? "",
+        address_line2: updated.address_line2 ?? "",
+        city: updated.city ?? "",
+        state: updated.state ?? "",
+        postal_code: updated.postal_code ?? "",
+        country: updated.country ?? "US",
       });
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Failed to update business";
@@ -586,7 +628,19 @@ export default function HomePage() {
             <button
               type="button"
               onClick={() => {
-                setBusinessEditForm({ legal_name: "", display_name: "", timezone: "America/New_York", is_active: true });
+                setBusinessEditForm({
+                  legal_name: "",
+                  display_name: "",
+                  timezone: "America/New_York",
+                  is_active: true,
+                  phone: "",
+                  address_line1: "",
+                  address_line2: "",
+                  city: "",
+                  state: "",
+                  postal_code: "",
+                  country: "US",
+                });
                 setBusinessMode("create");
               }}
             >
@@ -622,6 +676,62 @@ export default function HomePage() {
                 value={businessEditForm.timezone}
                 onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, timezone: event.target.value }))}
                 required
+              />
+            </label>
+            <label className="stacked-label" htmlFor="edit-phone">
+              <span>Phone</span>
+              <input
+                id="edit-phone"
+                value={businessEditForm.phone}
+                onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, phone: event.target.value }))}
+              />
+            </label>
+            <label className="stacked-label" htmlFor="edit-address-line1">
+              <span>Address Line 1</span>
+              <input
+                id="edit-address-line1"
+                value={businessEditForm.address_line1}
+                onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, address_line1: event.target.value }))}
+              />
+            </label>
+            <label className="stacked-label" htmlFor="edit-address-line2">
+              <span>Address Line 2</span>
+              <input
+                id="edit-address-line2"
+                value={businessEditForm.address_line2}
+                onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, address_line2: event.target.value }))}
+              />
+            </label>
+            <label className="stacked-label" htmlFor="edit-city">
+              <span>City</span>
+              <input
+                id="edit-city"
+                value={businessEditForm.city}
+                onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, city: event.target.value }))}
+              />
+            </label>
+            <label className="stacked-label" htmlFor="edit-state">
+              <span>State</span>
+              <input
+                id="edit-state"
+                value={businessEditForm.state}
+                onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, state: event.target.value }))}
+              />
+            </label>
+            <label className="stacked-label" htmlFor="edit-postal-code">
+              <span>Postal Code</span>
+              <input
+                id="edit-postal-code"
+                value={businessEditForm.postal_code}
+                onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, postal_code: event.target.value }))}
+              />
+            </label>
+            <label className="stacked-label" htmlFor="edit-country">
+              <span>Country</span>
+              <input
+                id="edit-country"
+                value={businessEditForm.country}
+                onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, country: event.target.value }))}
               />
             </label>
             <label className="stacked-label" htmlFor="edit-active">
@@ -664,6 +774,62 @@ export default function HomePage() {
                 value={businessEditForm.timezone}
                 onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, timezone: event.target.value }))}
                 required
+              />
+            </label>
+            <label className="stacked-label" htmlFor="new-phone">
+              <span>Phone</span>
+              <input
+                id="new-phone"
+                value={businessEditForm.phone}
+                onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, phone: event.target.value }))}
+              />
+            </label>
+            <label className="stacked-label" htmlFor="new-address-line1">
+              <span>Address Line 1</span>
+              <input
+                id="new-address-line1"
+                value={businessEditForm.address_line1}
+                onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, address_line1: event.target.value }))}
+              />
+            </label>
+            <label className="stacked-label" htmlFor="new-address-line2">
+              <span>Address Line 2</span>
+              <input
+                id="new-address-line2"
+                value={businessEditForm.address_line2}
+                onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, address_line2: event.target.value }))}
+              />
+            </label>
+            <label className="stacked-label" htmlFor="new-city">
+              <span>City</span>
+              <input
+                id="new-city"
+                value={businessEditForm.city}
+                onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, city: event.target.value }))}
+              />
+            </label>
+            <label className="stacked-label" htmlFor="new-state">
+              <span>State</span>
+              <input
+                id="new-state"
+                value={businessEditForm.state}
+                onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, state: event.target.value }))}
+              />
+            </label>
+            <label className="stacked-label" htmlFor="new-postal-code">
+              <span>Postal Code</span>
+              <input
+                id="new-postal-code"
+                value={businessEditForm.postal_code}
+                onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, postal_code: event.target.value }))}
+              />
+            </label>
+            <label className="stacked-label" htmlFor="new-country">
+              <span>Country</span>
+              <input
+                id="new-country"
+                value={businessEditForm.country}
+                onChange={(event) => setBusinessEditForm((prev) => ({ ...prev, country: event.target.value }))}
               />
             </label>
             <button type="submit">Create Business</button>
