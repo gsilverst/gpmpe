@@ -240,12 +240,14 @@ def test_chat_clone_via_endpoint(tmp_path, monkeypatch):
     msg = "clone mothersday and rename it to fathersday"
     resp = client.post(
         f"/chat/sessions/{session_id}/messages",
-        json={"message": msg, "campaign_id": 0},
+        json={"message": msg},
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["result"]["target"] == "clone"
     assert body["result"]["new_campaign_name"] == "fathersday"
+    assert isinstance(body["result"]["new_campaign_id"], int)
+    assert isinstance(body["result"]["new_business_id"], int)
 
     # New YAML directory should exist
     assert (data_dir / "acme" / "fathersday" / "fathersday.yaml").exists()

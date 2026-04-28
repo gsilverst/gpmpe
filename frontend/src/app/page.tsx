@@ -293,8 +293,10 @@ export default function HomePage() {
 
   async function handleChatSend(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    if (chatSessionId == null || selectedCampaignId == null) {
-      setChatStatus("Select a campaign to open chat editing.");
+    // Clone commands don't require a campaign to be selected, but edits do.
+    const isCloneAttempt = /clon(?:e|ing)/i.test(chatMessage);
+    if (chatSessionId == null || (!isCloneAttempt && selectedCampaignId == null)) {
+      setChatStatus("Select a campaign to open chat editing, or use a clone command to create one.");
       return;
     }
     if (chatMessage.trim() === "") {
@@ -306,6 +308,26 @@ export default function HomePage() {
       const payload = await postChatMessage(chatSessionId, selectedCampaignId, chatMessage.trim());
       setChatHistory(payload.history);
       setChatMessage("");
+
+      // If this was a clone command, refresh the campaign list and switch to the new campaign.
+      const result = payload.result as Record<string, unknown>;
+      if (result.target === "clone") {
+        const newCampaignId = typeof result.new_campaign_id === "number" ? result.new_campaign_id : null;
+        const newBusinessId = typeof result.new_business_id === "number" ? result.new_business_id : null;
+        // Refresh business list in case business changed, then refresh campaigns.
+        const refreshedBusinesses = await listBusinesses();
+        setBusinesses(refreshedBusinesses);
+        const targetBusinessId = newBusinessId ?? selectedBusinessId;
+        if (targetBusinessId != null) {
+          setSelectedBusinessId(targetBusinessId);
+          const refreshedCampaigns = await listCampaignsForBusiness(targetBusinessId);
+          setCampaigns(refreshedCampaigns);
+          setSelectedCampaignId(newCampaignId ?? (refreshedCampaigns[0]?.id ?? null));
+        }
+        setChatStatus(
+          `Campaign '${String(result.new_campaign_name)}' created. It is now the active campaign — continue editing below.`
+        );
+      }
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Failed to send chat edit";
       setChatStatus(message);
@@ -562,7 +584,11 @@ export default function HomePage() {
 
       <section className="card section-gap">
         <h2>Chat Campaign Editing</h2>
-        <p>Use commands like set title to Weekend Blowout, set status to active, or set brand primary_color to #112233.</p>
+        <p>
+          Edit commands: <code>set title to Weekend Blowout</code>, <code>set status to active</code>, <code>set brand primary_color to #112233</code>.
+          <br />
+          Clone commands: <code>clone summer-sale and rename it to fall-clearance</code> — creates a new campaign and makes it active.
+        </p>
         <form className="stacked-label" onSubmit={handleChatSend}>
           <span>Edit command</span>
           <input

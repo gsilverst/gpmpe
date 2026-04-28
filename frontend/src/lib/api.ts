@@ -394,13 +394,13 @@ export async function createChatSession(baseUrl = apiBaseUrl()): Promise<ChatSes
 
 export async function postChatMessage(
   sessionId: string,
-  campaignId: number,
+  campaignId: number | null,
   message: string,
   baseUrl = apiBaseUrl()
 ): Promise<ChatMessageResponse> {
   return postJson<ChatMessageResponse>(
     `/chat/sessions/${encodeURIComponent(sessionId)}/messages`,
-    { campaign_id: campaignId, message },
+    { campaign_id: campaignId ?? undefined, message },
     baseUrl
   );
 }

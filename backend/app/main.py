@@ -143,7 +143,7 @@ class CampaignTemplateBindingCreate(BaseModel):
 
 
 class ChatMessageRequest(BaseModel):
-    campaign_id: int
+    campaign_id: int | None = None
     message: str = Field(min_length=1, max_length=4000)
 
 
@@ -1194,10 +1194,23 @@ def create_app() -> FastAPI:
                         new_campaign_name=clone_cmd.new_campaign_name,
                         business_name=clone_cmd.business_name,
                     )
+                    # Resolve the new campaign's DB id and business id
+                    new_row = connection.execute(
+                        """
+                        SELECT c.id AS campaign_id, c.business_id
+                        FROM campaigns c
+                        WHERE c.campaign_name = ?
+                        ORDER BY c.id DESC
+                        LIMIT 1;
+                        """,
+                        (clone_cmd.new_campaign_name,),
+                    ).fetchone()
                     connection.commit()
                 except ValueError as exc:
                     raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+            new_campaign_id = int(new_row["campaign_id"]) if new_row else None
+            new_business_id = int(new_row["business_id"]) if new_row else None
             chat_store.append(session_id, "user", payload.message)
             chat_store.append(
                 session_id,
@@ -1211,9 +1224,14 @@ def create_app() -> FastAPI:
                     "source_campaign_name": clone_cmd.source_campaign_name,
                     "new_campaign_name": clone_cmd.new_campaign_name,
                     "new_campaign_title": record.payload.get("title"),
+                    "new_campaign_id": new_campaign_id,
+                    "new_business_id": new_business_id,
                 },
                 "history": chat_store.history(session_id),
             }
+
+        if payload.campaign_id is None:
+            raise HTTPException(status_code=400, detail="campaign_id is required for edit commands")
 
         command = parse_chat_command(payload.message)
 
