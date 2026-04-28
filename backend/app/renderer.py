@@ -3,34 +3,432 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from collections import deque
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-from fpdf import FPDF
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase.pdfmetrics import stringWidth
+from reportlab.pdfgen import canvas as rl_canvas
 
-# Letter-size in mm
-_PAGE_W = 215.9
-_PAGE_H = 279.4
-_MARGIN = 20.0
-_CONTENT_W = _PAGE_W - 2 * _MARGIN
+try:
+    from PIL import Image as _PILImage
+    _PIL_AVAILABLE = True
+except ImportError:
+    _PIL_AVAILABLE = False
 
-# Brand fallbacks
-_DEFAULT_PRIMARY = "#209dd7"
-_DEFAULT_ACCENT = "#ecad0a"
-_DEFAULT_INK = "#032147"
+# ---------------------------------------------------------------------------
+# Page geometry (points, letter)
+# ---------------------------------------------------------------------------
+_PW, _PH = letter  # 612, 792
+_MARGIN = 36.0
+
+# Rich layout constants — mirrors reference coordinate scheme
+_HEADER_H: float = 112.0
+_HEADER_Y: float = _PH - 156.0          # 636
+_SECTION_GAP: float = 14.0
+_FEATURED_H: float = 230.0
+_FEATURED_Y: float = _HEADER_Y - _SECTION_GAP - _FEATURED_H  # 392
+_WEEKDAY_Y: float = 76.0
+_WEEKDAY_TOP: float = _FEATURED_Y - _SECTION_GAP             # 378
+_WEEKDAY_H: float = _WEEKDAY_TOP - _WEEKDAY_Y                # 302
+_LEGAL_Y: float = 34.0
+_LEGAL_H: float = 22.0
+
+# ---------------------------------------------------------------------------
+# Color helpers
+# ---------------------------------------------------------------------------
+
+_COLOR_CREAM = colors.HexColor("#FBF7F4")
+_COLOR_INK = colors.HexColor("#181818")
+_COLOR_WHITE = colors.white
 
 
-def _hex_to_rgb(hex_color: str | None, fallback: str) -> tuple[int, int, int]:
-    raw = (hex_color or fallback).lstrip("#")
+def _hex(val: str | None, fallback: str = "#000000") -> colors.HexColor:
+    raw = (val or fallback).strip()
+    if not raw.startswith("#"):
+        raw = "#" + raw
+    return colors.HexColor(raw)
+
+
+def _palette(ctx: dict[str, Any]) -> dict[str, Any]:
+    theme = ctx.get("theme", {})
+    ev = ctx.get("effective_values", {})
+    primary = _hex(theme.get("primary_color"), "#209dd7")
+    secondary = _hex(theme.get("secondary_color"), "#753991")
+    accent = _hex(ev.get("accent") or theme.get("accent_color"), "#ecad0a")
+    cream = _hex(ev.get("color_bg"), "#FBF7F4")
+    blush = _hex(ev.get("color_blush"), "#E8D5F0")
+    card_1_bg = _hex(ev.get("color_card_1_bg"), "#F0E0FF")
+    primary_light = _hex(ev.get("color_primary_light"), "#D5C8E8")
+    return {
+        "primary": primary,
+        "secondary": secondary,
+        "accent": accent,
+        "cream": cream,
+        "blush": blush,
+        "card_1_bg": card_1_bg,
+        "primary_light": primary_light,
+        "ink": _COLOR_INK,
+        "white": _COLOR_WHITE,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Logo loading (PIL-based BG removal identical to reference implementation)
+# ---------------------------------------------------------------------------
+
+def _load_logo(logo_path: Path | None) -> ImageReader | None:
+    if logo_path is None or not logo_path.exists() or not _PIL_AVAILABLE:
+        return None
     try:
-        r = int(raw[0:2], 16)
-        g = int(raw[2:4], 16)
-        b = int(raw[4:6], 16)
-        return r, g, b
-    except (ValueError, IndexError):
-        raw = fallback.lstrip("#")
-        return int(raw[0:2], 16), int(raw[2:4], 16), int(raw[4:6], 16)
+        with _PILImage.open(logo_path).convert("RGB") as img:
+            w, h = img.size
+            cleaned = img.crop((0, 62, w, h)).convert("RGBA")
+            pixels = cleaned.load()
+            cw, ch = cleaned.size
 
+            def near_white(r: int, g: int, b: int) -> bool:
+                return r > 215 and g > 215 and b > 215
+
+            q: deque = deque([(0, 0), (cw - 1, 0), (0, ch - 1), (cw - 1, ch - 1)])
+            visited: set = set(q)
+            while q:
+                x, y = q.popleft()
+                r, g, b, a = pixels[x, y]
+                if a == 0 or not near_white(r, g, b):
+                    continue
+                pixels[x, y] = (r, g, b, 0)
+                for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                    if 0 <= nx < cw and 0 <= ny < ch and (nx, ny) not in visited:
+                        visited.add((nx, ny))
+                        q.append((nx, ny))
+
+            bbox = cleaned.getchannel("A").getbbox()
+            if bbox:
+                cleaned = cleaned.crop(bbox)
+
+            buf = BytesIO()
+            cleaned.save(buf, format="PNG")
+            buf.seek(0)
+            return ImageReader(buf)
+    except Exception:
+        return None
+
+
+def _resolve_logo(theme: dict, data_dir: Path | None, business_display_name: str) -> Path | None:
+    logo_str = (theme.get("logo_path") or "").strip()
+    if not logo_str:
+        return None
+    logo_path = Path(logo_str)
+    if logo_path.is_absolute():
+        return logo_path if logo_path.exists() else None
+    if data_dir is not None:
+        biz_dir = data_dir / business_display_name.lower()
+        candidate = biz_dir / logo_str
+        if candidate.exists():
+            return candidate
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Low-level drawing primitives (reportlab)
+# ---------------------------------------------------------------------------
+
+def _draw_centered(pdf: Any, text: str | None, x: float, y: float,
+                   font: str, size: float, color: Any) -> None:
+    pdf.setFillColor(color)
+    pdf.setFont(font, size)
+    pdf.drawCentredString(x, y, text or "")
+
+
+def _draw_wrapped_centered(pdf: Any, text: str | None, cx: float, top_y: float,
+                            max_w: float, font: str, size: float,
+                            leading: float, color: Any) -> float:
+    pdf.setFont(font, size)
+    pdf.setFillColor(color)
+    words = (text or "").split()
+    lines: list[str] = []
+    current: list[str] = []
+    for word in words:
+        candidate = " ".join(current + [word])
+        if stringWidth(candidate, font, size) <= max_w or not current:
+            current.append(word)
+        else:
+            lines.append(" ".join(current))
+            current = [word]
+    if current:
+        lines.append(" ".join(current))
+    y = top_y
+    for line in lines:
+        pdf.drawCentredString(cx, y, line)
+        y -= leading
+    return y
+
+
+def _draw_rounded_panel(pdf: Any, x: float, y: float, w: float, h: float,
+                         fill: Any, stroke: Any = None, radius: float = 18,
+                         stroke_w: float = 1.0) -> None:
+    pdf.setFillColor(fill)
+    if stroke:
+        pdf.setStrokeColor(stroke)
+        pdf.setLineWidth(stroke_w)
+    else:
+        pdf.setStrokeColor(fill)
+    pdf.roundRect(x, y, w, h, radius, fill=1, stroke=1)
+
+
+def _draw_offer_card(pdf: Any, x: float, y: float, w: float, h: float,
+                      title: str, duration: str, price: str,
+                      fill: Any, accent: Any, text_color: Any) -> None:
+    _draw_rounded_panel(pdf, x, y, w, h, fill, accent, radius=16, stroke_w=2)
+    pdf.setFillColor(accent)
+    pdf.roundRect(x + 10, y + h - 36, w - 20, 24, 10, fill=1, stroke=0)
+    _draw_centered(pdf, title, x + w / 2, y + h - 28, "Helvetica-Bold", 14, _COLOR_WHITE)
+    _draw_centered(pdf, duration, x + w / 2, y + h - 58, "Helvetica", 11, text_color)
+    _draw_centered(pdf, price, x + w / 2, y + 30, "Helvetica-Bold", 28, accent)
+
+
+def _draw_weekday_strip(pdf: Any, x: float, y: float, w: float,
+                         title: str, detail: str, price: str,
+                         palette: dict) -> None:
+    _draw_rounded_panel(pdf, x, y, w, 26, palette["primary_light"], palette["secondary"],
+                        radius=10, stroke_w=1)
+    pdf.setFillColor(palette["ink"])
+    pdf.setFont("Helvetica-Bold", 10.5)
+    pdf.drawString(x + 16, y + 8, title)
+    pdf.setFont("Helvetica", 9.5)
+    pdf.drawString(x + 180, y + 8, detail)
+    pdf.setFont("Helvetica-Bold", 13)
+    pdf.drawRightString(x + w - 16, y + 7, price)
+
+
+# ---------------------------------------------------------------------------
+# Rich branded layout (featured-offers + weekday-specials)
+# ---------------------------------------------------------------------------
+
+def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
+                      featured: list, weekday: list,
+                      discount: list, legal: list) -> None:
+    ev = ctx.get("effective_values", {})
+    w = _PW
+    h = _PH
+
+    # Background
+    pdf.setFillColor(palette["cream"])
+    pdf.rect(0, 0, w, h, fill=1, stroke=0)
+
+    # ----- Header panel -----
+    hx = _MARGIN
+    panel_w = w - _MARGIN * 2
+    _draw_rounded_panel(pdf, hx, _HEADER_Y, panel_w, _HEADER_H,
+                        palette["primary"], palette["primary"], radius=24, stroke_w=2)
+
+    if logo_reader is not None:
+        logo_w, logo_h = 58, 58
+        logo_x = (w - logo_w) / 2
+        logo_y = _HEADER_Y + _HEADER_H - logo_h - 6
+        pdf.drawImage(logo_reader, logo_x, logo_y,
+                      width=logo_w, height=logo_h, preserveAspectRatio=True)
+
+    biz_name = ev.get("business_name") or ctx.get("business_display_name", "")
+    biz_sub = ev.get("business_subtitle") or ctx.get("business_legal_name", "")
+    _draw_centered(pdf, biz_name.upper(), w / 2, _HEADER_Y + 28,
+                   "Helvetica-Bold", 22, palette["white"])
+    _draw_centered(pdf, biz_sub, w / 2, _HEADER_Y + 8,
+                   "Times-Italic", 16, palette["primary_light"])
+
+    # ----- Featured offers panel (Mother's Day / similar) -----
+    if featured:
+        comp = featured[0]
+        _draw_rounded_panel(pdf, hx, _FEATURED_Y, panel_w, _FEATURED_H,
+                            palette["blush"], palette["accent"], radius=24, stroke_w=2)
+        _draw_centered(pdf, comp.get("display_title") or "".upper(), w / 2,
+                       _FEATURED_Y + _FEATURED_H - 34, "Helvetica-Bold", 23, palette["primary"])
+        subtitle = comp.get("subtitle") or ""
+        if subtitle:
+            _draw_wrapped_centered(pdf, subtitle, w / 2, _FEATURED_Y + _FEATURED_H - 62,
+                                   w - 140, "Times-Italic", 14, 17, _COLOR_INK)
+
+        items = comp.get("items", [])
+        card_y = _FEATURED_Y + 42
+        card_h = 112.0
+        card_w = (panel_w - 28) / 2
+
+        if len(items) >= 2:
+            draw_cards = items[:2]
+            # Card 1
+            i0 = draw_cards[0]
+            _draw_offer_card(pdf, hx + 14, card_y, card_w, card_h,
+                             i0.get("item_name") or "", i0.get("duration_label") or "",
+                             i0.get("item_value") or "",
+                             palette["card_1_bg"], palette["accent"], _COLOR_INK)
+            # Card 2
+            i1 = draw_cards[1]
+            _draw_offer_card(pdf, hx + 14 + card_w + 14, card_y, card_w, card_h,
+                             i1.get("item_name") or "", i1.get("duration_label") or "",
+                             i1.get("item_value") or "",
+                             palette["white"], palette["primary"], _COLOR_INK)
+        elif len(items) == 1:
+            i0 = items[0]
+            _draw_offer_card(pdf, hx + 14, card_y, panel_w - 28, card_h,
+                             i0.get("item_name") or "", i0.get("duration_label") or "",
+                             i0.get("item_value") or "",
+                             palette["card_1_bg"], palette["accent"], _COLOR_INK)
+
+    # ----- Weekday specials panel -----
+    _draw_rounded_panel(pdf, hx, _WEEKDAY_Y, panel_w, _WEEKDAY_H,
+                        palette["primary"], palette["primary"], radius=24, stroke_w=2)
+
+    if weekday:
+        wd_comp = weekday[0]
+        _draw_centered(pdf, wd_comp.get("display_title") or "".upper(), w / 2,
+                       _WEEKDAY_Y + _WEEKDAY_H - 34, "Helvetica-Bold", 22, palette["white"])
+        wd_sub = wd_comp.get("subtitle") or ""
+        if wd_sub:
+            _draw_centered(pdf, wd_sub, w / 2, _WEEKDAY_Y + _WEEKDAY_H - 56,
+                           "Times-Italic", 14, palette["primary_light"])
+
+        strips_x = hx + 18
+        strips_w = w - (hx + 18) * 2
+        wd_items = wd_comp.get("items", [])
+        # Preserve source order top-to-bottom to match the reference layout.
+        strip_top = _WEEKDAY_Y + 172
+        for idx, item in enumerate(wd_items):
+            sy = strip_top - (idx * 34)
+            _draw_weekday_strip(pdf, strips_x, sy, strips_w,
+                                item.get("item_name") or "",
+                                item.get("duration_label", ""),
+                                item.get("item_value", ""),
+                                palette)
+
+    # ----- Discount strip (services panel) -----
+    if discount:
+        ds_comp = discount[0]
+        ds_items = ds_comp.get("items", [])
+        services_panel_y = _WEEKDAY_Y + 34
+        services_panel_h = 62.0
+        panel_inner_w = panel_w - 32
+
+        _draw_rounded_panel(pdf, hx + 16, services_panel_y, panel_inner_w, services_panel_h,
+                            palette["white"], palette["secondary"], radius=18, stroke_w=2)
+
+        if ds_items:
+            # Item 1 → inside panel
+            it0 = ds_items[0]
+            _draw_centered(pdf, it0.get("item_name") or "", w / 2,
+                           services_panel_y + services_panel_h - 18,
+                           "Helvetica-Bold", 17, palette["primary"])
+            services_desc = it0.get("description_text") or ""
+            if services_desc:
+                _draw_wrapped_centered(pdf, services_desc, w / 2,
+                                       services_panel_y + 24, w - 160,
+                                       "Helvetica", 10, 12, _COLOR_INK)
+
+            # Item 2+ → below panel as italic text
+            if len(ds_items) > 1:
+                it1 = ds_items[1]
+                _draw_centered(pdf, it1.get("item_name") or "", w / 2,
+                               services_panel_y - 16,
+                               "Times-Italic", 14, palette["accent"])
+
+    # ----- Footer contact line (inside weekday panel, very bottom) -----
+    footer_text = ev.get("footer") or ""
+    if footer_text:
+        _draw_centered(pdf, footer_text, w / 2, _WEEKDAY_Y + 6,
+                       "Helvetica-Bold", 10, palette["white"])
+
+    # ----- Legal strip (below weekday panel) -----
+    legal_inner_w = panel_w - 40
+    _draw_rounded_panel(pdf, hx + 20, _LEGAL_Y, legal_inner_w, _LEGAL_H,
+                        palette["primary_light"], palette["secondary"], radius=10, stroke_w=1)
+
+    legal_text = ""
+    if legal:
+        legal_text = legal[0].get("description_text") or ""
+    if not legal_text:
+        legal_text = ev.get("legal") or ""
+    if legal_text:
+        _draw_centered(pdf, legal_text, w / 2, _LEGAL_Y + 7,
+                       "Helvetica-Bold", 10, _COLOR_INK)
+
+
+# ---------------------------------------------------------------------------
+# Simple fallback layout (generic campaigns without rich component kinds)
+# ---------------------------------------------------------------------------
+
+def _draw_simple_flyer(pdf: Any, ctx: dict, palette: dict) -> None:
+    ev = ctx.get("effective_values", {})
+    w = _PW
+    h = _PH
+
+    # Background
+    pdf.setFillColor(palette["cream"])
+    pdf.rect(0, 0, w, h, fill=1, stroke=0)
+
+    # Header bar
+    pdf.setFillColor(palette["primary"])
+    pdf.rect(0, h - 48, w, 48, fill=1, stroke=0)
+    biz_name = ev.get("business_name") or ctx.get("business_display_name", "")
+    _draw_centered(pdf, biz_name.upper(), w / 2, h - 22,
+                   "Helvetica-Bold", 18, palette["white"])
+    biz_sub = ev.get("business_subtitle") or ctx.get("business_legal_name", "")
+    if biz_sub:
+        _draw_centered(pdf, biz_sub, w / 2, h - 38,
+                       "Times-Italic", 12, palette["primary_light"])
+
+    # Headline
+    headline = ev.get("headline") or ctx.get("title") or ""
+    pdf.setFillColor(palette["primary"])
+    pdf.roundRect(_MARGIN, h - 102, w - _MARGIN * 2, 40, 12, fill=1, stroke=0)
+    _draw_centered(pdf, headline, w / 2, h - 76, "Helvetica-Bold", 20, palette["white"])
+
+    # Components
+    y = h - 130
+    for comp in ctx.get("components", []):
+        if y < 120:
+            break
+        # Section title
+        pdf.setFillColor(palette["accent"])
+        pdf.roundRect(_MARGIN, y - 6, w - _MARGIN * 2, 22, 8, fill=1, stroke=0)
+        _draw_centered(pdf, (comp.get("display_title") or "").upper(), w / 2, y + 8,
+                       "Helvetica-Bold", 12, palette["white"])
+        y -= 36
+
+        for item in comp.get("items", []):
+            if y < 100:
+                break
+            parts = [p for p in [item.get("item_name"), item.get("duration_label")] if p]
+            label = " – ".join(parts)
+            value = item.get("item_value") or ""
+            row = f"{label}: {value}" if label and value else label or value
+            pdf.setFillColor(palette["ink"])
+            pdf.setFont("Helvetica", 11)
+            pdf.drawCentredString(w / 2, y, row)
+            y -= 18
+
+        y -= 10
+
+    # CTA bar
+    cta = ev.get("cta") or ""
+    if cta and y > 80:
+        pdf.setFillColor(palette["accent"])
+        pdf.roundRect(_MARGIN, y - 6, w - _MARGIN * 2, 22, 8, fill=1, stroke=0)
+        _draw_centered(pdf, cta, w / 2, y + 8, "Helvetica-Bold", 12, palette["white"])
+        y -= 36
+
+    # Footer
+    footer = ev.get("footer") or ""
+    if footer:
+        _draw_centered(pdf, footer, w / 2, 40, "Helvetica", 9, palette["secondary"])
+
+
+# ---------------------------------------------------------------------------
+# Context collector (unchanged from previous implementation)
+# ---------------------------------------------------------------------------
 
 def _fallback_components(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if not offers:
@@ -193,186 +591,42 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
     }
 
 
-def _phone(contacts: list[dict[str, Any]]) -> str | None:
-    for c in contacts:
-        if c["contact_type"] == "phone":
-            return c["contact_value"]
-    return None
+# ---------------------------------------------------------------------------
+# Public render API
+# ---------------------------------------------------------------------------
 
+def render_flyer(ctx: dict[str, Any], data_dir: Path | None = None) -> bytes:
+    palette = _palette(ctx)
+    components = ctx.get("components", [])
 
-def _website(contacts: list[dict[str, Any]]) -> str | None:
-    for c in contacts:
-        if c["contact_type"] == "website":
-            return c["contact_value"]
-    return None
+    featured = [c for c in components if c.get("component_kind") == "featured-offers"]
+    weekday = [c for c in components if c.get("component_kind") == "weekday-specials"]
+    discount = [c for c in components if c.get("component_kind") == "discount-strip"]
+    legal = [c for c in components if c.get("component_kind") == "legal-note"]
+    use_rich = bool(featured or weekday)
 
+    # Resolve logo
+    logo_reader = None
+    if use_rich:
+        logo_path = _resolve_logo(
+            ctx.get("theme", {}),
+            data_dir,
+            ctx.get("business_display_name", ""),
+        )
+        logo_reader = _load_logo(logo_path)
 
-class _FlyerPDF(FPDF):
-    def __init__(self, ctx: dict[str, Any]) -> None:
-        super().__init__(orientation="portrait", unit="mm", format="letter")
-        self.ctx = ctx
-        self.set_margins(_MARGIN, _MARGIN, _MARGIN)
-        self.set_auto_page_break(auto=True, margin=_MARGIN)
-        self.add_page()
+    buf = BytesIO()
+    pdf = rl_canvas.Canvas(buf, pagesize=letter)
+    pdf.setTitle(ctx.get("title") or "Flyer")
 
-    def _primary_rgb(self) -> tuple[int, int, int]:
-        return _hex_to_rgb(self.ctx["theme"].get("primary_color"), _DEFAULT_PRIMARY)
+    if use_rich:
+        _draw_rich_flyer(pdf, ctx, palette, logo_reader, featured, weekday, discount, legal)
+    else:
+        _draw_simple_flyer(pdf, ctx, palette)
 
-    def _accent_rgb(self) -> tuple[int, int, int]:
-        return _hex_to_rgb(self.ctx["theme"].get("accent_color"), _DEFAULT_ACCENT)
-
-    def _ink_rgb(self) -> tuple[int, int, int]:
-        return _hex_to_rgb(_DEFAULT_INK, _DEFAULT_INK)
-
-    def _draw_header_bar(self) -> None:
-        r, g, b = self._primary_rgb()
-        self.set_fill_color(r, g, b)
-        self.rect(0, 0, _PAGE_W, 18, style="F")
-        self.set_text_color(255, 255, 255)
-        self.set_font("Helvetica", "B", 12)
-        biz = self.ctx["business_display_name"]
-        self.set_xy(_MARGIN, 5)
-        self.cell(_CONTENT_W, 8, biz, align="C")
-
-    def _draw_headline(self) -> None:
-        headline = self.ctx["effective_values"].get("headline") or self.ctx["title"]
-        r, g, b = self._ink_rgb()
-        self.set_text_color(r, g, b)
-        self.set_font("Helvetica", "B", 22)
-        self.set_y(24)
-        self.multi_cell(_CONTENT_W, 10, headline, align="C")
-        self.ln(2)
-
-    def _draw_dates(self) -> None:
-        start = self.ctx.get("start_date")
-        end = self.ctx.get("end_date")
-        if not start and not end:
-            return
-        r, g, b = _hex_to_rgb(self.ctx["theme"].get("secondary_color"), "#753991")
-        self.set_text_color(r, g, b)
-        self.set_font("Helvetica", "I", 11)
-        date_str = ""
-        if start and end:
-                date_str = f"{start} - {end}"
-        elif start:
-            date_str = f"Starting {start}"
-        self.cell(_CONTENT_W, 6, date_str, align="C", new_x="LMARGIN", new_y="NEXT")
-        self.ln(3)
-
-    def _draw_divider(self) -> None:
-        r, g, b = self._accent_rgb()
-        self.set_draw_color(r, g, b)
-        self.set_line_width(0.8)
-        x = _MARGIN
-        y = self.get_y()
-        self.line(x, y, x + _CONTENT_W, y)
-        self.ln(4)
-
-    def _draw_components(self) -> None:
-        components = self.ctx.get("components") or _fallback_components(self.ctx.get("offers") or [])
-        if not components:
-            return
-        r, g, b = self._ink_rgb()
-        for component in components:
-            self.set_text_color(r, g, b)
-            self.set_font("Helvetica", "B", 13)
-            self.cell(_CONTENT_W, 7, component.get("display_title") or "Offer Details", align="L", new_x="LMARGIN", new_y="NEXT")
-            subtitle = component.get("subtitle")
-            description_text = component.get("description_text")
-            if subtitle:
-                sr, sg, sb = _hex_to_rgb(self.ctx["theme"].get("secondary_color"), "#753991")
-                self.set_text_color(sr, sg, sb)
-                self.set_font("Helvetica", "I", 10)
-                self.multi_cell(_CONTENT_W, 5, subtitle, align="L")
-            if description_text:
-                self.set_text_color(100, 100, 100)
-                self.set_font("Helvetica", "", 9)
-                self.multi_cell(_CONTENT_W, 5, description_text, align="L")
-            self.ln(1)
-            for item in component.get("items", []):
-                name = item.get("item_name") or ""
-                duration_label = item.get("duration_label") or ""
-                value = item.get("item_value") or ""
-                self.set_font("Helvetica", "B", 11)
-                self.set_text_color(r, g, b)
-                name_parts = [part for part in [name, duration_label] if part]
-                label = " ".join(name_parts)
-                content = f"{label}: {value}" if label and value else label or value
-                self.multi_cell(_CONTENT_W, 6, content, align="L")
-                if item.get("description_text"):
-                    self.set_font("Helvetica", "", 8)
-                    self.set_text_color(100, 100, 100)
-                    self.multi_cell(_CONTENT_W, 4, item["description_text"], align="L")
-                if item.get("start_date") and item.get("end_date"):
-                    self.set_font("Helvetica", "I", 9)
-                    ar, ag, ab = _hex_to_rgb(self.ctx["theme"].get("secondary_color"), "#753991")
-                    self.set_text_color(ar, ag, ab)
-                    self.cell(
-                        _CONTENT_W,
-                        5,
-                        f"Valid {item['start_date']}-{item['end_date']}",
-                        align="L",
-                        new_x="LMARGIN",
-                        new_y="NEXT",
-                    )
-                if item.get("terms_text"):
-                    self.set_font("Helvetica", "I", 8)
-                    self.set_text_color(100, 100, 100)
-                    self.multi_cell(_CONTENT_W, 4, item["terms_text"], align="L")
-                self.ln(2)
-
-    def _draw_cta(self) -> None:
-        cta = self.ctx["effective_values"].get("cta")
-        if not cta:
-            return
-        self.ln(2)
-        r, g, b = self._accent_rgb()
-        self.set_fill_color(r, g, b)
-        self.set_text_color(255, 255, 255)
-        self.set_font("Helvetica", "B", 13)
-        self.cell(_CONTENT_W, 12, cta, align="C", fill=True, new_x="LMARGIN", new_y="NEXT")
-        self.ln(4)
-
-    def _draw_footer(self) -> None:
-        loc = self.ctx.get("location")
-        phone = _phone(self.ctx["contacts"])
-        website = _website(self.ctx["contacts"])
-        lines: list[str] = []
-        if loc:
-            addr_parts = [loc["line1"]]
-            if loc.get("line2"):
-                addr_parts.append(loc["line2"])
-            addr_parts.append(f"{loc['city']}, {loc['state']} {loc['postal_code']}")
-            lines.append("  ·  ".join(addr_parts))
-        if phone:
-            lines.append(f"Phone: {phone}")
-        if website:
-            lines.append(website)
-        if not lines:
-            return
-
-        r, g, b = self._primary_rgb()
-        self.set_fill_color(r, g, b)
-        footer_h = 8 + len(lines) * 5
-        footer_y = _PAGE_H - _MARGIN - footer_h
-        self.set_y(footer_y)
-        self._draw_divider()
-        self.set_text_color(80, 80, 80)
-        self.set_font("Helvetica", "", 9)
-        for line in lines:
-            self.cell(_CONTENT_W, 5, line, align="C", new_x="LMARGIN", new_y="NEXT")
-
-
-def render_flyer(ctx: dict[str, Any]) -> bytes:
-    pdf = _FlyerPDF(ctx)
-    pdf._draw_header_bar()
-    pdf._draw_headline()
-    pdf._draw_dates()
-    pdf._draw_divider()
-    pdf._draw_components()
-    pdf._draw_cta()
-    pdf._draw_footer()
-    return bytes(pdf.output())
+    pdf.showPage()
+    pdf.save()
+    return buf.getvalue()
 
 
 def _file_checksum(data: bytes) -> str:
@@ -384,6 +638,7 @@ def render_campaign_artifact(
     campaign_id: int,
     output_dir: Path,
     artifact_type: str = "flyer",
+    data_dir: Path | None = None,
 ) -> dict[str, Any]:
     ctx = _collect_render_context(connection, campaign_id)
 
@@ -395,7 +650,7 @@ def render_campaign_artifact(
     filename = f"{safe_name}-{artifact_type}.pdf"
     file_path = output_dir / filename
 
-    pdf_bytes = render_flyer(ctx)
+    pdf_bytes = render_flyer(ctx, data_dir=data_dir)
     checksum = _file_checksum(pdf_bytes)
     file_path.write_bytes(pdf_bytes)
 

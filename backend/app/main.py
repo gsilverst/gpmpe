@@ -1270,6 +1270,7 @@ def create_app() -> FastAPI:
                     campaign_id,
                     config.output_dir,
                     artifact_type=request.artifact_type,
+                    data_dir=config.data_dir,
                 )
                 connection.commit()
             except ValueError as exc:
