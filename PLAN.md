@@ -246,6 +246,33 @@ Phase gate:
 - Confirm the data model can represent a representative multi-component promotion without flattening component structure into ad hoc template text.
 - Confirm at least one multi-component promotion round-trips YAML -> DB -> YAML without losing section identity, order, or item membership.
 
+### Step 5b: Test Database and Test Data Directory Overrides
+Objective:
+- Add configuration support for a dedicated test database path and test data directory so automated tests can run against an isolated SQLite file and YAML tree without editing the main `.config` file.
+
+Why this step is needed:
+- Current test flows rely on overriding the primary runtime paths indirectly rather than through explicit test-only configuration.
+- Tests should be able to point at a separate database and a separate data directory without mutating normal local runtime settings.
+- A test database override without a matching test data directory, or vice versa, is unsafe because it can mix test execution with the normal runtime data model.
+
+Configuration and service highlights:
+- Add a `TEST_DATABASE_PATH` configuration parameter.
+- Add a `TEST_DATA_DIR` configuration parameter.
+- Only activate test-path override behavior when both `TEST_DATABASE_PATH` and `TEST_DATA_DIR` are specified together.
+- If only one of the two test parameters is provided, ignore both overrides or fail validation explicitly so the application never mixes test and non-test paths.
+- Keep `DATABASE_PATH` and `DATA_DIR` as the default runtime configuration for normal application execution.
+- Ensure test runners, fixtures, and startup wiring can opt into the paired test paths without rewriting `.config` during normal local workflows.
+
+Testing highlights:
+- Config parsing tests for the cases where both test parameters are present, only one is present, and neither is present.
+- Integration tests proving the app uses the test database and test data directory together when both are configured.
+- Guardrail tests proving normal runtime paths remain active when the test override pair is absent.
+- Regression tests ensuring test execution does not mutate the primary runtime database or primary YAML data tree.
+
+Phase gate:
+- Confirm automated tests can run end-to-end against an isolated database and isolated data directory without any `.config` edits.
+- Confirm partial test override configuration cannot accidentally mix runtime and test state.
+
 ### Step 6: API Surface and Frontend Integration
 Objective:
 - Build CRUD and workflow endpoints and wire frontend flows.
