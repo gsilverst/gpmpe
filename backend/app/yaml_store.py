@@ -195,7 +195,7 @@ def _campaign_payload(connection: sqlite3.Connection, campaign_id: int) -> tuple
     return campaign["business_display_name"], payload
 
 
-def persist_yaml_state_for_campaign(connection: sqlite3.Connection, data_dir: Path, campaign_id: int) -> None:
+def persist_yaml_state_for_campaign(connection: sqlite3.Connection, data_dir: Path, campaign_id: int) -> tuple[Path, Path]:
     campaign = connection.execute(
         """
         SELECT c.business_id, c.campaign_name, b.display_name AS business_display_name
@@ -226,3 +226,5 @@ def persist_yaml_state_for_campaign(connection: sqlite3.Connection, data_dir: Pa
 
     business_file.write_text(yaml.safe_dump(business_payload, sort_keys=False, allow_unicode=False), encoding="utf-8")
     campaign_file.write_text(yaml.safe_dump(campaign_payload, sort_keys=False, allow_unicode=False), encoding="utf-8")
+
+    return business_file, campaign_file

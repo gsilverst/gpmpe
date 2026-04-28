@@ -206,6 +206,10 @@ def test_offer_asset_and_template_updates_persist_to_yaml(monkeypatch, tmp_path:
     )
     assert binding.status_code == 201
 
+    saved = client.post(f"/campaigns/{campaign_id}/save")
+    assert saved.status_code == 200
+    assert saved.json()["auto_commit"]["enabled"] is False
+
     campaign_yaml = tmp_path / "yaml-data" / "Acme" / "Summer" / "Summer.yaml"
     assert campaign_yaml.exists()
 

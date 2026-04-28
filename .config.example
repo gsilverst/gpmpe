@@ -2,7 +2,10 @@
 # Leave OUTPUT_DIR unset to default to your current working directory.
 # Leave DATABASE_PATH unset to default to backend/data/gpmpg.db.
 # DATA_DIR points to the repository-managed YAML tree used for Step 4a+ data sync.
+# YAML_AUTO_COMMIT controls whether explicit save actions also run a git commit.
+# Default is false, and no commit occurs unless an explicit save endpoint is called.
 
 OUTPUT_DIR=./output
 DATABASE_PATH=./backend/data/gpmpg.db
 DATA_DIR=./tests/data
+YAML_AUTO_COMMIT=false

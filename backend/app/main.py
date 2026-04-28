@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from datetime import date
 import json
+from pathlib import Path
 from typing import Literal
 from typing import Any
 
@@ -14,6 +15,7 @@ from .chat import ChatSessionStore, apply_chat_command, parse_chat_command
 from .config import resolve_config
 from .data_sync import sync_data_directory
 from .db import connect_database, initialize_database
+from .git_store import GitStoreError, auto_commit_paths
 from .yaml_store import persist_yaml_state_for_campaign
 
 
@@ -98,6 +100,10 @@ class ChatMessageRequest(BaseModel):
     message: str = Field(min_length=1)
 
 
+class CampaignSaveRequest(BaseModel):
+    commit_message: str | None = None
+
+
 ALLOWED_ASSET_MIME_TYPES = {
     "image/png",
     "image/jpeg",
@@ -159,11 +165,8 @@ def _campaign_display_name(row: Any) -> str:
     return details.get("display_name") or row["campaign_name"]
 
 
-def _persist_campaign_yaml_or_raise(connection: Any, config: Any, campaign_id: int) -> None:
-    try:
-        persist_yaml_state_for_campaign(connection, config.data_dir, campaign_id)
-    except ValueError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
+def _repo_root_from_config_path(config_path: Path) -> Path:
+    return config_path.parent.resolve()
 
 
 def _business_snapshot(connection: Any, display_name: str) -> dict[str, Any]:
@@ -513,7 +516,6 @@ def create_app() -> FastAPI:
                 """,
                 (campaign_id,),
             ).fetchone()
-            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
             connection.commit()
 
         if row is None:
@@ -561,7 +563,6 @@ def create_app() -> FastAPI:
                 """,
                 (campaign_id,),
             ).fetchone()
-            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
             connection.commit()
 
         if updated is None:
@@ -644,7 +645,6 @@ def create_app() -> FastAPI:
                 """,
                 (offer_id,),
             ).fetchone()
-            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
             connection.commit()
 
         if row is None:
@@ -727,7 +727,6 @@ def create_app() -> FastAPI:
                 """,
                 (asset_id,),
             ).fetchone()
-            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
             connection.commit()
 
         if row is None:
@@ -882,7 +881,6 @@ def create_app() -> FastAPI:
                 """,
                 (binding_id,),
             ).fetchone()
-            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
             connection.commit()
 
         if row is None:
@@ -964,7 +962,6 @@ def create_app() -> FastAPI:
         config = resolve_config()
         with connect_database(config) as connection:
             result = apply_chat_command(connection, payload.campaign_id, command)
-            _persist_campaign_yaml_or_raise(connection, config, payload.campaign_id)
             connection.commit()
 
         chat_store.append(session_id, "user", payload.message)
@@ -978,6 +975,43 @@ def create_app() -> FastAPI:
             "session_id": session_id,
             "result": result,
             "history": chat_store.history(session_id),
+        }
+
+    @app.post("/campaigns/{campaign_id}/save")
+    def save_campaign(campaign_id: int, payload: CampaignSaveRequest | None = None) -> dict[str, Any]:
+        request = payload or CampaignSaveRequest()
+        config = resolve_config()
+        with connect_database(config) as connection:
+            _require_campaign(connection, campaign_id)
+            try:
+                business_file, campaign_file = persist_yaml_state_for_campaign(connection, config.data_dir, campaign_id)
+            except ValueError as error:
+                raise HTTPException(status_code=409, detail=str(error)) from error
+            connection.commit()
+
+        auto_commit_performed = False
+        commit_id: str | None = None
+        if config.yaml_auto_commit:
+            repo_root = _repo_root_from_config_path(config.config_path)
+            default_message = f"Save campaign {campaign_id} YAML"
+            commit_message = (request.commit_message or default_message).strip()
+            if commit_message == "":
+                raise HTTPException(status_code=400, detail="commit_message cannot be empty")
+            try:
+                commit_id = auto_commit_paths(repo_root, [business_file, campaign_file], commit_message)
+            except GitStoreError as error:
+                raise HTTPException(status_code=409, detail=str(error)) from error
+            auto_commit_performed = commit_id is not None and commit_id != ""
+
+        return {
+            "campaign_id": campaign_id,
+            "saved": True,
+            "files": [str(business_file), str(campaign_file)],
+            "auto_commit": {
+                "enabled": config.yaml_auto_commit,
+                "performed": auto_commit_performed,
+                "commit_id": commit_id,
+            },
         }
 
     @app.get("/data-manager/businesses")

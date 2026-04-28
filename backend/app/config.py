@@ -11,6 +11,18 @@ class AppConfig:
     output_dir: Path
     database_path: Path
     data_dir: Path
+    yaml_auto_commit: bool
+
+
+def _parse_bool(value: str | None, *, default: bool = False) -> bool:
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"Invalid boolean value '{value}'")
 
 
 def parse_key_value_text(text: str) -> dict[str, str]:
@@ -65,10 +77,12 @@ def resolve_config(repo_root: Path | None = None, cwd: Path | None = None) -> Ap
     if data_dir_value is None:
         raise ValueError("DATA_DIR must be configured in .config")
     data_dir = _resolve_path(data_dir_value, config_directory)
+    yaml_auto_commit = _parse_bool(values.get("YAML_AUTO_COMMIT"), default=False)
 
     return AppConfig(
         config_path=config_path,
         output_dir=output_dir,
         database_path=database_path,
         data_dir=data_dir,
+        yaml_auto_commit=yaml_auto_commit,
     )
