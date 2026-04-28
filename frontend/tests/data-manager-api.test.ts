@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  fetchArtifacts,
   fetchDataManagerBusinesses,
   fetchDataManagerCampaignDetail,
+  renderArtifact,
   saveCampaign,
 } from "../src/lib/api";
 
@@ -82,6 +84,64 @@ describe("data manager api client", () => {
       expect.objectContaining({
         method: "POST",
       })
+    );
+  });
+
+  it("posts render artifact request", async () => {
+    const artifact = {
+      id: 1,
+      campaign_id: 5,
+      artifact_type: "flyer",
+      file_path: "/out/summer-flyer.pdf",
+      checksum: "abc123",
+      status: "complete",
+      created_at: "2026-01-01T00:00:00",
+    };
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => artifact,
+    });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await renderArtifact(5, "flyer", "http://localhost:8000");
+
+    expect(result.id).toBe(1);
+    expect(result.artifact_type).toBe("flyer");
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:8000/campaigns/5/render",
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
+  it("fetches artifact list", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        items: [
+          {
+            id: 1,
+            campaign_id: 5,
+            artifact_type: "flyer",
+            file_path: "/out/summer-flyer.pdf",
+            checksum: "abc123",
+            status: "complete",
+            created_at: "2026-01-01T00:00:00",
+          },
+        ],
+      }),
+    });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const items = await fetchArtifacts(5, "http://localhost:8000");
+
+    expect(items).toHaveLength(1);
+    expect(items[0].artifact_type).toBe("flyer");
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:8000/campaigns/5/artifacts",
+      expect.any(Object)
     );
   });
 });

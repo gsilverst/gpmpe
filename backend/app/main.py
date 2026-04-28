@@ -16,6 +16,7 @@ from .config import resolve_config
 from .data_sync import sync_data_directory
 from .db import connect_database, initialize_database
 from .git_store import GitStoreError, auto_commit_paths
+from .renderer import render_campaign_artifact
 from .yaml_store import campaign_yaml_paths_for_id, persist_yaml_state_for_campaign
 
 
@@ -102,6 +103,20 @@ class ChatMessageRequest(BaseModel):
 
 class CampaignSaveRequest(BaseModel):
     commit_message: str | None = None
+
+
+class ArtifactRenderRequest(BaseModel):
+    artifact_type: Literal["flyer", "poster"] = "flyer"
+
+
+class ArtifactResponse(BaseModel):
+    id: int
+    campaign_id: int
+    artifact_type: str
+    file_path: str
+    checksum: str
+    status: str
+    created_at: str | None = None
 
 
 ALLOWED_ASSET_MIME_TYPES = {
@@ -296,6 +311,7 @@ def _campaign_snapshot(connection: Any, display_name: str, campaign_name: str, q
     ).fetchone()
 
     return {
+        "id": row["id"],
         "display_name": _campaign_display_name(row),
         "campaign_name": row["campaign_name"],
         "qualifier": row["campaign_key"] or None,
@@ -1044,6 +1060,77 @@ def create_app() -> FastAPI:
                 "commit_id": commit_id or None,
             },
         }
+
+    @app.post("/campaigns/{campaign_id}/render", status_code=201)
+    def render_artifact(
+        campaign_id: int,
+        payload: ArtifactRenderRequest | None = None,
+    ) -> ArtifactResponse:
+        request = payload or ArtifactRenderRequest()
+        config = resolve_config()
+        with connect_database(config) as connection:
+            _require_campaign(connection, campaign_id)
+            try:
+                result = render_campaign_artifact(
+                    connection,
+                    campaign_id,
+                    config.output_dir,
+                    artifact_type=request.artifact_type,
+                )
+                connection.commit()
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        row = _get_artifact_row(config, result["id"])
+        return ArtifactResponse(**row)
+
+    @app.get("/campaigns/{campaign_id}/artifacts")
+    def list_artifacts(campaign_id: int) -> dict[str, Any]:
+        config = resolve_config()
+        with connect_database(config) as connection:
+            _require_campaign(connection, campaign_id)
+            rows = connection.execute(
+                """
+                SELECT id, campaign_id, artifact_type, file_path, checksum, status, created_at
+                FROM generated_artifacts
+                WHERE campaign_id = ?
+                ORDER BY created_at DESC;
+                """,
+                (campaign_id,),
+            ).fetchall()
+        return {"items": [dict(r) for r in rows]}
+
+    @app.get("/artifacts/{artifact_id}/download")
+    def download_artifact(artifact_id: int):
+        from fastapi.responses import FileResponse
+
+        config = resolve_config()
+        with connect_database(config) as connection:
+            row = connection.execute(
+                "SELECT id, file_path, artifact_type FROM generated_artifacts WHERE id = ?",
+                (artifact_id,),
+            ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Artifact not found")
+        file_path = Path(row["file_path"])
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Artifact file missing")
+        filename = file_path.name
+        return FileResponse(
+            path=str(file_path),
+            media_type="application/pdf",
+            filename=filename,
+        )
+
+    def _get_artifact_row(config, artifact_id: int) -> dict[str, Any]:
+        with connect_database(config) as connection:
+            row = connection.execute(
+                "SELECT id, campaign_id, artifact_type, file_path, checksum, status, created_at "
+                "FROM generated_artifacts WHERE id = ?",
+                (artifact_id,),
+            ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Artifact not found after insert")
+        return dict(row)
 
     @app.get("/data-manager/businesses")
     def list_data_manager_businesses() -> dict[str, Any]:

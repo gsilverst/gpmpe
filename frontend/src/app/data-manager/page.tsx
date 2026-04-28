@@ -9,6 +9,10 @@ import {
   fetchDataManagerCampaignDetail,
   fetchDataManagerCampaigns,
   saveCampaign,
+  renderArtifact,
+  fetchArtifacts,
+  artifactDownloadUrl,
+  type ArtifactItem,
   type BusinessDetail,
   type BusinessListItem,
   type CampaignDetailResponse,
@@ -28,6 +32,9 @@ export default function DataManagerPage() {
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [saveResult, setSaveResult] = useState<CampaignSaveResponse | null>(null);
   const [saving, setSaving] = useState<boolean>(false);
+  const [artifacts, setArtifacts] = useState<ArtifactItem[]>([]);
+  const [rendering, setRendering] = useState<boolean>(false);
+  const [renderStatus, setRenderStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -138,12 +145,52 @@ export default function DataManagerPage() {
     };
   }, [selectedBusiness, selectedCampaign, selectedQualifier]);
 
+  useEffect(() => {
+    if (!campaignDetail) {
+      setArtifacts([]);
+      return;
+    }
+    let active = true;
+    async function loadArtifacts() {
+      if (!campaignDetail) return;
+      try {
+        const items = await fetchArtifacts(campaignDetail.campaign.id);
+        if (active) setArtifacts(items);
+      } catch {
+        // artifacts panel is non-critical; silently ignore
+      }
+    }
+    void loadArtifacts();
+    return () => {
+      active = false;
+    };
+  }, [campaignDetail]);
+
   function handleCampaignSelect(value: string) {
     const [campaignName, qualifier = ""] = value.split("::");
     setSelectedCampaign(campaignName);
     setSelectedQualifier(qualifier);
     setSaveStatus(null);
     setSaveResult(null);
+    setArtifacts([]);
+    setRenderStatus(null);
+  }
+
+  async function handleRender(artifactType: "flyer" | "poster") {
+    if (!campaignDetail) return;
+    setRendering(true);
+    setRenderStatus(null);
+    try {
+      await renderArtifact(campaignDetail.campaign.id, artifactType);
+      const updated = await fetchArtifacts(campaignDetail.campaign.id);
+      setArtifacts(updated);
+      setRenderStatus(`${artifactType} generated successfully.`);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Render failed";
+      setRenderStatus(`Render failed: ${message}`);
+    } finally {
+      setRendering(false);
+    }
   }
 
   async function handleSave() {
@@ -344,6 +391,37 @@ export default function DataManagerPage() {
                     <p className="save-status">Commit id: {saveResult.auto_commit.commit_id}</p>
                   ) : null}
                 </div>
+
+                <h3>Generated Artifacts</h3>
+                <div className="artifact-controls">
+                  <button type="button" onClick={() => void handleRender("flyer")} disabled={rendering}>
+                    {rendering ? "Generating..." : "Generate Flyer"}
+                  </button>
+                  <button type="button" onClick={() => void handleRender("poster")} disabled={rendering}>
+                    {rendering ? "Generating..." : "Generate Poster"}
+                  </button>
+                  {renderStatus ? <p className="save-status">{renderStatus}</p> : null}
+                </div>
+                {artifacts.length > 0 ? (
+                  <ul className="artifact-list">
+                    {artifacts.map((artifact) => (
+                      <li key={artifact.id}>
+                        <span>{artifact.artifact_type}</span>
+                        <span className="artifact-date">{artifact.created_at ?? ""}</span>
+                        <a
+                          href={artifactDownloadUrl(artifact.id)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-link"
+                        >
+                          Download PDF
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>No artifacts generated yet.</p>
+                )}
               </>
             ) : (
               <p>No campaign selected.</p>

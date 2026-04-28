@@ -49,6 +49,7 @@ export type CampaignListItem = {
 };
 
 export type CampaignDetail = CampaignListItem & {
+  id: number;
   offers: Array<{
     offer_name: string;
     offer_type: string;
@@ -177,4 +178,50 @@ export async function saveCampaign(
   }
 
   return (await response.json()) as CampaignSaveResponse;
+}
+
+export type ArtifactItem = {
+  id: number;
+  campaign_id: number;
+  artifact_type: string;
+  file_path: string;
+  checksum: string;
+  status: string;
+  created_at: string | null;
+};
+
+export async function renderArtifact(
+  campaignId: number,
+  artifactType: "flyer" | "poster" = "flyer",
+  baseUrl = apiBaseUrl()
+): Promise<ArtifactItem> {
+  const response = await fetch(`${baseUrl}/campaigns/${campaignId}/render`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({ artifact_type: artifactType }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`);
+  }
+
+  return (await response.json()) as ArtifactItem;
+}
+
+export async function fetchArtifacts(
+  campaignId: number,
+  baseUrl = apiBaseUrl()
+): Promise<ArtifactItem[]> {
+  const payload = await fetchJson<{ items: ArtifactItem[] }>(
+    `/campaigns/${campaignId}/artifacts`,
+    baseUrl
+  );
+  return payload.items;
+}
+
+export function artifactDownloadUrl(artifactId: number, baseUrl = apiBaseUrl()): string {
+  return `${baseUrl}/artifacts/${artifactId}/download`;
 }
