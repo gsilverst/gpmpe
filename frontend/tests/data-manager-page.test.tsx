@@ -9,5 +9,7 @@ describe("DataManagerPage", () => {
     const html = renderToString(<DataManagerPage />);
     expect(html).toContain("Step 4a Data Manager");
     expect(html).toContain("Select a business");
+    expect(html).toContain("Campaign Detail");
+    expect(html).toContain("No campaign selected.");
   });
 });

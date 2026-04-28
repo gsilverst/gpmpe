@@ -8,10 +8,12 @@ import {
   fetchDataManagerBusinesses,
   fetchDataManagerCampaignDetail,
   fetchDataManagerCampaigns,
+  saveCampaign,
   type BusinessDetail,
   type BusinessListItem,
   type CampaignDetailResponse,
   type CampaignListItem,
+  type CampaignSaveResponse,
 } from "../../lib/api";
 
 export default function DataManagerPage() {
@@ -22,6 +24,10 @@ export default function DataManagerPage() {
   const [selectedCampaign, setSelectedCampaign] = useState<string>("");
   const [selectedQualifier, setSelectedQualifier] = useState<string>("");
   const [campaignDetail, setCampaignDetail] = useState<CampaignDetailResponse | null>(null);
+  const [commitMessage, setCommitMessage] = useState<string>("");
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const [saveResult, setSaveResult] = useState<CampaignSaveResponse | null>(null);
+  const [saving, setSaving] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -136,6 +142,35 @@ export default function DataManagerPage() {
     const [campaignName, qualifier = ""] = value.split("::");
     setSelectedCampaign(campaignName);
     setSelectedQualifier(qualifier);
+    setSaveStatus(null);
+    setSaveResult(null);
+  }
+
+  async function handleSave() {
+    if (!campaignDetail) {
+      return;
+    }
+
+    setSaving(true);
+    setSaveStatus(null);
+    try {
+      const result = await saveCampaign(campaignDetail.campaign.id, commitMessage || undefined);
+      setSaveResult(result);
+      if (result.saved) {
+        setSaveStatus(result.auto_commit.performed ? "Save commit completed." : "No staged changes to commit.");
+      } else if (result.reason === "commit_on_save_disabled") {
+        setSaveStatus("Save is disabled because COMMIT_ON_SAVE is false.");
+      } else if (result.reason === "git_config_incomplete") {
+        setSaveStatus("Save did nothing because git settings in .config are incomplete.");
+      } else {
+        setSaveStatus("Save did not perform a commit.");
+      }
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Save request failed";
+      setSaveStatus(`Save request failed: ${message}`);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -143,7 +178,7 @@ export default function DataManagerPage() {
       <div className="page-header">
         <div>
           <h1>Step 4a Data Manager</h1>
-          <p>Read-only inspection view for YAML-synced business and campaign data.</p>
+          <p>Inspection view for YAML-synced business and campaign data.</p>
           <p>This screen reads from SQLite after the backend imports YAML into the database at startup.</p>
         </div>
         <Link className="text-link" href="/">
@@ -289,6 +324,26 @@ export default function DataManagerPage() {
                 ) : (
                   <p>No template binding found.</p>
                 )}
+
+                <div className="save-controls">
+                  <label className="stacked-label" htmlFor="commit-message">
+                    <span>Commit message (optional)</span>
+                    <input
+                      id="commit-message"
+                      type="text"
+                      placeholder="Save campaign update"
+                      value={commitMessage}
+                      onChange={(event) => setCommitMessage(event.target.value)}
+                    />
+                  </label>
+                  <button type="button" onClick={() => void handleSave()} disabled={saving}>
+                    {saving ? "Saving..." : "Save"}
+                  </button>
+                  {saveStatus ? <p className="save-status">{saveStatus}</p> : null}
+                  {saveResult?.auto_commit?.commit_id ? (
+                    <p className="save-status">Commit id: {saveResult.auto_commit.commit_id}</p>
+                  ) : null}
+                </div>
               </>
             ) : (
               <p>No campaign selected.</p>

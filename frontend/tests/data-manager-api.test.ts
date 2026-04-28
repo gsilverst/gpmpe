@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { fetchDataManagerBusinesses, fetchDataManagerCampaignDetail } from "../src/lib/api";
+import {
+  fetchDataManagerBusinesses,
+  fetchDataManagerCampaignDetail,
+  saveCampaign,
+} from "../src/lib/api";
 
 describe("data manager api client", () => {
   it("loads business list", async () => {
@@ -51,6 +55,33 @@ describe("data manager api client", () => {
     expect(mockFetch).toHaveBeenCalledWith(
       "http://localhost:8000/data-manager/businesses/acme/campaigns/mothersday?qualifier=2026",
       expect.any(Object)
+    );
+  });
+
+  it("posts save campaign request", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        campaign_id: 42,
+        saved: true,
+        auto_commit: {
+          enabled: true,
+          performed: true,
+          commit_id: "abc123",
+        },
+      }),
+    });
+
+    vi.stubGlobal("fetch", mockFetch);
+
+    const payload = await saveCampaign(42, "Save from UI", "http://localhost:8000");
+
+    expect(payload.saved).toBe(true);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:8000/campaigns/42/save",
+      expect.objectContaining({
+        method: "POST",
+      })
     );
   });
 });

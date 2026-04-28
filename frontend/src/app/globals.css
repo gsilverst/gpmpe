@@ -104,6 +104,24 @@ small {
   background: #fff;
 }
 
+.stacked-label input {
+  width: 100%;
+  border: 1px solid #c9d8ef;
+  border-radius: 10px;
+  padding: 0.7rem 0.8rem;
+  background: #fff;
+}
+
+.save-controls {
+  border-top: 1px solid #e2e9f5;
+  padding-top: 0.75rem;
+}
+
+.save-status {
+  margin: 0.35rem 0 0;
+  color: #1f3a60;
+}
+
 .detail-column {
   display: grid;
   gap: 1rem;

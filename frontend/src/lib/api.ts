@@ -81,6 +81,18 @@ export type CampaignDetailResponse = {
   campaign: CampaignDetail;
 };
 
+export type CampaignSaveResponse = {
+  campaign_id: number;
+  saved: boolean;
+  reason?: string;
+  files?: string[];
+  auto_commit: {
+    enabled: boolean;
+    performed: boolean;
+    commit_id: string | null;
+  };
+};
+
 export function apiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 }
@@ -144,4 +156,25 @@ export async function fetchDataManagerCampaignDetail(
     `/data-manager/businesses/${encodeURIComponent(businessName)}/campaigns/${encodeURIComponent(campaignName)}${query}`,
     baseUrl
   );
+}
+
+export async function saveCampaign(
+  campaignId: number,
+  commitMessage?: string,
+  baseUrl = apiBaseUrl()
+): Promise<CampaignSaveResponse> {
+  const response = await fetch(`${baseUrl}/campaigns/${campaignId}/save`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({ commit_message: commitMessage?.trim() || undefined }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`);
+  }
+
+  return (await response.json()) as CampaignSaveResponse;
 }
