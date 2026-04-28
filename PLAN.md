@@ -7,6 +7,28 @@
 - Generate fixed PDF outputs and persist only the current application state needed to recreate them.
 - Support YAML as the repository-facing campaign data format so users can store campaign/business data in version control outside the runtime database.
 
+## Delivered Updates (April 2026)
+- Startup reconciliation now enforces a required choice path; there is no "continue as-is" bypass.
+- Main UI flow now supports stronger business/campaign editing parity:
+  - Business profile includes address and phone fields.
+  - Campaign builder mirrors profile-style list/create/edit UX.
+- Campaign cloning flow now supports deterministic conflict handling for duplicate names and optional secondary key capture.
+- Embedded PDF preview is now inline and auto-regenerated after changes, with a manual refresh action retained.
+- Workspace layout now places the chatbot in a right-side panel on desktop.
+- Chat command handling now supports component key and display-title edits with broader natural-language forms:
+  - Rename component key by natural language.
+  - Rename component key using explicit "component-key field" phrasing.
+  - Update component display title through explicit component field commands.
+- Incomplete component-rename messages now return a successful clarification response (`target=clarify`) instead of a hard HTTP 400 failure.
+
+Notable new/updated backend tests:
+- `test_chat_message_can_rename_component_by_natural_language`
+- `test_chat_message_can_rename_component_by_display_title`
+- `test_chat_message_can_rename_component_key_with_component_key_field_phrase`
+- `test_chat_message_component_rename_without_new_name_returns_helpful_error`
+- `test_chat_message_component_key_field_phrase_without_new_name_returns_helpful_error`
+- Backend suite remains green after these changes (`111 passed` in current baseline run).
+
 ## Working Assumptions (to confirm)
 - Early implementation may start with one active campaign path per business, but the schema and API must extend cleanly to many campaigns per business.
 - Only the current state needs to be stored in the application database.
@@ -441,6 +463,7 @@ Design principles:
 - The system prompt gives the LLM full context: data schema, current business record, current campaign record, all components, all offers, and available field names.
 - The LLM returns a JSON command object (or array of commands for multi-field updates) that maps to the existing `ParsedCommand` / `ParsedCloneCommand` types.
 - If the LLM cannot translate the request into a valid structured command, it returns a clarifying question instead of a malformed command; the server forwards this to the user as a chat reply.
+- Regex fallback also supports clarification-style responses for incomplete component rename commands, returning `target=clarify` with guidance rather than a request-failing HTTP error.
 
 Implementation highlights:
 - Add `OPENROUTER_API_KEY` to `.config` (never committed; added to `.gitignore` / `.config.example`).
@@ -457,6 +480,7 @@ Implementation highlights:
 - Add `parse_llm_response(response_text)` that extracts and validates the JSON command from the LLM reply.
 - Update `post_chat_message` to: detect clone intent (existing regex, fast path) → call LLM for all other messages → dispatch the structured command to existing handlers → persist YAML → return result.
 - Add `set_component_field` action support in `apply_chat_command` for updating `display_title`, `subtitle`, `description_text`, `footnote_text` on a component by `component_key`.
+- Extend regex component edit support to include `component_key` rename operations with safe key normalization and uniqueness enforcement per campaign.
 - Keep the regex fast-path for clone commands (no LLM needed).
 - Add graceful degradation: if `OPENROUTER_API_KEY` is not set or the LLM call fails, fall back to the existing regex router and return a user-visible warning.
 
@@ -533,9 +557,11 @@ Phase gate:
 - Chat-driven editing:
   - User natural-language edit request is translated by LLM into a structured command and applied correctly.
   - Component-level edits (display_title, subtitle, footnote_text) update the correct component by key.
+  - Component-key rename edits are supported through natural-language and explicit `component-key field` commands, with conflict handling for duplicate keys.
   - Clone command creates the correct directory structure and DB record from a natural-language message.
   - Invalid structured command from LLM is rejected with actionable validation output.
   - Clarification response from LLM is forwarded to the user without applying any mutation.
+  - Incomplete regex component-rename command returns a clarification payload (`target=clarify`) and applies no mutation.
   - Graceful degradation when OPENROUTER_API_KEY is absent: falls back to regex router.
   - Current-state persistence reflects the latest accepted edit only.
 - Artifacts:
