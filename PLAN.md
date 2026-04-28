@@ -357,6 +357,46 @@ Testing highlights:
 Phase gate:
 - Sign-off on migration quality and go-live readiness.
 
+### Step 10: One-Line Application Startup
+Objective:
+- Allow a developer or user to clone the repository and start the full application stack with a single command, with no manual setup steps beyond providing a `.config` file.
+
+Implementation highlights:
+- Add a multi-stage `Dockerfile` (Node build → Python runtime) that produces a single container serving both the Next.js static assets and the FastAPI backend via uvicorn.
+- Add a `docker-compose.yml` (single service) that mounts the local `DATA_DIR` and `OUTPUT_DIR` volumes and passes config via environment or mounted `.config` file.
+- Add a `start.sh` convenience script for non-Docker local development that activates the virtual environment, runs the Next.js build, and starts uvicorn with a readiness check.
+- Add a `README.md` Quickstart section documenting the single-command Docker path: `docker compose up`.
+- Ensure the container auto-creates the SQLite database and runs YAML sync on first boot.
+
+Testing and validation:
+- Verify `docker compose up` from a clean checkout (with `.config` present) results in a healthy `/health` response.
+- Confirm frontend assets are served correctly from the container.
+- Confirm the data directory mount allows proprietary local YAML to be loaded without being tracked in git.
+
+Phase gate:
+- A developer can go from `git clone` to a running application with a single command (`docker compose up`).
+
+### Step 11: Repository Visibility Cutover (Private -> Public)
+Objective:
+- Keep the GitHub repository private until all project requirements are fully met and accepted.
+
+Implementation highlights:
+- Maintain private visibility for all development and testing work.
+- Confirm all phase gates are approved and required test coverage thresholds are met.
+- Confirm no proprietary business assets, campaign content, or local-only notes are present in tracked files.
+- Assign and record an internal release version for the completion milestone (for example `1.0.0`).
+- Finalize README and project documentation for external/public use.
+- Change repository visibility to public only after explicit completion sign-off.
+
+Testing and release checklist:
+- Run full backend, frontend, and e2e test suites and record final pass status.
+- Run a final repository content audit to verify no sensitive or proprietary content is tracked.
+- Verify Docker/local run instructions work from a clean clone.
+- Confirm the internal release version is documented in release notes/changelog and tagged according to team practice.
+
+Phase gate:
+- Explicit final approval that all requirements are complete and repository can be made public.
+
 ## Testing Strategy (Detailed)
 
 ### Test Pyramid
