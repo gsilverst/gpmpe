@@ -151,10 +151,11 @@ export default function HomePage() {
       setSelectedCampaignId(null);
       return;
     }
+    const businessId = selectedBusinessId;
 
     async function loadCampaigns() {
       try {
-        const items = await listCampaignsForBusiness(selectedBusinessId);
+        const items = await listCampaignsForBusiness(businessId);
         if (!active) return;
         setCampaigns(items);
         setSelectedCampaignId(items[0]?.id ?? null);
@@ -224,10 +225,11 @@ export default function HomePage() {
       setArtifacts([]);
       return;
     }
+    const campaignId = selectedCampaignId;
 
     async function loadArtifacts() {
       try {
-        const items = await fetchArtifacts(selectedCampaignId);
+        const items = await fetchArtifacts(campaignId);
         if (!active) return;
         setArtifacts(items);
       } catch {

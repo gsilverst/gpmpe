@@ -371,7 +371,9 @@ Implementation highlights:
 - Add a multi-stage `Dockerfile` (Node build → Python runtime) that produces a single container serving both the Next.js static assets and the FastAPI backend via uvicorn.
 - Add a `docker-compose.yml` (single service) that mounts the local `DATA_DIR` and `OUTPUT_DIR` volumes and passes config via environment or mounted `.config` file.
 - Add a `start.sh` convenience script for non-Docker local development that activates the virtual environment, runs the Next.js build, and starts uvicorn with a readiness check.
+- Add a `stop.sh` takedown script for non-Docker local development that stops backend/frontend listeners by port (`8000`/`3100` by default) with graceful then forced shutdown.
 - Add a `README.md` Quickstart section documenting the single-command Docker path: `docker compose up`.
+- Harden frontend startup typing so `next build` passes strict null checks in async effects that depend on selected IDs (`selectedBusinessId`, `selectedCampaignId`).
 - Ensure the container auto-creates the SQLite database and runs YAML sync on first boot.
 - Add optional `IMAGES_PER_PAGE` config support so flyer rendering can also emit an n-up PDF alongside the primary output.
 - Use dashed n-up naming convention: `<campaign>.pdf` and `<campaign>-<N>p.pdf` (for example `merci-may-sales.pdf` and `merci-may-sales-4p.pdf`).
@@ -380,6 +382,7 @@ Testing and validation:
 - Verify `docker compose up` from a clean checkout (with `.config` present) results in a healthy `/health` response.
 - Confirm frontend assets are served correctly from the container.
 - Confirm the data directory mount allows proprietary local YAML to be loaded without being tracked in git.
+- Verify local script lifecycle works end-to-end: `./start.sh` brings the app up with a healthy `/health` response and `./stop.sh` reliably tears listeners down.
 
 Phase gate:
 - A developer can go from `git clone` to a running application with a single command (`docker compose up`).

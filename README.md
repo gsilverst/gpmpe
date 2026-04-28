@@ -163,9 +163,21 @@ For non-Docker local startup:
 ./start.sh
 ```
 
+To stop local services started via scripts/tasks:
+
+```bash
+./stop.sh
+```
+
 The script:
 
 - builds the frontend static export
 - copies static output into `backend/app/static/`
 - starts uvicorn
 - waits for `/health` readiness before reporting success
+
+The stop script:
+
+- stops backend listening on `PORT` (default `8000`)
+- stops frontend listening on `FRONTEND_PORT` (default `3100`)
+- escalates to force-stop if graceful shutdown does not complete in time
