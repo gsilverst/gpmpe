@@ -1,0 +1,12 @@
+.git
+.gitignore
+.vscode
+.venv
+.test-output
+node_modules
+frontend/node_modules
+frontend/.next
+backend/.pytest_cache
+output
+local
+*.pdf

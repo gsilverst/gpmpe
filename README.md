@@ -64,3 +64,35 @@ You can keep both runtime and test storage settings in the same `.config` file.
 - It is not a design tool. Layouts and formatting are handled by the application using predefined templates.
 - It is not an AI writing assistant. You provide the content; GPMPE formats and arranges it.
 - It is not a cloud service. Everything runs locally on your machine or in a container you control.
+
+## Container Runtime (Step 8)
+
+You can build and run GPMPE in a single Docker container that serves both:
+
+- backend API (FastAPI)
+- frontend static app (Next.js export output)
+
+### Build
+
+From the repository root:
+
+```bash
+docker build -t gpmpe:local .
+```
+
+### Run
+
+The container expects a `.config` file with at least `DATA_DIR` and a writable `OUTPUT_DIR`.
+
+```bash
+docker run --rm -p 8000:8000 \
+	-v "$PWD/.config:/app/.config:ro" \
+	-v "$PWD/data:/app/data" \
+	-v "$PWD/output:/app/output" \
+	gpmpe:local
+```
+
+Then open:
+
+- `http://127.0.0.1:8000/` for the frontend
+- `http://127.0.0.1:8000/health` for backend health

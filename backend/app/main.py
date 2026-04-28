@@ -13,6 +13,7 @@ import uuid
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator, model_validator
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -1416,6 +1417,10 @@ def create_app() -> FastAPI:
                 "business": _business_snapshot(connection, business_name),
                 "campaign": _campaign_snapshot(connection, business_name, campaign_name, qualifier),
             }
+
+    static_dir = Path(__file__).resolve().parent / "static"
+    if static_dir.exists():
+        app.mount("/", StaticFiles(directory=static_dir, html=True), name="frontend-static")
 
     return app
 
