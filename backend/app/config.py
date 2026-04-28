@@ -17,6 +17,7 @@ class AppConfig:
     git_repo_path: Path | None
     git_user_name: str | None
     git_user_email: str | None
+    openrouter_api_key: str | None = None
 
 
 def _parse_bool(value: str | None, *, default: bool = False) -> bool:
@@ -134,4 +135,5 @@ def resolve_config(
         git_repo_path=git_repo_path,
         git_user_name=git_user_name,
         git_user_email=git_user_email,
+        openrouter_api_key=values.get("OPENROUTER_API_KEY") or os.getenv("OPENROUTER_API_KEY") or None,
     )

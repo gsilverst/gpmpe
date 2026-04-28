@@ -22,6 +22,7 @@ from .config import resolve_config
 from .data_sync import clone_campaign_directory, sync_data_directory
 from .db import connect_database, initialize_database
 from .git_store import GitStoreError, auto_commit_paths
+from .llm import translate_and_apply
 from .renderer import render_campaign_artifact
 from .yaml_store import campaign_yaml_paths_for_id, persist_yaml_state_for_campaign
 
@@ -1233,26 +1234,59 @@ def create_app() -> FastAPI:
         if payload.campaign_id is None:
             raise HTTPException(status_code=400, detail="campaign_id is required for edit commands")
 
-        command = parse_chat_command(payload.message)
-
         config = resolve_config()
-        with connect_database(config) as connection:
-            result = apply_chat_command(connection, payload.campaign_id, command)
-            _persist_campaign_yaml_or_raise(connection, config, payload.campaign_id)
-            connection.commit()
+        llm_warning: str | None = None
+
+        if config.openrouter_api_key:
+            # LLM path: translate natural language → structured command
+            try:
+                with connect_database(config) as connection:
+                    result = translate_and_apply(
+                        connection,
+                        payload.campaign_id,
+                        config.openrouter_api_key,
+                        payload.message,
+                    )
+                    if result.get("target") != "clarify":
+                        _persist_campaign_yaml_or_raise(connection, config, payload.campaign_id)
+                    connection.commit()
+            except HTTPException:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                _logger.warning("LLM call failed (%s); falling back to regex router", exc)
+                llm_warning = "AI assistant unavailable; falling back to command syntax."
+                with connect_database(config) as connection:
+                    command = parse_chat_command(payload.message)
+                    result = apply_chat_command(connection, payload.campaign_id, command)
+                    _persist_campaign_yaml_or_raise(connection, config, payload.campaign_id)
+                    connection.commit()
+        else:
+            # Regex-only path (no API key configured)
+            with connect_database(config) as connection:
+                command = parse_chat_command(payload.message)
+                result = apply_chat_command(connection, payload.campaign_id, command)
+                _persist_campaign_yaml_or_raise(connection, config, payload.campaign_id)
+                connection.commit()
 
         chat_store.append(session_id, "user", payload.message)
-        chat_store.append(
-            session_id,
-            "system",
-            f"Applied {result['target']} update for field '{result['field']}'",
-        )
+        if result.get("target") == "clarify":
+            chat_store.append(session_id, "assistant", result.get("message", ""))
+        else:
+            summary_field = result.get("field", result.get("target", "unknown"))
+            chat_store.append(
+                session_id,
+                "system",
+                f"Applied {result['target']} update for field '{summary_field}'",
+            )
 
-        return {
+        response: dict[str, Any] = {
             "session_id": session_id,
             "result": result,
             "history": chat_store.history(session_id),
         }
+        if llm_warning:
+            response["warning"] = llm_warning
+        return response
 
     @app.post("/campaigns/{campaign_id}/save")
     def save_campaign(campaign_id: int, payload: CampaignSaveRequest | None = None) -> dict[str, Any]:

@@ -17,3 +17,8 @@ COMMIT_ON_SAVE=true
 GIT_REPO_PATH=.
 GIT_USER_NAME=gsilverst
 GIT_USER_EMAIL=gsilverst@comcast.net
+
+# OPENROUTER_API_KEY enables the AI-powered natural-language chat editing interface.
+# Without this key, the chat endpoint falls back to the rigid "set <field> to <value>" syntax.
+# Get your key at https://openrouter.ai
+# OPENROUTER_API_KEY=sk-or-...
