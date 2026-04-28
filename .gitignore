@@ -15,6 +15,7 @@ dist/
 build/
 output/
 frontend/.next/
+frontend/out/
 frontend/tsconfig.tsbuildinfo
 coverage/
 htmlcov/
@@ -23,6 +24,7 @@ test-results/
 .artifacts/
 .test-output/
 backend/data/
+backend/app/static/
 backend/output/
 testdb/
 *.sqlite3
