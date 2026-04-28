@@ -10,11 +10,13 @@ import {
   createChatSession,
   fetchArtifacts,
   fetchBackendHealth,
+  fetchStartupStatus,
   listBusinesses,
   listCampaignsForBusiness,
   lookupCampaigns,
   postChatMessage,
   renderArtifact,
+  resolveStartup,
   syncYamlData,
   updateBusiness,
   type ArtifactItem,
@@ -22,6 +24,7 @@ import {
   type CampaignRecord,
   type ChatHistoryItem,
   type HealthResponse,
+  type StartupStatusReport,
 } from "../lib/api";
 
 export default function HomePage() {
@@ -49,6 +52,8 @@ export default function HomePage() {
     artifactId: number;
     campaignId: number;
   } | null>(null);
+  const [reconciliationReport, setReconciliationReport] =
+    useState<StartupStatusReport | null>(null);
   const [businessForm, setBusinessForm] = useState({
     legal_name: "",
     display_name: "",
@@ -123,10 +128,35 @@ export default function HomePage() {
     return Number.isFinite(parsed) ? parsed : null;
   }
 
+  async function handleReconciliationChoice(
+    direction: "yaml_to_db" | "db_to_yaml" | "skip"
+  ): Promise<void> {
+    try {
+      await resolveStartup(direction);
+      setReconciliationReport(null);
+      // Reload businesses after resolution
+      const items = await listBusinesses();
+      setBusinesses(items);
+      setSelectedBusinessId(items[0]?.id ?? null);
+    } catch (caught) {
+      const message =
+        caught instanceof Error ? caught.message : "Failed to resolve data conflict";
+      setError(message);
+    }
+  }
+
   useEffect(() => {
     let active = true;
     async function loadInitialData() {
       try {
+        // Check for DB/DATA_DIR reconciliation before loading anything else.
+        const startup = await fetchStartupStatus();
+        if (!active) return;
+        if (startup.reconciliation_needed && startup.report != null) {
+          setReconciliationReport(startup.report);
+          return; // wait for the user to resolve before continuing
+        }
+
         const items = await listBusinesses();
         if (!active) return;
         setBusinesses(items);
@@ -749,6 +779,69 @@ export default function HomePage() {
               </button>
               <button type="button" onClick={() => void handleClonePreviewChoice(true)} disabled={rendering}>
                 {rendering ? "Generating..." : "Yes, Open PDF"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {reconciliationReport ? (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="reconcile-title">
+          <div className="modal-card">
+            <h3 id="reconcile-title">Data Conflict Detected</h3>
+            <p>
+              The database and your local DATA_DIR are out of sync. Choose how to proceed:
+            </p>
+            {reconciliationReport.yaml_only.length > 0 && (
+              <p>
+                <strong>In DATA_DIR only:</strong>{" "}
+                {reconciliationReport.yaml_only.join(", ")}
+              </p>
+            )}
+            {reconciliationReport.db_only.length > 0 && (
+              <p>
+                <strong>In database only:</strong>{" "}
+                {reconciliationReport.db_only.join(", ")}
+              </p>
+            )}
+            {reconciliationReport.content_differs.length > 0 && (
+              <p>
+                <strong>Campaign sets differ:</strong>{" "}
+                {reconciliationReport.content_differs.join(", ")}
+              </p>
+            )}
+            {reconciliationReport.yaml_latest_mtime && (
+              <p className="reconcile-timestamp">
+                DATA_DIR last modified:{" "}
+                {new Date(reconciliationReport.yaml_latest_mtime).toLocaleString()}
+              </p>
+            )}
+            {reconciliationReport.db_latest_updated_at && (
+              <p className="reconcile-timestamp">
+                Database last updated:{" "}
+                {new Date(reconciliationReport.db_latest_updated_at).toLocaleString()}
+              </p>
+            )}
+            <div className="modal-actions reconcile-actions">
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => void handleReconciliationChoice("skip")}
+              >
+                Continue As-Is
+              </button>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => void handleReconciliationChoice("db_to_yaml")}
+              >
+                Overwrite DATA_DIR from DB
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleReconciliationChoice("yaml_to_db")}
+              >
+                Load DATA_DIR into DB
               </button>
             </div>
           </div>

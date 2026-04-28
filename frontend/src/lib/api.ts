@@ -408,3 +408,27 @@ export async function postChatMessage(
 export async function syncYamlData(baseUrl = apiBaseUrl()): Promise<DataSyncResponse> {
   return postJson<DataSyncResponse>("/data/sync", {}, baseUrl);
 }
+
+export type StartupStatusReport = {
+  yaml_only: string[];
+  db_only: string[];
+  content_differs: string[];
+  db_latest_updated_at: string | null;
+  yaml_latest_mtime: string | null;
+};
+
+export type StartupStatusResponse = {
+  reconciliation_needed: boolean;
+  report: StartupStatusReport | null;
+};
+
+export async function fetchStartupStatus(baseUrl = apiBaseUrl()): Promise<StartupStatusResponse> {
+  return fetchJson<StartupStatusResponse>("/startup/status", baseUrl);
+}
+
+export async function resolveStartup(
+  direction: "yaml_to_db" | "db_to_yaml" | "skip",
+  baseUrl = apiBaseUrl()
+): Promise<{ ok: boolean }> {
+  return postJson<{ ok: boolean }>("/startup/resolve", { direction }, baseUrl);
+}

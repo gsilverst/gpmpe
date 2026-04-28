@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 import json
 from pathlib import Path
 import re
@@ -34,6 +34,16 @@ class BusinessYamlRecord:
 class SyncSummary:
     businesses_synced: int
     campaigns_synced: int
+
+
+@dataclass(frozen=True)
+class ReconciliationReport:
+    in_sync: bool
+    yaml_only: list[str]      # business display_names in YAML but not in DB
+    db_only: list[str]        # business display_names in DB but not in YAML
+    content_differs: list[str]  # names present in both but with different campaign sets
+    db_latest_updated_at: str | None   # most recent DB updated_at (ISO string)
+    yaml_latest_mtime: str | None      # most recent YAML file mtime (ISO string)
 
 
 def _ensure_safe_name(name: str, kind: str) -> None:
@@ -579,3 +589,85 @@ def clone_campaign_directory(
     _sync_campaign(connection, business_id, record)
 
     return record
+
+
+def compare_db_to_yaml(connection: sqlite3.Connection, data_dir: Path) -> ReconciliationReport:
+    """Compare DB state against DATA_DIR YAML files.
+
+    Returns a :class:`ReconciliationReport` describing which businesses are
+    present in only one side, which have differing campaign sets, and
+    timestamp hints for determining which side is newer.
+    """
+    yaml_records = discover_data_directory(data_dir)
+
+    # ── YAML side ──────────────────────────────────────────────────────────
+    # Map display_name → set of "campaign_name:qualifier" keys
+    yaml_businesses: dict[str, set[str]] = {}
+    yaml_latest_mtime: float | None = None
+
+    for record in yaml_records:
+        display_name = str(record.payload.get("display_name") or record.directory_name)
+        campaign_keys: set[str] = set()
+        for camp in record.campaigns:
+            cname = str(camp.payload.get("campaign_name") or camp.directory_name)
+            qualifier = str(camp.payload.get("qualifier") or "")
+            campaign_keys.add(f"{cname}:{qualifier}")
+            cmtime = camp.file_path.stat().st_mtime
+            if yaml_latest_mtime is None or cmtime > yaml_latest_mtime:
+                yaml_latest_mtime = cmtime
+        yaml_businesses[display_name] = campaign_keys
+        bmtime = record.file_path.stat().st_mtime
+        if yaml_latest_mtime is None or bmtime > yaml_latest_mtime:
+            yaml_latest_mtime = bmtime
+
+    # ── DB side ─────────────────────────────────────────────────────────────
+    db_businesses: dict[str, set[str]] = {}
+    db_latest_updated_at: str | None = None
+
+    for biz_row in connection.execute(
+        "SELECT id, display_name, updated_at FROM businesses ORDER BY id;"
+    ).fetchall():
+        biz_id = int(biz_row["id"])
+        display_name = str(biz_row["display_name"])
+        if biz_row["updated_at"] and (
+            db_latest_updated_at is None or biz_row["updated_at"] > db_latest_updated_at
+        ):
+            db_latest_updated_at = biz_row["updated_at"]
+
+        campaign_keys: set[str] = set()
+        for camp_row in connection.execute(
+            "SELECT campaign_name, campaign_key, updated_at FROM campaigns WHERE business_id = ?;",
+            (biz_id,),
+        ).fetchall():
+            qualifier = camp_row["campaign_key"] or ""
+            campaign_keys.add(f"{camp_row['campaign_name']}:{qualifier}")
+            if camp_row["updated_at"] and (
+                db_latest_updated_at is None or camp_row["updated_at"] > db_latest_updated_at
+            ):
+                db_latest_updated_at = camp_row["updated_at"]
+        db_businesses[display_name] = campaign_keys
+
+    # ── Comparison ─────────────────────────────────────────────────────────
+    yaml_set = set(yaml_businesses)
+    db_set = set(db_businesses)
+
+    yaml_only = sorted(yaml_set - db_set)
+    db_only = sorted(db_set - yaml_set)
+    content_differs = [
+        name for name in sorted(yaml_set & db_set)
+        if yaml_businesses[name] != db_businesses[name]
+    ]
+    in_sync = not yaml_only and not db_only and not content_differs
+
+    yaml_mtime_str = (
+        datetime.fromtimestamp(yaml_latest_mtime).isoformat() if yaml_latest_mtime else None
+    )
+
+    return ReconciliationReport(
+        in_sync=in_sync,
+        yaml_only=yaml_only,
+        db_only=db_only,
+        content_differs=content_differs,
+        db_latest_updated_at=db_latest_updated_at,
+        yaml_latest_mtime=yaml_mtime_str,
+    )

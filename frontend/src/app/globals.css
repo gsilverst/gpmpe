@@ -267,3 +267,13 @@ small {
   gap: 0.5rem;
   justify-content: flex-end;
 }
+
+.reconcile-actions {
+  flex-wrap: wrap;
+}
+
+.reconcile-timestamp {
+  font-size: 0.8rem;
+  color: #666;
+  margin: 0.25rem 0;
+}

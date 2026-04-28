@@ -291,3 +291,40 @@ def persist_yaml_state_for_campaign(connection: sqlite3.Connection, data_dir: Pa
     campaign_file.write_text(yaml.safe_dump(campaign_payload, sort_keys=False, allow_unicode=False), encoding="utf-8")
 
     return business_file, campaign_file
+
+
+def write_all_to_data_dir(connection: sqlite3.Connection, data_dir: Path) -> None:
+    """Write all businesses and campaigns from the database to DATA_DIR YAML files.
+
+    Used when the database is the authoritative source and DATA_DIR needs to be
+    populated or overwritten to match it.
+    """
+    businesses = connection.execute(
+        "SELECT id, display_name FROM businesses ORDER BY id;"
+    ).fetchall()
+
+    for business in businesses:
+        business_id = int(business["id"])
+        business_path_name = _filesystem_name(business["display_name"])
+        business_dir = data_dir / business_path_name
+        business_dir.mkdir(parents=True, exist_ok=True)
+        business_file = business_dir / f"{business_path_name}.yaml"
+        payload = _business_payload(connection, business_id)
+        business_file.write_text(
+            yaml.safe_dump(payload, sort_keys=False, allow_unicode=False),
+            encoding="utf-8",
+        )
+
+        campaigns = connection.execute(
+            "SELECT id FROM campaigns WHERE business_id = ? ORDER BY id;",
+            (business_id,),
+        ).fetchall()
+        for campaign in campaigns:
+            campaign_id = int(campaign["id"])
+            _, camp_file, _ = _campaign_yaml_paths(connection, data_dir, campaign_id)
+            _, camp_payload = _campaign_payload(connection, campaign_id)
+            camp_file.parent.mkdir(parents=True, exist_ok=True)
+            camp_file.write_text(
+                yaml.safe_dump(camp_payload, sort_keys=False, allow_unicode=False),
+                encoding="utf-8",
+            )

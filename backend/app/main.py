@@ -19,24 +19,63 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from .chat import ChatSessionStore, ParsedCloneCommand, apply_chat_command, parse_chat_command, parse_clone_command
 from .config import resolve_config
-from .data_sync import clone_campaign_directory, sync_data_directory
+from .data_sync import clone_campaign_directory, compare_db_to_yaml, discover_data_directory, sync_data_directory
 from .db import connect_database, initialize_database
 from .git_store import GitStoreError, auto_commit_paths
 from .llm import translate_and_apply
 from .renderer import render_campaign_artifact
-from .yaml_store import campaign_yaml_paths_for_id, persist_yaml_state_for_campaign
+from .yaml_store import campaign_yaml_paths_for_id, persist_yaml_state_for_campaign, write_all_to_data_dir
+
+
+# Module-level reconciliation state (single-process; reset on each lifespan startup).
+_reconciliation: dict[str, Any] = {"needed": False, "report": None}
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    global _reconciliation
+    _reconciliation = {"needed": False, "report": None}
+
     config = resolve_config()
     config.output_dir.mkdir(parents=True, exist_ok=True)
     config.data_dir.mkdir(parents=True, exist_ok=True)
     initialize_database(config)
+
     with connect_database(config) as connection:
-        sync_data_directory(connection, config.data_dir)
-        connection.commit()
+        yaml_records = discover_data_directory(config.data_dir)
+        db_count = int(
+            connection.execute("SELECT COUNT(*) FROM businesses;").fetchone()[0]
+        )
+
+        if not yaml_records and db_count == 0:
+            # Fresh install — nothing to reconcile.
+            pass
+        elif not yaml_records and db_count > 0:
+            # DB has data but DATA_DIR is empty → write DB state to DATA_DIR.
+            write_all_to_data_dir(connection, config.data_dir)
+            connection.commit()
+        elif yaml_records and db_count == 0:
+            # DATA_DIR has data but DB is empty → sync YAML → DB silently.
+            sync_data_directory(connection, config.data_dir)
+            connection.commit()
+        else:
+            # Both sides have data → compare and flag for reconciliation if different.
+            report = compare_db_to_yaml(connection, config.data_dir)
+            if not report.in_sync:
+                _reconciliation = {
+                    "needed": True,
+                    "report": {
+                        "yaml_only": report.yaml_only,
+                        "db_only": report.db_only,
+                        "content_differs": report.content_differs,
+                        "db_latest_updated_at": report.db_latest_updated_at,
+                        "yaml_latest_mtime": report.yaml_latest_mtime,
+                    },
+                }
+
     yield
+
+    _reconciliation = {"needed": False, "report": None}
 
 
 logging.basicConfig(
@@ -154,6 +193,10 @@ class CampaignSaveRequest(BaseModel):
 
 class ArtifactRenderRequest(BaseModel):
     artifact_type: Literal["flyer", "poster"] = "flyer"
+
+
+class StartupResolveRequest(BaseModel):
+    direction: Literal["yaml_to_db", "db_to_yaml", "skip"]
 
 
 class ArtifactResponse(BaseModel):
@@ -477,6 +520,28 @@ def create_app() -> FastAPI:
             "database": "ok",
             "output_dir": str(config.output_dir),
         }
+
+    @app.get("/startup/status")
+    def startup_status() -> dict[str, Any]:
+        return {
+            "reconciliation_needed": _reconciliation["needed"],
+            "report": _reconciliation["report"],
+        }
+
+    @app.post("/startup/resolve")
+    def startup_resolve(request: StartupResolveRequest) -> dict[str, bool]:
+        config = resolve_config()
+        with connect_database(config) as connection:
+            if request.direction == "yaml_to_db":
+                sync_data_directory(connection, config.data_dir)
+                connection.commit()
+            elif request.direction == "db_to_yaml":
+                write_all_to_data_dir(connection, config.data_dir)
+                connection.commit()
+            # "skip" → no data changes
+        _reconciliation["needed"] = False
+        _reconciliation["report"] = None
+        return {"ok": True}
 
     @app.post("/businesses", response_model=BusinessResponse, status_code=201)
     def create_business(payload: BusinessCreate) -> BusinessResponse:
