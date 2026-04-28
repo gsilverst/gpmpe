@@ -37,9 +37,9 @@ def test_discover_data_directory_reads_sample_tree() -> None:
 
 
 def test_discover_data_directory_rejects_unsafe_names(tmp_path: Path) -> None:
-    unsafe_business = tmp_path / "Merci Sales"
+    unsafe_business = tmp_path / "Sample Sales"
     unsafe_business.mkdir(parents=True, exist_ok=True)
-    (unsafe_business / "Merci Sales.yaml").write_text("display_name: Merci Sales\nlegal_name: Merci Sales LLC\n", encoding="utf-8")
+    (unsafe_business / "Sample Sales.yaml").write_text("display_name: Sample Sales\nlegal_name: Sample Sales LLC\n", encoding="utf-8")
 
     try:
         discover_data_directory(tmp_path)

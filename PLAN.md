@@ -1,7 +1,7 @@
 # GPMPG Implementation Plan
 
 ## Goals
-- Refactor merci-sales into a general-purpose marketing promotions engine.
+- Refactor an existing proprietary single-promotion flyer generator into a general-purpose marketing promotions engine.
 - Keep deployment as a single Docker container serving frontend and backend.
 - Use a simple SQLite-first approach with a persistent local database.
 - Generate fixed PDF outputs and persist only the current application state needed to recreate them.
@@ -201,6 +201,51 @@ Testing highlights:
 Phase gate:
 - Validate output quality baseline on at least one flyer and one poster template.
 
+### Step 5a: Promotion Component Model (Multi-Section Promotions)
+Objective:
+- Extend the campaign data model so a single promotion can contain two or more named components or sections, each with its own offer list, optional descriptive text, ordering, and render intent.
+
+Why this step is needed:
+- The current model treats offers as one flat campaign-level list.
+- Template layout/default values can label sections, but they do not represent section membership as structured data.
+- Some promotions are not just one list of offers; they are composed of multiple subcomponents such as a featured promotion section and a weekday-specials section, each with distinct headings, descriptive copy, and associated service-price entries.
+- Additional promo blocks such as `$15 Off Services`, `10% Off 3 Session Packages`, and legal/effective-date copy also need explicit promotion-level or component-level representation instead of being hidden in template text.
+
+Schema and service highlights:
+- Add a `campaign_components` entity scoped to a campaign with fields such as:
+  - component key/name
+  - display title
+  - optional subtitle
+  - optional description/body text
+  - display order
+  - component kind (for example: featured-offers, weekday-specials, discount-strip, legal-note)
+- Add a `campaign_component_items` entity scoped to a component with fields such as:
+  - item name
+  - item kind (service, product, package, promo-note)
+  - duration/size label when applicable
+  - price/value text
+  - optional terms/description text
+  - display order
+- Preserve campaign-level metadata for whole-promotion facts such as date window, objective, business linkage, and artifact generation.
+- Update YAML format so campaign files can declare an ordered `components:` list, each with nested `items:`.
+- Support promotion-level auxiliary sections that are not simple offers, such as footer text, effective-date/legal note, CTA text, and discount callouts, either as explicit component kinds or as clearly typed promotion-level fields.
+- Update sync/write-back logic so component ordering and nested item ordering round-trip deterministically between YAML and SQLite.
+- Update render pipeline to consume ordered promotion components rather than inferring sections from template override text and one flat offer list.
+
+Testing highlights:
+- Round-trip YAML tests for multi-component promotions with ordered nested items.
+- Schema/service tests ensuring one campaign can hold multiple named components with independent text and item lists.
+- Render preparation tests proving component boundaries and order survive persistence and feed deterministic artifact generation.
+- Parity fixture tests for a representative multi-component promotion covering:
+  - a primary featured component
+  - a secondary component with its own list of priced items
+  - discount/promo-note blocks
+  - effective-date/legal text
+
+Phase gate:
+- Confirm the data model can represent a representative multi-component promotion without flattening component structure into ad hoc template text.
+- Confirm at least one multi-component promotion round-trips YAML -> DB -> YAML without losing section identity, order, or item membership.
+
 ### Step 6: API Surface and Frontend Integration
 Objective:
 - Build CRUD and workflow endpoints and wire frontend flows.
@@ -266,18 +311,19 @@ Testing highlights:
 Phase gate:
 - Approve image size and local startup/runtime behavior.
 
-### Step 9: Data Migration Path from merci-sales and Cutover
+### Step 9: Data Migration Path from Proprietary Reference Implementation and Cutover
 Objective:
-- Complete a clean-break refactor from merci-sales while preserving rendered PDF parity.
+- Complete a clean-break refactor from a proprietary reference implementation while preserving rendered PDF parity.
 
 Implementation highlights:
 - Identify the exact input data and rendering rules required to reproduce the current PDF.
 - Rebuild those rules inside the generalized model without preserving old storage structures.
 - Add parity fixtures that prove the refactored system can emit the same PDF output.
 - Ensure parity scenarios can be represented through repository YAML data inputs used by GPMPG users.
+- Keep any proprietary source-specific notes, parity references, or local fixture details in ignored local planning files under `local/notes/` rather than in tracked repository files.
 
 Testing highlights:
-- Golden-output comparison against representative merci-sales PDFs.
+- Golden-output comparison against representative reference PDFs handled through local-only development artifacts.
 - Content-level assertions for layout-critical text, numbers, dates, and branding.
 - Spot-check parity for the initial refactored promotion use case before extending templates.
 

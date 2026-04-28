@@ -30,6 +30,15 @@ All information about your business and your campaigns is stored in a database t
 - Different businesses using GPMPG each have their own isolated database. There is no shared data store.
 - The application only reads and writes to your database when you are actively working on your materials.
 
+## Test Output
+
+Test-generated artifacts should stay in ignored directories.
+
+- Backend pytest temporary files are written under `.test-output/backend/pytest/`.
+- Backend pytest temporary files are written under `.test-output/pytest/`.
+- Frontend Vite/Vitest cache and coverage output are written under `.test-output/frontend/`.
+- Ad hoc reports and future test artifacts should prefer subdirectories under `.test-output/`.
+
 ## Key Concepts at a Glance
 
 | Term | What It Means |

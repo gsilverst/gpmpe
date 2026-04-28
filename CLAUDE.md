@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-GPMPG is a general purpose marketing promotions generator for small businesses to generate flyers, posters, and other marketing material in the form of pdfs. The app is deployed as a single Docker container serving both static frontend assets and the API. The application will be created by refactoring the existing project located at /Users/glennsilverstein/Projects/merci-sales which is an application that generates a pdf flyer for a specific promotion for a specific business. The goal is to refactor this project into a general purpose engine to implement arbitrary marketing promotions with all business specific information (logo, branding, colors, address, phone number, email, website, hours, etc.) stored in the database along any information related to the promotion itself.
+GPMPG is a general purpose marketing promotions generator for small businesses to generate flyers, posters, and other marketing material in the form of pdfs. The app is deployed as a single Docker container serving both static frontend assets and the API. The goal is to refactor an existing proprietary single-promotion flyer generator into a general purpose engine that can implement arbitrary marketing promotions with all business specific information (logo, branding, colors, address, phone number, email, website, hours, etc.) stored in the database along with any information related to the promotion itself.
 
 ## Architecture
 
@@ -20,7 +20,7 @@ Data model should consist of at least two objects representing the business info
 
 The schemas for all objects should be store in a subdirectory called schemas along with any other information needed to setup the database. For now the data will be stored in a SQLite database in the backend directory. However the eventual goal is to store the data in an SQL database under AWS (most likely RDS). Please keep that in mind as you design the data model.
 
-The data itself for the promotion current implement in the /Users/glennsilverstein/Projects/merci-sales project will reside in a separate project/repostiory under /Users/glennsilverstein/Projects/mercipromos
+Any proprietary business or promotion data used during development must remain in local-only ignored files and must not be stored in git-tracked repository content.
 
 ### Docker Multi-stage Build (`Dockerfile`)
 1. **Stage 1 (node:22-alpine):** Installs frontend deps, runs `npm run build`, produces `out/`

@@ -55,8 +55,8 @@ def test_create_new_campaign_for_existing_business(monkeypatch, tmp_path: Path) 
     business_response = client.post(
         "/businesses",
         json={
-            "legal_name": "Merci Inc",
-            "display_name": "Merci",
+            "legal_name": "Beacon Wellness Inc",
+            "display_name": "Beacon",
             "timezone": "America/New_York",
         },
     )

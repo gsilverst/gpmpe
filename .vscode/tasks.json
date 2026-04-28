@@ -16,39 +16,24 @@
 			"group": "build"
 		},
 		{
-			"label": "Run GPMPG Backend",
+			"label": "Test GPMPG Backend",
 			"type": "shell",
-			"command": "cd backend && ../.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000",
-			"isBackground": true,
-			"group": "build"
+			"command": "cd backend && ../.venv/bin/python -m pytest -q",
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated"
+			}
 		},
 		{
-			"label": "Run GPMPG Backend",
+			"label": "Test GPMPG Frontend",
 			"type": "shell",
-			"command": "cd backend && ../.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000",
-			"isBackground": true,
-			"group": "build"
-		},
-		{
-			"label": "Run GPMPG Backend",
-			"type": "shell",
-			"command": "cd backend && ../.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000",
-			"isBackground": true,
-			"group": "build"
-		},
-		{
-			"label": "Run GPMPG Backend",
-			"type": "shell",
-			"command": "cd backend && ../.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000",
-			"isBackground": true,
-			"group": "build"
-		},
-		{
-			"label": "Run GPMPG Backend",
-			"type": "shell",
-			"command": "cd backend && ../.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000",
-			"isBackground": true,
-			"group": "build"
+			"command": "cd frontend && npm test",
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated"
+			}
 		}
 	]
 }
