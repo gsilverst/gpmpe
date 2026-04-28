@@ -6,10 +6,13 @@
 # Default is true.
 # If COMMIT_ON_SAVE is false, Save is a no-op.
 # Save is also a no-op unless all git settings below are provided.
+# IMAGES_PER_PAGE (optional) enables generation of a second N-up flyer PDF.
+# Example: IMAGES_PER_PAGE=4 generates campaign4p.pdf in addition to campaign.pdf.
 
 OUTPUT_DIR=./output
 DATABASE_PATH=./backend/data/gpmpe.db
 DATA_DIR=./tests/data
+IMAGES_PER_PAGE=
 COMMIT_ON_SAVE=true
 GIT_REPO_PATH=.
 GIT_USER_NAME=gsilverst

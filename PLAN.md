@@ -216,6 +216,7 @@ Schema and service highlights:
   - component key/name
   - display title
   - optional subtitle
+  - optional `footnote_text`
   - optional description/body text
   - display order
   - component kind (for example: featured-offers, weekday-specials, discount-strip, legal-note)
@@ -227,10 +228,15 @@ Schema and service highlights:
   - optional terms/description text
   - display order
 - Preserve campaign-level metadata for whole-promotion facts such as date window, objective, business linkage, and artifact generation.
+- Add optional campaign-level `footnote_text` for promotion-wide disclaimers.
 - Update YAML format so campaign files can declare an ordered `components:` list, each with nested `items:`.
 - Support promotion-level auxiliary sections that are not simple offers, such as footer text, effective-date/legal note, CTA text, and discount callouts, either as explicit component kinds or as clearly typed promotion-level fields.
 - Update sync/write-back logic so component ordering and nested item ordering round-trip deterministically between YAML and SQLite.
 - Update render pipeline to consume ordered promotion components rather than inferring sections from template override text and one flat offer list.
+- Render behavior for footnotes:
+  - component footnote marker (` **`) is appended to the component title
+  - component footnote text is rendered inside the component panel (bottom area)
+  - campaign-level footnote text is rendered at the flyer bottom as a promotion-level note
 
 Testing highlights:
 - Round-trip YAML tests for multi-component promotions with ordered nested items.
@@ -367,6 +373,8 @@ Implementation highlights:
 - Add a `start.sh` convenience script for non-Docker local development that activates the virtual environment, runs the Next.js build, and starts uvicorn with a readiness check.
 - Add a `README.md` Quickstart section documenting the single-command Docker path: `docker compose up`.
 - Ensure the container auto-creates the SQLite database and runs YAML sync on first boot.
+- Add optional `IMAGES_PER_PAGE` config support so flyer rendering can also emit an n-up PDF alongside the primary output.
+- Use dashed n-up naming convention: `<campaign>.pdf` and `<campaign>-<N>p.pdf` (for example `merci-may-sales.pdf` and `merci-may-sales-4p.pdf`).
 
 Testing and validation:
 - Verify `docker compose up` from a clean checkout (with `.config` present) results in a healthy `/health` response.

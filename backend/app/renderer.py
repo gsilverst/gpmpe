@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import sqlite3
 from collections import deque
 from io import BytesIO
@@ -682,6 +683,63 @@ def render_flyer(ctx: dict[str, Any], data_dir: Path | None = None) -> bytes:
     return buf.getvalue()
 
 
+def render_flyer_nup(ctx: dict[str, Any], images_per_page: int, data_dir: Path | None = None) -> bytes:
+    if images_per_page < 2:
+        raise ValueError("images_per_page must be >= 2")
+
+    palette = _palette(ctx)
+    components = ctx.get("components", [])
+
+    featured = [c for c in components if c.get("component_kind") == "featured-offers"]
+    weekday = [c for c in components if c.get("component_kind") == "weekday-specials"]
+    discount = [c for c in components if c.get("component_kind") == "discount-strip"]
+    legal = [c for c in components if c.get("component_kind") == "legal-note"]
+    use_rich = bool(featured or weekday)
+
+    logo_reader = None
+    if use_rich:
+        logo_path = _resolve_logo(
+            ctx.get("theme", {}),
+            data_dir,
+            ctx.get("business_display_name", ""),
+        )
+        logo_reader = _load_logo(logo_path)
+
+    cols = math.ceil(math.sqrt(images_per_page))
+    rows = math.ceil(images_per_page / cols)
+    cell_w = _PW / cols
+    cell_h = _PH / rows
+    scale = min(cell_w / _PW, cell_h / _PH)
+    frame_w = _PW * scale
+    frame_h = _PH * scale
+
+    buf = BytesIO()
+    pdf = rl_canvas.Canvas(buf, pagesize=letter)
+    pdf.setTitle(f"{ctx.get('title') or 'Flyer'} ({images_per_page}-up)")
+
+    for index in range(images_per_page):
+        row = index // cols
+        col = index % cols
+
+        origin_x = (col * cell_w) + ((cell_w - frame_w) / 2)
+        origin_y = _PH - ((row + 1) * cell_h) + ((cell_h - frame_h) / 2)
+
+        pdf.saveState()
+        pdf.translate(origin_x, origin_y)
+        pdf.scale(scale, scale)
+
+        if use_rich:
+            _draw_rich_flyer(pdf, ctx, palette, logo_reader, featured, weekday, discount, legal)
+        else:
+            _draw_simple_flyer(pdf, ctx, palette)
+
+        pdf.restoreState()
+
+    pdf.showPage()
+    pdf.save()
+    return buf.getvalue()
+
+
 def _file_checksum(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -692,6 +750,7 @@ def render_campaign_artifact(
     output_dir: Path,
     artifact_type: str = "flyer",
     data_dir: Path | None = None,
+    images_per_page: int | None = None,
 ) -> dict[str, Any]:
     ctx = _collect_render_context(connection, campaign_id)
 
@@ -700,12 +759,18 @@ def render_campaign_artifact(
 
     output_dir.mkdir(parents=True, exist_ok=True)
     safe_name = ctx["campaign_name"].replace(" ", "-").lower()
-    filename = f"{safe_name}-{artifact_type}.pdf"
+    filename = f"{safe_name}.pdf" if artifact_type == "flyer" else f"{safe_name}-{artifact_type}.pdf"
     file_path = output_dir / filename
 
     pdf_bytes = render_flyer(ctx, data_dir=data_dir)
     checksum = _file_checksum(pdf_bytes)
     file_path.write_bytes(pdf_bytes)
+
+    nup_file_path: Path | None = None
+    if artifact_type == "flyer" and images_per_page is not None:
+        nup_bytes = render_flyer_nup(ctx, images_per_page, data_dir=data_dir)
+        nup_file_path = output_dir / f"{safe_name}-{images_per_page}p.pdf"
+        nup_file_path.write_bytes(nup_bytes)
 
     template_snapshot = json.dumps(
         {
@@ -729,6 +794,7 @@ def render_campaign_artifact(
         "campaign_id": campaign_id,
         "artifact_type": artifact_type,
         "file_path": str(file_path),
+        "nup_file_path": str(nup_file_path) if nup_file_path is not None else None,
         "checksum": checksum,
         "status": "complete",
     }

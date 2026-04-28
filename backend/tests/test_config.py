@@ -39,6 +39,7 @@ def test_resolve_config_loads_configured_data_dir(tmp_path: Path) -> None:
     assert config.output_dir == tmp_path.resolve()
     assert config.database_path == (repo_root / "backend" / "data" / "gpmpe.db").resolve()
     assert config.data_dir == (repo_root / "tests" / "data").resolve()
+    assert config.images_per_page is None
     assert config.using_test_paths is False
     assert config.commit_on_save is True
     assert config.git_repo_path is None
@@ -65,6 +66,56 @@ def test_resolve_config_reads_commit_on_save_and_git_settings(tmp_path: Path) ->
     assert config.git_repo_path == repo_root.resolve()
     assert config.git_user_name == "Test User"
     assert config.git_user_email == "test@example.com"
+
+
+def test_resolve_config_reads_images_per_page(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    config_path = repo_root / ".config"
+    config_path.write_text(
+        "DATA_DIR=./tests/data\n"
+        "IMAGES_PER_PAGE=4\n",
+        encoding="utf-8",
+    )
+
+    config = resolve_config(repo_root=repo_root, cwd=tmp_path)
+    assert config.images_per_page == 4
+
+
+def test_resolve_config_rejects_invalid_images_per_page(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    config_path = repo_root / ".config"
+    config_path.write_text(
+        "DATA_DIR=./tests/data\n"
+        "IMAGES_PER_PAGE=one\n",
+        encoding="utf-8",
+    )
+
+    try:
+        resolve_config(repo_root=repo_root, cwd=tmp_path)
+    except ValueError as error:
+        assert str(error) == "IMAGES_PER_PAGE must be an integer"
+    else:
+        raise AssertionError("Expected IMAGES_PER_PAGE integer validation error")
+
+
+def test_resolve_config_rejects_images_per_page_less_than_two(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    config_path = repo_root / ".config"
+    config_path.write_text(
+        "DATA_DIR=./tests/data\n"
+        "IMAGES_PER_PAGE=1\n",
+        encoding="utf-8",
+    )
+
+    try:
+        resolve_config(repo_root=repo_root, cwd=tmp_path)
+    except ValueError as error:
+        assert str(error) == "IMAGES_PER_PAGE must be >= 2"
+    else:
+        raise AssertionError("Expected IMAGES_PER_PAGE minimum validation error")
 
 
 def test_resolve_config_uses_test_paths_when_enabled(tmp_path: Path) -> None:

@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.renderer import _collect_render_context, _file_checksum, render_flyer
+from app.renderer import _collect_render_context, _file_checksum, render_campaign_artifact, render_flyer
 
 
 def _write_config(tmp_path: Path) -> Path:
@@ -124,6 +124,39 @@ def test_render_checksum_matches_file(monkeypatch, tmp_path: Path) -> None:
     data = response.json()
     actual = hashlib.sha256(Path(data["file_path"]).read_bytes()).hexdigest()
     assert actual == data["checksum"]
+
+
+def test_render_with_images_per_page_creates_additional_pdf(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_full_campaign(client)
+
+    with client:
+        pass
+
+    from app.config import resolve_config
+    from app.db import connect_database
+
+    config = resolve_config()
+    with connect_database(config) as connection:
+        artifact = render_campaign_artifact(
+            connection,
+            campaign_id,
+            config.output_dir,
+            artifact_type="flyer",
+            images_per_page=4,
+        )
+        connection.commit()
+
+    primary_path = Path(artifact["file_path"])
+    nup_path = Path(str(artifact["nup_file_path"]))
+
+    assert primary_path.exists()
+    assert primary_path.name == "summer.pdf"
+    assert primary_path.read_bytes().startswith(b"%PDF")
+    assert nup_path.exists()
+    assert nup_path.name == "summer-4p.pdf"
+    assert nup_path.read_bytes().startswith(b"%PDF")
 
 
 def test_list_artifacts_returns_rendered_items(monkeypatch, tmp_path: Path) -> None:

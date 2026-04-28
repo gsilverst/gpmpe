@@ -11,6 +11,7 @@ class AppConfig:
     output_dir: Path
     database_path: Path
     data_dir: Path
+    images_per_page: int | None
     using_test_paths: bool
     commit_on_save: bool
     git_repo_path: Path | None
@@ -64,6 +65,18 @@ def _use_test_paths_flag(explicit: bool | None) -> bool:
     return _parse_bool(os.getenv("GPMPE_USE_TEST_PATHS"), default=False)
 
 
+def _parse_images_per_page(value: str | None) -> int | None:
+    if value is None or value.strip() == "":
+        return None
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ValueError("IMAGES_PER_PAGE must be an integer") from exc
+    if parsed < 2:
+        raise ValueError("IMAGES_PER_PAGE must be >= 2")
+    return parsed
+
+
 def resolve_config(
     repo_root: Path | None = None,
     cwd: Path | None = None,
@@ -102,6 +115,8 @@ def resolve_config(
             database_path = (root / "backend" / "data" / "gpmpe.db").resolve()
         data_dir = _resolve_path(data_dir_value, config_directory)
 
+    images_per_page = _parse_images_per_page(values.get("IMAGES_PER_PAGE"))
+
     commit_on_save = _parse_bool(values.get("COMMIT_ON_SAVE"), default=True)
     git_repo_value = values.get("GIT_REPO_PATH")
     git_repo_path = _resolve_path(git_repo_value, config_directory) if git_repo_value else None
@@ -113,6 +128,7 @@ def resolve_config(
         output_dir=output_dir,
         database_path=database_path,
         data_dir=data_dir,
+        images_per_page=images_per_page,
         using_test_paths=using_test_paths,
         commit_on_save=commit_on_save,
         git_repo_path=git_repo_path,

@@ -24,6 +24,11 @@ Once your business profile is set up and you've started a campaign, you work thr
 ### 4. Generating the PDF
 When you're happy with the content, you click to generate the PDF. GPMPE combines your business information and campaign details into a fixed, professionally formatted document and saves it to a folder on your computer. The output location is configurable, and defaults to the folder you're working in.
 
+Optional: if `IMAGES_PER_PAGE` is set in `.config` (for example `IMAGES_PER_PAGE=4`), GPMPE also generates an additional N-up PDF for flyers. Example output names:
+
+- `merci-may-sales.pdf` (standard single image per page)
+- `merci-may-sales-4p.pdf` (4 images per page)
+
 ## Where Your Data Lives
 
 GPMPE uses two local stores together:
@@ -141,6 +146,7 @@ docker compose up
 This builds and runs a single container that serves both API and frontend on `http://127.0.0.1:8000`.
 
 Before running, make sure `.config` contains valid `DATA_DIR`, `DATABASE_PATH`, and `OUTPUT_DIR` values for your local machine.
+Set `IMAGES_PER_PAGE` only if you want the extra N-up PDF output.
 
 The compose file mounts:
 

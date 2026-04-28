@@ -1278,6 +1278,7 @@ def create_app() -> FastAPI:
                     config.output_dir,
                     artifact_type=request.artifact_type,
                     data_dir=config.data_dir,
+                    images_per_page=config.images_per_page,
                 )
                 connection.commit()
             except ValueError as exc:
