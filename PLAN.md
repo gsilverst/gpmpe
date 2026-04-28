@@ -36,21 +36,25 @@ Current phase status:
 - Completed: chat editing surface expansion (campaign, business, component, item, clone/delete/query commands) with backend tests passing.
 - Completed: background color plumbing across schema, sync, YAML write-back, chat mutation, and renderer usage.
 - Completed: active component context synchronization in frontend editing flow.
-- In progress: renderer generalization cleanup (remove campaign-specific semantics and move remaining behavior into database-owned objects).
+- Completed: Step 14a renderer extraction inventory in `docs/DESIGN.md` Appendix A.
+- Completed: Step 14b first-pass renderer generalization:
+  - Schema 006 adds component render region/mode/style fields and item render role/style fields.
+  - YAML sync/write-back round-trips the new render metadata.
+  - Render context now includes template layout data and component/item render shape.
+  - Renderer groups components by data-defined `render_region` with legacy `component_kind` used only as a compatibility/defaulting path.
 
 Known current baseline:
-- Backend tests currently green on latest validation run.
+- Backend tests currently green on latest validation run (`139 passed`, April 28, 2026).
 - Rich renderer now handles additional secondary component kinds and bounded layout regions for featured and secondary sections.
-- Step 14a/14b is now the controlling path for final renderer refactor from code-embedded semantics to DB-driven semantics.
+- Renderer layout constants are now exposed through the default template-layout shape, with deeper visual/layout tuning expected to continue against local campaign data.
 
 Approved next steps (strict order):
-1. Execute Step 14a only: create the full source-referenced extraction inventory and schema gap matrix.
-2. Pause for approval gate on Step 14a deliverable before any schema refactor.
-3. Execute Step 14b: implement schema objects/fields, migrations/backfill, YAML round-trip updates, renderer refactor, and regression coverage.
-4. Perform one focused check-in that bundles schema + migration + renderer + tests + design updates.
+1. Review rendered output against proprietary campaigns under `local/` and tune template layout/style data as needed.
+2. Continue reducing remaining renderer-owned presentation constants where local campaign needs expose useful controls.
+3. Perform one focused check-in that bundles schema + migration + renderer + tests + design updates.
 
 Handoff note:
-- If work resumes on another platform, start from Step 14a deliverables first and do not begin schema changes until that inventory is reviewed and approved.
+- If work resumes on another platform, start from `docs/DESIGN.md` Appendix A plus schema 006 and the Step 14b renderer changes. Do not assume pixel-perfect preservation of the pre-Step-14 layout; current output is a reference for intent while local campaign data drives practical layout tuning.
 
 Notable new/updated backend tests:
 - `test_chat_message_can_rename_component_by_natural_language`
@@ -63,7 +67,9 @@ Notable new/updated backend tests:
 - `test_chat_message_can_set_active_component_context_and_edit_item_without_component_name`
 - `test_component_rename_updates_active_component_context_automatically`
 - `test_changing_campaign_clears_stale_component_context`
-- Backend suite remains green after these changes (`119 passed` in current baseline run).
+- `test_collect_render_context_includes_template_and_render_shape`
+- `test_render_flyer_uses_data_defined_component_region`
+- Backend suite remains green after these changes (`139 passed` in current baseline run).
 
 ## Working Assumptions (to confirm)
 - Early implementation may start with one active campaign path per business, but the schema and API must extend cleanly to many campaigns per business.

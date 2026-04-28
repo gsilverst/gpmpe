@@ -1,6 +1,6 @@
 # GPMPE — Design Document (Draft)
 
-> **Status:** Draft — covers high-level architecture and the chat command interface in detail. A full drill-down covering renderer internals, YAML round-trip specification, artifact pipeline, and template binding is tracked in PLAN.md Step 11.
+> **Status:** Draft — covers high-level architecture and the chat command interface in detail. Renderer data-externalization findings are captured in Appendix A as the Step 14a approval artifact.
 
 ---
 
@@ -88,7 +88,10 @@ Ordered sections within a campaign. Each component maps to a named block in the 
 | Field | Purpose |
 |---|---|
 | `component_key` | Slug used in chat commands and YAML |
-| `component_kind` | `featured-offers` · `weekday-specials` · `discount-strip` · `legal-note` |
+| `component_kind` | Content classification, e.g. `featured-offers` · `weekday-specials` · `discount-strip` · `legal-note` |
+| `render_region` | Template region key used by the renderer, e.g. `featured`, `secondary`, `discount`, `legal` |
+| `render_mode` | Data-defined renderer mode, e.g. `offer-card-grid`, `strip-list`, `discount-panel`, `legal-text` |
+| `style_json` | Optional component-level style tokens and layout hints |
 | `display_title` | Rendered section heading |
 | `subtitle` | Optional secondary heading |
 | `description_text` | Optional body copy |
@@ -102,6 +105,8 @@ Line items within a component. Each item is one priced service, product, or note
 |---|---|
 | `item_name` | Display name of the service or product |
 | `item_kind` | `service` · `product` · `package` · `promo-note` |
+| `render_role` | Optional item slot or emphasis role within its component |
+| `style_json` | Optional item-level style tokens and layout hints |
 | `duration_label` | Optional duration or size label (e.g. `60 min`) |
 | `item_value` | Price or value text (e.g. `$85`) |
 | `description_text` | Optional supporting copy |
@@ -143,7 +148,7 @@ DATA_DIR/
       <campaign-name>.yaml
 ```
 
-Campaign YAML files declare an ordered `components:` list, each with nested `items:`.
+Campaign YAML files declare an ordered `components:` list, each with nested `items:`. Component and item render metadata (`render_region`, `render_mode`, `render_role`, and `style`) round-trips through YAML so template behavior can be edited as data.
 
 ---
 
@@ -382,15 +387,16 @@ Additional notes:
 
 ## 6. Rendering Pipeline
 
-> **TODO (Step 11 drill-down):** Full specification of the renderer, template binding resolution, component footnote marker logic, N-up PDF output, and artifact lifecycle.
+Appendix A inventories the renderer assumptions that still need to move from code into database-owned campaign/template data before the renderer can be considered data-driven.
 
 High-level summary:
 
 1. `render_campaign_artifact()` in `backend/app/renderer.py` is called with a campaign ID and artifact type (`flyer` or `poster`).
 2. The renderer queries the DB for the full campaign snapshot: business profile, brand theme, ordered components, and nested items.
-3. It resolves the effective template (default values merged with campaign-level overrides).
-4. It generates a PDF using the resolved layout and writes it to `OUTPUT_DIR`.
-5. It records the artifact in `generated_artifacts` with a checksum and status.
+3. It resolves the effective template, including layout JSON and merged default/override values.
+4. It groups components by `render_region` and uses `render_mode` to preserve data-defined campaign semantics instead of relying directly on `component_kind`.
+5. It generates a PDF using the resolved layout and writes it to `OUTPUT_DIR`.
+6. It records the artifact in `generated_artifacts` with a checksum and status.
 
 Component footnote rendering:
 - If a component has `footnote_text`, the marker ` **` is appended to the component's rendered title.
@@ -467,3 +473,96 @@ Defined as CSS variables in `frontend/src/app/globals.css`:
 - AI content generation (LLM is translation-only, not content authoring).
 - Revision history or audit log.
 - Design tooling — layouts and formatting use predefined templates.
+
+---
+
+## Appendix A. Step 14a Renderer Data-Externalization Inventory
+
+This appendix is the Step 14a approval artifact. It records the renderer assumptions that are still embedded in source code, why each assumption is campaign- or layout-specific, where the data should live after extraction, the schema gaps that block the move, and the backfill implications for existing campaigns.
+
+Step 14a is documentation-only. Baseline and render-context tests are deferred to Step 14b so they can be added alongside the approved schema and renderer changes.
+
+Step 14b should not begin until this appendix is reviewed and approved.
+
+Step 14b implementation note: the first extraction pass is complete. Schema version 006 adds component `render_region`, `render_mode`, and `style_json` fields plus item `render_role` and `style_json` fields. YAML sync/write-back and render context collection round-trip those fields. The renderer now groups components by `render_region`, falls back from legacy `component_kind` only as a compatibility/defaulting path, and reads template `layout_json` into the render context for page regions and layout/style constants.
+
+### A.1 Source-Referenced Extraction Inventory
+
+| Embedded rule | Current implementation | Why it is campaign-specific | Proposed data owner |
+|---|---|---|---|
+| Letter page size and global margin are fixed at 612 x 792 points with a 36 point margin. | `backend/app/renderer.py:27-40` | A renderer can draw on a page, but the page stock, trim size, and safe area are template choices. Poster, flyer, postcard, or social formats need different bounds. | Global template: `page.size`, `page.orientation`, `page.margin` |
+| Rich flyer regions use fixed header, featured, weekday, and legal coordinates. | `backend/app/renderer.py:31-40`, `backend/app/renderer.py:287-505` | The current vertical stack reflects one flyer design rather than a general promotion model. Region names and bounds should be template data. | Global template layout regions, with optional campaign override |
+| Rich layout is selected by the presence of `featured-offers` or weekday-like component kinds. | `backend/app/renderer.py:780-787`, `backend/app/renderer.py:820-827` | Component semantic names currently select the whole layout mode. A campaign should bind components to template regions/render modes explicitly. | Campaign/template binding: component-to-region mapping and render mode |
+| Component kinds are hardcoded into featured, weekday, discount, and legal buckets. | `backend/app/renderer.py:780-786`, `backend/app/renderer.py:820-826` | Adding a new section type or reusing an existing type in another region currently requires renderer edits. | Component: `render_mode`; binding: `region_key`; template: allowed modes |
+| Only the first component in each bucket is rendered. | `backend/app/renderer.py:318`, `backend/app/renderer.py:397`, `backend/app/renderer.py:448`, `backend/app/renderer.py:488-489` | Campaigns cannot data-define multiple featured, discount, or legal sections even if the schema allows ordered components. | Template region policy: cardinality and overflow behavior |
+| Palette fallbacks are hardcoded for primary, secondary, accent, background, blush, cards, legal background, and legal border. | `backend/app/renderer.py:90-114` | Defaults express the current flyer brand/look, not generic rendering behavior. | Theme tokens plus template default tokens |
+| Natural-language color aliases are renderer-local. | `backend/app/renderer.py:50-87` | Color normalization affects chat, YAML, and rendering; it should be consistent outside the PDF renderer. | Shared color/token validation layer, persisted canonical values |
+| Logo cleanup crops 62 px from the top and removes near-white edge-connected background pixels. | `backend/app/renderer.py:129-164` | This assumes the shape and background of a specific logo asset. Other businesses may need no crop, a different crop, or no background removal. | Business asset metadata or theme token: logo processing policy |
+| Relative logos resolve under `DATA_DIR/<business_display_name.lower()>`. | `backend/app/renderer.py:167-179` | Filesystem naming is not always the lowercased display name, especially once safe path names diverge from display names. | Business/YAML asset path metadata, resolved before render context reaches renderer |
+| Header panel geometry, logo size, and business text positions are fixed. | `backend/app/renderer.py:287-305` | Header composition is part of the selected template, not an invariant of all campaigns. | Template region definitions and typography slots |
+| Header text uppercases the business display name. | `backend/app/renderer.py:300-304`, `backend/app/renderer.py:523-525` | Case transformation is a style choice. Some brands rely on exact casing. | Typography/text transform rule in template or theme |
+| Component footnote marker is always ` **`. | `backend/app/renderer.py:307-314`, `backend/app/renderer.py:390-393`, `backend/app/renderer.py:441-444`, `backend/app/renderer.py:587-597` | Marker syntax and placement are presentation rules. Other templates may use symbols, superscripts, numbered notes, or no marker. | Template footnote policy and component/campaign footnote data |
+| Featured card grid is limited to three columns with specific row, gap, min/max height, and max card width rules. | `backend/app/renderer.py:320-388` | Capacity and flow rules determine campaign content limits and should be configurable per template region. | Template region: grid constraints, item render mode, overflow policy |
+| Featured title, subtitle, card, and footnote typography is fixed. | `backend/app/renderer.py:334-352`, `backend/app/renderer.py:385-393` | Font family, weight, size, leading, and color are template style decisions. | Template typography slots, theme token references |
+| Featured card header accent defaults to the first item's background color. | `backend/app/renderer.py:324-328`, `backend/app/renderer.py:380-383` | This is a specific visual heuristic, not generic campaign semantics. | Component style token or template fallback expression |
+| Weekday panel fill/text colors, subtitle placement, strip bounds, and max row calculation are hardcoded. | `backend/app/renderer.py:395-444` | The weekday section is a current flyer region with fixed capacity and collision behavior. | Template region bounds, item layout policy, typography slots |
+| `other-offers` and `secondary-offers` are treated like `weekday-specials`. | `backend/app/renderer.py:781-784`, `backend/app/renderer.py:821-824` | Synonyms for visual behavior are embedded in code. The schema should store visual role/render mode directly. | Component render mode or component-to-region binding |
+| Discount strip renders item 1 inside a white subpanel and item 2 below as italic text; remaining items are ignored. | `backend/app/renderer.py:446-474` | Item ordinal determines presentation in a highly specific way. Campaign authors need data fields for role/slot or a template item policy. | Component item: `render_role` or template item slot mapping |
+| Footer text comes from `effective_values.footer` and is placed inside the weekday panel. | `backend/app/renderer.py:476-480` | Footer placement and source are template choices. Some campaigns may source footer from contacts or a component. | Template text slot bound to effective value, contact data, or component |
+| Legal strip is always drawn, even when no legal component/text exists. | `backend/app/renderer.py:482-494` | Empty legal chrome may be correct for one flyer but not for all templates. | Template region visibility policy |
+| Campaign footnote renders below the legal strip with a fixed two-note cap. | `backend/app/renderer.py:496-504` | Footnote capacity and placement are layout rules that may vary by template. | Template footnote area, overflow policy |
+| Simple fallback flyer has a hardcoded header bar, headline block, component loop, CTA bar, footer, and note area. | `backend/app/renderer.py:511-597` | The fallback is effectively another implicit template but is not represented in template data. | Global fallback template definition with explicit regions |
+| Simple fallback stops rendering components/items when hardcoded Y thresholds are reached. | `backend/app/renderer.py:538-555` | Overflow behavior changes campaign output and should be declared per region. | Template region overflow/capacity rules |
+| Simple row format joins item name, duration, and value with punctuation. | `backend/app/renderer.py:553-559` | Text assembly is content formatting, not drawing infrastructure. | Item render mode or template text format string |
+| Legacy `campaign_offers` are converted into an implicit `featured-offers` component named `offers`. | `backend/app/renderer.py:604-633`, `backend/app/renderer.py:749-750` | Missing component data silently creates campaign semantics and visual routing. | Migration/backfill from offers to explicit components |
+| Render context always selects brand theme named `default`. | `backend/app/renderer.py:655-662` | Campaigns may need a campaign-specific theme or active theme binding. | Campaign/template binding or business active-theme reference |
+| Render context only selects the first business location and orders contacts by primary flag. | `backend/app/renderer.py:664-682` | Which location/contact appears in a render is a campaign/template decision. | Campaign contact/location binding or template slot mapping |
+| Effective template data only exposes merged `default_values_json` and `override_values_json`; `layout_json` and `size_spec` are not included in renderer context. | `backend/app/renderer.py:703-721`, `backend/schemas/001_init.sql:111-127` | Layout data exists in schema but the renderer cannot consume it, forcing geometry into code. | Render context: explicit `template.size_spec`, `template.layout`, `template.tokens` |
+| Generated artifact file names are derived from lowercased campaign name with spaces replaced by dashes. | `backend/app/renderer.py:890-903` | Output naming may conflict with future safe path names, campaign keys, or template variants. | Artifact/output policy in campaign/template binding or output service |
+| Artifact status is recorded as `complete`, while the plan refers to a richer lifecycle. | `backend/app/renderer.py:912-929`, `backend/schemas/002_artifacts.sql:1-10` | Artifact lifecycle affects operations and API behavior, not visual drawing. | Artifact pipeline schema/service |
+| N-up layout uses square-ish auto grid math and repeats the same rendered flyer N times. | `backend/app/renderer.py:813-870` | N-up imposition is output-template behavior and may require gutters, crop marks, or different ordering. | Output template/imposition settings |
+
+### A.2 Current Schema to Required Objects Gap Matrix
+
+| Current schema/object | Current capability | Gap for data-driven rendering | Candidate Step 14b change |
+|---|---|---|---|
+| `template_definitions.size_spec` | Stores a string but is not passed into render context. | Page size/orientation are hardcoded to letter. | Parse and expose `size_spec`; add structured page settings if string proves too weak. |
+| `template_definitions.layout_json` | Stores JSON and round-trips through YAML/API. | Renderer ignores it entirely. | Define `layout_json` schema for regions, bounds, stacking, grid policies, overflow, and visibility. |
+| `template_definitions.default_values_json` | Supplies merged `effective_values` tokens. | Used for colors/text but not structured typography, region styles, or fallback policies. | Add named token groups: colors, typography, text slots, footnote policy, asset processing defaults. |
+| `campaign_template_bindings.override_values_json` | Campaign-level value overrides. | Cannot override layout regions, component bindings, imposition, or output naming. | Allow structured overrides for allowed template fields or add separate binding JSON for layout/component mappings. |
+| `campaign_components.component_kind` | Semantic bucket used by chat/YAML/renderer. | Renderer behavior depends directly on kind strings. | Add `render_mode` and/or `region_key`; keep `component_kind` as business/content classification if still useful. |
+| `campaign_components.background_color` and `header_accent_color` | Component-level color overrides. | Only two direct color fields; no token binding, border, radius, typography, spacing, marker, or visibility controls. | Add component `style_json` or normalized component style fields after approval. |
+| `campaign_components.footnote_text` | Stores component footnote copy. | Marker, placement, and overflow behavior are hardcoded. | Keep copy here; move marker/placement to template footnote policy. |
+| `campaign_component_items.item_kind` | Semantic item type. | Does not express slot, render role, emphasis, row/card mode, or overflow priority. | Add `render_role`, `style_json`, or item layout hints if approved. |
+| `campaign_component_items.background_color` | Item-level body fill override. | No token reference or role-specific color behavior. | Normalize color tokens or support item style JSON. |
+| `campaign_offers` | Legacy flat offer data. | Missing components trigger implicit featured component creation. | Backfill explicit components/items from offers; remove render-time fallback after migration. |
+| `brand_themes` | Business-level primary/secondary/accent/font/logo. | Renderer always uses theme named `default`; no active/campaign theme binding or logo processing policy. | Add active theme selection and optional asset processing metadata. |
+| `business_locations` / `business_contacts` | Business profile records. | Render context selects first location and sorted contacts without template slot binding. | Add campaign/template slot binding for contact and location selection. |
+| `generated_artifacts` | Stores PDF path/checksum/status. | Status enum and snapshot do not fully match planned artifact lifecycle or output variants. | Add lifecycle statuses and record N-up/output variant metadata. |
+| YAML campaign `template_binding` | Round-trips template layout/default/override JSON. | No field-level contract for layout/render semantics yet. | Document and validate the new template layout schema during Step 14b. |
+
+### A.3 Migration and Backfill Impact Summary
+
+Existing campaigns should keep rendering as close as practical to the current PDFs after Step 14b, but the current layout is not a pixel-perfect target. Local proprietary campaign data has exposed layout limitations, and the purpose of Step 14 is to make those details configurable in the database rather than locked into renderer code. The safest migration path is to backfill explicit template and component render data that preserves current intent while allowing corrected layout details to be expressed as data.
+
+Backfill requirements:
+
+- Create or update the default `flyer-standard` template with structured page settings for letter size, 36 point margin, current header/featured/weekday/discount/legal/simple fallback regions, and existing rich/simple typography and spacing values.
+- Populate template layout regions for `header`, `featured`, `secondary`, `discount`, `footer`, `legal`, and `campaign-footnote`, preserving the current coordinates from `backend/app/renderer.py:31-40`.
+- Map existing component kinds to explicit render data:
+  - `featured-offers` -> featured region, compact offer-card render mode.
+  - `weekday-specials`, `other-offers`, `secondary-offers` -> secondary/weekday region, strip-list render mode.
+  - `discount-strip` -> discount region, discount-panel render mode.
+  - `legal-note` -> legal region, legal-text render mode.
+- Preserve existing component/item color behavior by copying `background_color` and `header_accent_color` into the new style model or by making the new style model read those fields as aliases during the transition.
+- Convert campaigns that have `campaign_offers` but no `campaign_components` into an explicit `offers` component with `featured-offers` compatibility data, matching the current `_fallback_components()` payload.
+- Add render-context shape tests that assert the new context includes template page settings, layout regions, component bindings, render modes, style tokens, and footnote policy.
+- Add visual or content snapshot baselines during Step 14b so the approved renderer behavior is protected after the data-driven refactor begins.
+- Update YAML sync and write-back together with schema migration so any new template, component, item, style, and binding fields round-trip deterministically.
+
+Implementation guidance for Step 14b:
+
+- Prefer a practical hybrid model: keep user-facing campaign fields simple and explicit, use structured JSON for template layout/style rules that would be cumbersome to normalize immediately, and normalize only stable concepts that need direct querying, validation, or chat editing.
+- Decide early in Step 14b whether `component_kind` remains as content semantics alongside `render_mode`, or whether rendering should move entirely to `region_key` and `render_mode`.
+- The target user is non-technical, so schema/API complexity should be hidden behind simple YAML and editing surfaces.
+- The first Step 14b visual regression test should favor stable extracted text/layout assertions plus targeted rendered-page image checks over byte-level PDF checksums, because PDF byte output can drift for reasons unrelated to user-visible rendering.

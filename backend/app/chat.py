@@ -32,6 +32,15 @@ COMPONENT_ITEM_FIELDS = {
     "description_text",
     "terms_text",
 }
+
+_COMPONENT_RENDER_DEFAULTS: dict[str, tuple[str, str]] = {
+    "featured-offers": ("featured", "offer-card-grid"),
+    "weekday-specials": ("secondary", "strip-list"),
+    "other-offers": ("secondary", "strip-list"),
+    "secondary-offers": ("secondary", "strip-list"),
+    "discount-strip": ("discount", "discount-panel"),
+    "legal-note": ("legal", "legal-text"),
+}
 BUSINESS_FIELDS = {
     "legal_name",
     "display_name",
@@ -1057,10 +1066,21 @@ def apply_chat_command(
             if command.field not in {"component_kind", "display_title", "background_color", "subtitle", "description_text", "footnote_text"}:
                 raise HTTPException(status_code=400, detail="Unsupported component field")
 
-            connection.execute(
-                f"UPDATE campaign_components SET {command.field} = ?, updated_at = CURRENT_TIMESTAMP WHERE campaign_id = ?;",
-                (value, campaign_id),
-            )
+            if command.field == "component_kind":
+                render_region, render_mode = _COMPONENT_RENDER_DEFAULTS.get(value, (None, None))
+                connection.execute(
+                    """
+                    UPDATE campaign_components
+                    SET component_kind = ?, render_region = ?, render_mode = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE campaign_id = ?;
+                    """,
+                    (value, render_region, render_mode, campaign_id),
+                )
+            else:
+                connection.execute(
+                    f"UPDATE campaign_components SET {command.field} = ?, updated_at = CURRENT_TIMESTAMP WHERE campaign_id = ?;",
+                    (value, campaign_id),
+                )
             count_row = connection.execute(
                 "SELECT COUNT(*) AS component_count FROM campaign_components WHERE campaign_id = ?;",
                 (campaign_id,),
@@ -1111,10 +1131,21 @@ def apply_chat_command(
             except sqlite3.IntegrityError as exc:
                 raise HTTPException(status_code=409, detail="component_key already exists for this campaign") from exc
         elif command.field in {"component_kind", "display_title", "background_color", "subtitle", "description_text", "footnote_text"}:
-            connection.execute(
-                f"UPDATE campaign_components SET {command.field} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;",
-                (value, component["id"]),
-            )
+            if command.field == "component_kind":
+                render_region, render_mode = _COMPONENT_RENDER_DEFAULTS.get(value, (None, None))
+                connection.execute(
+                    """
+                    UPDATE campaign_components
+                    SET component_kind = ?, render_region = ?, render_mode = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?;
+                    """,
+                    (value, render_region, render_mode, component["id"]),
+                )
+            else:
+                connection.execute(
+                    f"UPDATE campaign_components SET {command.field} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;",
+                    (value, component["id"]),
+                )
         else:
             raise HTTPException(status_code=400, detail="Unsupported component field")
         updated_component = connection.execute(

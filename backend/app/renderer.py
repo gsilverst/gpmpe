@@ -39,6 +39,48 @@ _WEEKDAY_H: float = _WEEKDAY_TOP - _WEEKDAY_Y                # 302
 _LEGAL_Y: float = 34.0
 _LEGAL_H: float = 22.0
 
+_DEFAULT_RENDER_LAYOUT: dict[str, Any] = {
+    "page": {"size": "letter", "width": _PW, "height": _PH, "margin": _MARGIN},
+    "regions": {
+        "header": {"x": _MARGIN, "y": _HEADER_Y, "w": _PW - _MARGIN * 2, "h": _HEADER_H},
+        "featured": {"x": _MARGIN, "y": _FEATURED_Y, "w": _PW - _MARGIN * 2, "h": _FEATURED_H},
+        "secondary": {"x": _MARGIN, "y": _WEEKDAY_Y, "w": _PW - _MARGIN * 2, "h": _WEEKDAY_H},
+        "discount": {"x": _MARGIN + 16, "y": _WEEKDAY_Y + 34, "w": _PW - _MARGIN * 2 - 32, "h": 62.0},
+        "legal": {"x": _MARGIN + 20, "y": _LEGAL_Y, "w": _PW - _MARGIN * 2 - 40, "h": _LEGAL_H},
+        "campaign-footnote": {"x": 40.0, "y": 18.0, "w": _PW - 80.0, "h": 20.0},
+    },
+    "component_kind_defaults": {
+        "featured-offers": {"render_region": "featured", "render_mode": "offer-card-grid"},
+        "weekday-specials": {"render_region": "secondary", "render_mode": "strip-list"},
+        "other-offers": {"render_region": "secondary", "render_mode": "strip-list"},
+        "secondary-offers": {"render_region": "secondary", "render_mode": "strip-list"},
+        "discount-strip": {"render_region": "discount", "render_mode": "discount-panel"},
+        "legal-note": {"render_region": "legal", "render_mode": "legal-text"},
+    },
+    "styles": {
+        "radius": {"panel": 24.0, "card": 12.0, "strip": 10.0},
+        "featured": {
+            "max_columns": 3,
+            "card_gap": 8.0,
+            "row_gap": 8.0,
+            "max_card_width": 132.0,
+            "min_card_height": 42.0,
+            "max_card_height": 58.0,
+            "item_top_offset": 74.0,
+            "subtitle_top_offset": 62.0,
+            "footnote_offset": 12.0,
+        },
+        "secondary": {
+            "strip_height": 26.0,
+            "strip_gap": 8.0,
+            "strip_top_offset": 92.0,
+            "bottom_offset": 20.0,
+            "discount_clearance": 10.0,
+        },
+        "footnotes": {"marker": "**", "max_campaign_notes": 2},
+    },
+}
+
 # ---------------------------------------------------------------------------
 # Color helpers
 # ---------------------------------------------------------------------------
@@ -120,6 +162,76 @@ def _string_hex(color_value: Any) -> str:
         r, g, b = color_value.rgb()
         return f"#{int(r * 255):02X}{int(g * 255):02X}{int(b * 255):02X}"
     return "#000000"
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    for key, value in base.items():
+        if isinstance(value, dict):
+            merged[key] = _deep_merge(value, {})
+        else:
+            merged[key] = value
+    for key, value in (override or {}).items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _layout(ctx: dict[str, Any]) -> dict[str, Any]:
+    template = ctx.get("template") or {}
+    return _deep_merge(_DEFAULT_RENDER_LAYOUT, template.get("layout") or {})
+
+
+def _region(layout: dict[str, Any], key: str) -> dict[str, float]:
+    region = ((layout.get("regions") or {}).get(key) or {})
+    return {
+        "x": float(region.get("x", 0.0)),
+        "y": float(region.get("y", 0.0)),
+        "w": float(region.get("w", _PW)),
+        "h": float(region.get("h", _PH)),
+    }
+
+
+def _style(layout: dict[str, Any], *path: str, fallback: Any = None) -> Any:
+    current: Any = layout.get("styles") or {}
+    for key in path:
+        if not isinstance(current, dict):
+            return fallback
+        current = current.get(key)
+    return fallback if current is None else current
+
+
+def _component_render_defaults(layout: dict[str, Any], component: dict[str, Any]) -> dict[str, str | None]:
+    defaults = (layout.get("component_kind_defaults") or {}).get(component.get("component_kind") or "", {})
+    return {
+        "render_region": component.get("render_region") or defaults.get("render_region"),
+        "render_mode": component.get("render_mode") or defaults.get("render_mode"),
+    }
+
+
+def _components_by_region(ctx: dict[str, Any], layout: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for component in ctx.get("components", []):
+        defaults = _component_render_defaults(layout, component)
+        region = defaults.get("render_region") or "body"
+        component.setdefault("render_region", region)
+        component.setdefault("render_mode", defaults.get("render_mode"))
+        grouped.setdefault(region, []).append(component)
+    return grouped
+
+
+def _region_components(
+    grouped: dict[str, list[dict[str, Any]]],
+    region: str,
+    modes: set[str],
+) -> list[dict[str, Any]]:
+    return [
+        component
+        for component in grouped.get(region, [])
+        if not modes or component.get("render_mode") in modes
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +389,13 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
                       featured: list, weekday: list,
                       discount: list, legal: list) -> None:
     ev = ctx.get("effective_values", {})
+    layout = _layout(ctx)
+    header_region = _region(layout, "header")
+    featured_region = _region(layout, "featured")
+    secondary_region = _region(layout, "secondary")
+    discount_region = _region(layout, "discount")
+    legal_region = _region(layout, "legal")
+    footnote_region = _region(layout, "campaign-footnote")
     w = _PW
     h = _PH
 
@@ -285,23 +404,23 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
     pdf.rect(0, 0, w, h, fill=1, stroke=0)
 
     # ----- Header panel -----
-    hx = _MARGIN
-    panel_w = w - _MARGIN * 2
-    _draw_rounded_panel(pdf, hx, _HEADER_Y, panel_w, _HEADER_H,
+    hx = header_region["x"]
+    panel_w = header_region["w"]
+    _draw_rounded_panel(pdf, hx, header_region["y"], panel_w, header_region["h"],
                         palette["primary"], palette["primary"], radius=24, stroke_w=2)
 
     if logo_reader is not None:
         logo_w, logo_h = 58, 58
         logo_x = (w - logo_w) / 2
-        logo_y = _HEADER_Y + _HEADER_H - logo_h - 6
+        logo_y = header_region["y"] + header_region["h"] - logo_h - 6
         pdf.drawImage(logo_reader, logo_x, logo_y,
                       width=logo_w, height=logo_h, preserveAspectRatio=True)
 
     biz_name = ev.get("business_name") or ctx.get("business_display_name", "")
     biz_sub = ev.get("business_subtitle") or ctx.get("business_legal_name", "")
-    _draw_centered(pdf, biz_name.upper(), w / 2, _HEADER_Y + 28,
+    _draw_centered(pdf, biz_name.upper(), w / 2, header_region["y"] + 28,
                    "Helvetica-Bold", 22, palette["white"])
-    _draw_centered(pdf, biz_sub, w / 2, _HEADER_Y + 8,
+    _draw_centered(pdf, biz_sub, w / 2, header_region["y"] + 8,
                    "Times-Italic", 16, palette["primary_light"])
 
     def title_with_marker(component: dict[str, Any] | None) -> str:
@@ -318,7 +437,8 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
         comp = featured[0]
         items = comp.get("items", [])
         num_items = len(items)
-        cols_per_row = min(3, max(1, num_items))
+        max_columns = int(_style(layout, "featured", "max_columns", fallback=3))
+        cols_per_row = min(max_columns, max(1, num_items))
         num_rows = math.ceil(num_items / cols_per_row) if num_items > 0 else 1
         
         featured_fill = _hex(comp.get("background_color"), _string_hex(palette["blush"]))
@@ -326,8 +446,8 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
         if not featured_header_color and items:
             featured_header_color = items[0].get("background_color")
         featured_header_accent = _hex(featured_header_color, _string_hex(palette["accent"]))
-        panel_top = _FEATURED_Y
-        panel_h = _FEATURED_H
+        panel_top = featured_region["y"]
+        panel_h = featured_region["h"]
         _draw_rounded_panel(pdf, hx, panel_top, panel_w, panel_h,
                             featured_fill, palette["accent"], radius=24, stroke_w=2)
         
@@ -337,13 +457,13 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
         # Carve out a fixed inner content region for items between the subtitle and
         # the footnote so cards can never encroach on either boundary.
         subtitle = comp.get("subtitle") or ""
-        items_top_boundary = panel_top + panel_h - 74.0
+        items_top_boundary = panel_top + panel_h - float(_style(layout, "featured", "item_top_offset", fallback=74.0))
         if subtitle:
             subtitle_bottom = _draw_wrapped_centered(
                 pdf,
                 subtitle,
                 w / 2,
-                panel_top + panel_h - 62,
+                panel_top + panel_h - float(_style(layout, "featured", "subtitle_top_offset", fallback=62.0)),
                 w - 140,
                 "Times-Italic",
                 12,
@@ -352,15 +472,17 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
             )
             items_top_boundary = min(items_top_boundary, subtitle_bottom - 10.0)
 
-        footnote_y = panel_top + 12.0
+        footnote_y = panel_top + float(_style(layout, "featured", "footnote_offset", fallback=12.0))
         items_bottom_boundary = footnote_y + 18.0
-        row_spacing = 8.0
+        row_spacing = float(_style(layout, "featured", "row_gap", fallback=8.0))
         available_h = max(48.0, items_top_boundary - items_bottom_boundary)
-        card_h = max(42.0, min(58.0, (available_h - row_spacing * max(0, num_rows - 1)) / num_rows))
+        min_card_h = float(_style(layout, "featured", "min_card_height", fallback=42.0))
+        max_card_h = float(_style(layout, "featured", "max_card_height", fallback=58.0))
+        card_h = max(min_card_h, min(max_card_h, (available_h - row_spacing * max(0, num_rows - 1)) / num_rows))
 
         # Keep the cards visually compact instead of stretching them to full width.
-        card_gap = 8.0
-        max_card_w = 132.0
+        card_gap = float(_style(layout, "featured", "card_gap", fallback=8.0))
+        max_card_w = float(_style(layout, "featured", "max_card_width", fallback=132.0))
         available_w = panel_w - 40.0
         card_w = min(max_card_w, (available_w - card_gap * max(0, cols_per_row - 1)) / cols_per_row)
         grid_w = cols_per_row * card_w + card_gap * max(0, cols_per_row - 1)
@@ -397,32 +519,32 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
         wd_comp = weekday[0]
         weekday_fill = _hex(wd_comp.get("background_color"), _string_hex(palette["primary"]))
         wd_text_color = _hex(wd_comp.get("header_accent_color"), _string_hex(palette["white"]))
-        _draw_rounded_panel(pdf, hx, _WEEKDAY_Y, panel_w, _WEEKDAY_H,
+        _draw_rounded_panel(pdf, hx, secondary_region["y"], panel_w, secondary_region["h"],
                             weekday_fill, wd_text_color, radius=24, stroke_w=2)
         _draw_centered(pdf, title_with_marker(wd_comp), w / 2,
-                       _WEEKDAY_Y + _WEEKDAY_H - 34, "Helvetica-Bold", 22, wd_text_color)
+                       secondary_region["y"] + secondary_region["h"] - 34, "Helvetica-Bold", 22, wd_text_color)
         wd_sub = wd_comp.get("subtitle") or ""
         if wd_sub:
-            _draw_centered(pdf, wd_sub, w / 2, _WEEKDAY_Y + _WEEKDAY_H - 56,
+            _draw_centered(pdf, wd_sub, w / 2, secondary_region["y"] + secondary_region["h"] - 56,
                            "Times-Italic", 14, wd_text_color)
 
         strips_x = hx + 18
         strips_w = w - (hx + 18) * 2
         wd_items = wd_comp.get("items", [])
-        strip_h = 26.0
-        strip_gap = 8.0
-        services_panel_y = _WEEKDAY_Y + 34
-        services_panel_h = 62.0
+        strip_h = float(_style(layout, "secondary", "strip_height", fallback=26.0))
+        strip_gap = float(_style(layout, "secondary", "strip_gap", fallback=8.0))
+        services_panel_y = discount_region["y"]
+        services_panel_h = discount_region["h"]
         has_discount_panel = bool(discount)
 
         # Carve out weekday item bounds so strips never collide with header/subtitle
         # or the lower discount/footer region.
         # Keep a little breathing room below the subtitle before the first item strip.
-        strips_top = _WEEKDAY_Y + _WEEKDAY_H - 92.0
+        strips_top = secondary_region["y"] + secondary_region["h"] - float(_style(layout, "secondary", "strip_top_offset", fallback=92.0))
         if has_discount_panel:
-            strips_bottom = services_panel_y + services_panel_h + 10.0
+            strips_bottom = services_panel_y + services_panel_h + float(_style(layout, "secondary", "discount_clearance", fallback=10.0))
         else:
-            strips_bottom = _WEEKDAY_Y + 20.0
+            strips_bottom = secondary_region["y"] + float(_style(layout, "secondary", "bottom_offset", fallback=20.0))
 
         available_h = max(0.0, strips_top - strips_bottom)
         max_rows = int((available_h + strip_gap) // (strip_h + strip_gap))
@@ -440,18 +562,18 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
 
         wd_note = (wd_comp.get("footnote_text") or "").strip()
         if wd_note:
-            _draw_centered(pdf, f"** {wd_note}", w / 2, _WEEKDAY_Y + 12,
+            _draw_centered(pdf, f"** {wd_note}", w / 2, secondary_region["y"] + 12,
                            "Helvetica", 8, wd_text_color)
 
     # ----- Discount strip (services panel) -----
     if discount:
         ds_comp = discount[0]
         ds_items = ds_comp.get("items", [])
-        services_panel_y = _WEEKDAY_Y + 34
-        services_panel_h = 62.0
-        panel_inner_w = panel_w - 32
+        services_panel_y = discount_region["y"]
+        services_panel_h = discount_region["h"]
+        panel_inner_w = discount_region["w"]
 
-        _draw_rounded_panel(pdf, hx + 16, services_panel_y, panel_inner_w, services_panel_h,
+        _draw_rounded_panel(pdf, discount_region["x"], services_panel_y, panel_inner_w, services_panel_h,
                             palette["white"], palette["secondary"], radius=18, stroke_w=2)
 
         if ds_items:
@@ -476,12 +598,11 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
     # ----- Footer contact line (inside weekday panel, very bottom) -----
     footer_text = ev.get("footer") or ""
     if footer_text:
-        _draw_centered(pdf, footer_text, w / 2, _WEEKDAY_Y + 6,
+        _draw_centered(pdf, footer_text, w / 2, secondary_region["y"] + 6,
                        "Helvetica-Bold", 10, palette["white"])
 
     # ----- Legal strip (below weekday panel) -----
-    legal_inner_w = panel_w - 40
-    _draw_rounded_panel(pdf, hx + 20, _LEGAL_Y, legal_inner_w, _LEGAL_H,
+    _draw_rounded_panel(pdf, legal_region["x"], legal_region["y"], legal_region["w"], legal_region["h"],
                         palette["legal_bg"], palette["legal_border"], radius=10, stroke_w=1)
 
     legal_text = ""
@@ -490,7 +611,7 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
     if not legal_text:
         legal_text = ev.get("legal") or ""
     if legal_text:
-        _draw_centered(pdf, legal_text, w / 2, _LEGAL_Y + 7,
+        _draw_centered(pdf, legal_text, w / 2, legal_region["y"] + 7,
                        "Helvetica-Bold", 10, _COLOR_INK)
 
     campaign_footnote = (ctx.get("campaign_footnote_text") or "").strip()
@@ -498,9 +619,10 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
     if campaign_footnote:
         footer_notes = [f"** {campaign_footnote}"]
     if footer_notes:
-        note_y = 18.0
-        for note in footer_notes[:2]:
-            _draw_wrapped_centered(pdf, note, w / 2, note_y, w - 80, "Helvetica", 8.5, 9.5, _COLOR_INK)
+        note_y = footnote_region["y"]
+        max_notes = int(_style(layout, "footnotes", "max_campaign_notes", fallback=2))
+        for note in footer_notes[:max_notes]:
+            _draw_wrapped_centered(pdf, note, w / 2, note_y, footnote_region["w"], "Helvetica", 8.5, 9.5, _COLOR_INK)
             note_y -= 10.0
 
 
@@ -608,6 +730,9 @@ def _fallback_components(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
         {
             "component_key": "offers",
             "component_kind": "featured-offers",
+            "render_region": "featured",
+            "render_mode": "offer-card-grid",
+            "style": {},
             "display_title": "Offer Details",
             "background_color": None,
             "header_accent_color": None,
@@ -618,6 +743,8 @@ def _fallback_components(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 {
                     "item_name": offer.get("offer_name"),
                     "item_kind": offer.get("offer_type") or "service",
+                    "render_role": None,
+                    "style": {},
                     "duration_label": None,
                     "item_value": offer.get("offer_value"),
                     "background_color": None,
@@ -692,7 +819,7 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
     ).fetchall()
     components = connection.execute(
         """
-        SELECT id, component_key, component_kind, display_title, background_color, header_accent_color, footnote_text, subtitle, description_text, display_order
+        SELECT id, component_key, component_kind, render_region, render_mode, style_json, display_title, background_color, header_accent_color, footnote_text, subtitle, description_text, display_order
         FROM campaign_components
         WHERE campaign_id = ?
         ORDER BY display_order ASC, id ASC;
@@ -702,7 +829,7 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
 
     binding = connection.execute(
         """
-        SELECT t.template_name, t.template_kind, t.size_spec,
+        SELECT t.template_name, t.template_kind, t.size_spec, t.layout_json,
                t.default_values_json, b.override_values_json
         FROM campaign_template_bindings b
         JOIN template_definitions t ON t.id = b.template_id
@@ -714,18 +841,27 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
 
     effective: dict[str, Any] = {}
     template_name = None
+    template: dict[str, Any] = {"layout": {}}
     if binding is not None:
         defaults = json.loads(binding["default_values_json"] or "{}")
         overrides = json.loads(binding["override_values_json"] or "{}")
         effective = {**defaults, **overrides}
         template_name = binding["template_name"]
+        template = {
+            "template_name": binding["template_name"],
+            "template_kind": binding["template_kind"],
+            "size_spec": binding["size_spec"],
+            "layout": json.loads(binding["layout_json"] or "{}"),
+            "default_values": defaults,
+            "override_values": overrides,
+        }
 
     offer_payloads = [dict(o) for o in offers]
     component_payloads: list[dict[str, Any]] = []
     for component in components:
         items = connection.execute(
             """
-            SELECT item_name, item_kind, duration_label, item_value, background_color, description_text, terms_text, display_order
+            SELECT item_name, item_kind, duration_label, item_value, background_color, render_role, style_json, description_text, terms_text, display_order
             FROM campaign_component_items
             WHERE component_id = ?
             ORDER BY display_order ASC, id ASC;
@@ -736,6 +872,9 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
             {
                 "component_key": component["component_key"],
                 "component_kind": component["component_kind"],
+                "render_region": component["render_region"],
+                "render_mode": component["render_mode"],
+                "style": json.loads(component["style_json"] or "{}"),
                 "display_title": component["display_title"],
                 "background_color": component["background_color"],
                 "header_accent_color": component["header_accent_color"],
@@ -743,7 +882,13 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
                 "subtitle": component["subtitle"],
                 "description_text": component["description_text"],
                 "display_order": component["display_order"],
-                "items": [dict(item) for item in items],
+                "items": [
+                    {
+                        **dict(item),
+                        "style": json.loads(item["style_json"] or "{}"),
+                    }
+                    for item in items
+                ],
             }
         )
     if not component_payloads:
@@ -766,6 +911,7 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
         "components": component_payloads,
         "effective_values": effective,
         "template_name": template_name,
+        "template": template,
     }
 
 
@@ -775,15 +921,13 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
 
 def render_flyer(ctx: dict[str, Any], data_dir: Path | None = None) -> bytes:
     palette = _palette(ctx)
-    components = ctx.get("components", [])
+    layout = _layout(ctx)
+    grouped = _components_by_region(ctx, layout)
 
-    featured = [c for c in components if c.get("component_kind") == "featured-offers"]
-    weekday = [
-        c for c in components
-        if c.get("component_kind") in {"weekday-specials", "other-offers", "secondary-offers"}
-    ]
-    discount = [c for c in components if c.get("component_kind") == "discount-strip"]
-    legal = [c for c in components if c.get("component_kind") == "legal-note"]
+    featured = _region_components(grouped, "featured", {"offer-card-grid"})
+    weekday = _region_components(grouped, "secondary", {"strip-list"})
+    discount = _region_components(grouped, "discount", {"discount-panel"})
+    legal = _region_components(grouped, "legal", {"legal-text"})
     use_rich = bool(featured or weekday)
 
     # Resolve logo
@@ -815,15 +959,13 @@ def render_flyer_nup(ctx: dict[str, Any], images_per_page: int, data_dir: Path |
         raise ValueError("images_per_page must be >= 2")
 
     palette = _palette(ctx)
-    components = ctx.get("components", [])
+    layout = _layout(ctx)
+    grouped = _components_by_region(ctx, layout)
 
-    featured = [c for c in components if c.get("component_kind") == "featured-offers"]
-    weekday = [
-        c for c in components
-        if c.get("component_kind") in {"weekday-specials", "other-offers", "secondary-offers"}
-    ]
-    discount = [c for c in components if c.get("component_kind") == "discount-strip"]
-    legal = [c for c in components if c.get("component_kind") == "legal-note"]
+    featured = _region_components(grouped, "featured", {"offer-card-grid"})
+    weekday = _region_components(grouped, "secondary", {"strip-list"})
+    discount = _region_components(grouped, "discount", {"discount-panel"})
+    legal = _region_components(grouped, "legal", {"legal-text"})
     use_rich = bool(featured or weekday)
 
     logo_reader = None
@@ -905,6 +1047,7 @@ def render_campaign_artifact(
     template_snapshot = json.dumps(
         {
             "template_name": ctx["template_name"],
+            "template": ctx.get("template") or {},
             "effective_values": ctx["effective_values"],
         }
     )

@@ -68,7 +68,7 @@ def _seed_full_campaign(client: TestClient) -> tuple[int, int]:
     client.post(
         f"/campaigns/{campaign_id}/template-bindings",
         json={
-            "template_name": "flyer-standard",
+            "template_id": tmpl["id"],
             "override_values": {"headline": "Summer Blowout"},
         },
     )
@@ -371,6 +371,139 @@ def test_collect_render_context_prefers_ordered_components(monkeypatch, tmp_path
     assert ctx["components"][0]["component_key"] == "weekday-specials"
     assert ctx["components"][0]["items"][0]["item_name"] == "Deep Tissue Massage"
     assert ctx["components"][0]["items"][0]["item_value"] == "$120"
+
+
+def test_collect_render_context_includes_template_and_render_shape(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_full_campaign(client)
+
+    with client:
+        pass
+
+    from app.config import resolve_config
+    from app.db import connect_database
+
+    config = resolve_config()
+    with connect_database(config) as connection:
+        component_id = connection.execute(
+            """
+            INSERT INTO campaign_components (
+              campaign_id, component_key, component_kind, render_region, render_mode,
+              style_json, display_title, display_order
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                campaign_id,
+                "data-defined",
+                "custom-content",
+                "secondary",
+                "strip-list",
+                '{"border_color":"#123456"}',
+                "Data Defined",
+                0,
+            ),
+        ).lastrowid
+        connection.execute(
+            """
+            INSERT INTO campaign_component_items (
+              component_id, item_name, item_kind, duration_label, item_value,
+              render_role, style_json, display_order
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                component_id,
+                "Configurable Row",
+                "service",
+                "30 min",
+                "$50",
+                "primary",
+                '{"emphasis":"strong"}',
+                0,
+            ),
+        )
+        connection.commit()
+
+        ctx = _collect_render_context(connection, campaign_id)
+
+    assert ctx["template"]["layout"]["headline_slot"] == "top"
+    assert ctx["template"]["size_spec"] == "letter"
+    assert ctx["components"][0]["render_region"] == "secondary"
+    assert ctx["components"][0]["render_mode"] == "strip-list"
+    assert ctx["components"][0]["style"]["border_color"] == "#123456"
+    assert ctx["components"][0]["items"][0]["render_role"] == "primary"
+    assert ctx["components"][0]["items"][0]["style"]["emphasis"] == "strong"
+
+
+def test_render_flyer_uses_data_defined_component_region(monkeypatch) -> None:
+    from app import renderer as renderer_module
+
+    captured_titles: list[str] = []
+    original_draw_weekday_strip = renderer_module._draw_weekday_strip
+
+    def _capture_strip(pdf, x, y, w, title, detail, price, palette, strip_fill=None):
+        captured_titles.append(title)
+        return original_draw_weekday_strip(pdf, x, y, w, title, detail, price, palette, strip_fill=strip_fill)
+
+    monkeypatch.setattr(renderer_module, "_draw_weekday_strip", _capture_strip)
+
+    ctx = {
+        "campaign_id": 77,
+        "campaign_name": "data-region",
+        "title": "Data Region",
+        "objective": "Use render_region instead of component_kind",
+        "campaign_footnote_text": None,
+        "start_date": "2026-05-01",
+        "end_date": "2026-05-31",
+        "business_display_name": "ACME",
+        "business_legal_name": "ACME LLC",
+        "theme": {
+            "primary_color": "#3E1C5C",
+            "secondary_color": "#6E4A8E",
+            "accent_color": "#E0559A",
+        },
+        "location": None,
+        "contacts": [],
+        "offers": [],
+        "components": [
+            {
+                "component_key": "flex-section",
+                "component_kind": "custom-content",
+                "render_region": "secondary",
+                "render_mode": "strip-list",
+                "display_title": "Flexible Section",
+                "subtitle": "Driven by region",
+                "description_text": None,
+                "display_order": 0,
+                "items": [
+                    {
+                        "item_name": "Region Routed Item",
+                        "item_kind": "service",
+                        "duration_label": "45 min",
+                        "item_value": "$70",
+                        "description_text": None,
+                        "terms_text": None,
+                        "display_order": 0,
+                    }
+                ],
+            }
+        ],
+        "effective_values": {
+            "business_name": "ACME",
+            "business_subtitle": "LLC",
+            "footer": "acme.example",
+            "legal": "Offer terms.",
+        },
+        "template_name": "flyer-standard",
+        "template": {"layout": {}},
+    }
+
+    pdf_bytes = render_flyer(ctx)
+
+    assert pdf_bytes.startswith(b"%PDF")
+    assert captured_titles == ["Region Routed Item"]
 
 
 def test_render_flyer_supports_multi_component_context() -> None:

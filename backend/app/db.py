@@ -15,6 +15,39 @@ def _ensure_column(connection: sqlite3.Connection, table_name: str, column_name:
         connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_sql};")
 
 
+def _backfill_renderer_fields(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        UPDATE campaign_components
+        SET render_region = CASE component_kind
+          WHEN 'featured-offers' THEN 'featured'
+          WHEN 'weekday-specials' THEN 'secondary'
+          WHEN 'other-offers' THEN 'secondary'
+          WHEN 'secondary-offers' THEN 'secondary'
+          WHEN 'discount-strip' THEN 'discount'
+          WHEN 'legal-note' THEN 'legal'
+          ELSE render_region
+        END
+        WHERE render_region IS NULL;
+        """
+    )
+    connection.execute(
+        """
+        UPDATE campaign_components
+        SET render_mode = CASE component_kind
+          WHEN 'featured-offers' THEN 'offer-card-grid'
+          WHEN 'weekday-specials' THEN 'strip-list'
+          WHEN 'other-offers' THEN 'strip-list'
+          WHEN 'secondary-offers' THEN 'strip-list'
+          WHEN 'discount-strip' THEN 'discount-panel'
+          WHEN 'legal-note' THEN 'legal-text'
+          ELSE render_mode
+        END
+        WHERE render_mode IS NULL;
+        """
+    )
+
+
 def initialize_database(config: AppConfig) -> None:
     config.database_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -28,7 +61,13 @@ def initialize_database(config: AppConfig) -> None:
         _ensure_column(connection, "campaign_components", "footnote_text", "footnote_text TEXT")
         _ensure_column(connection, "campaign_components", "background_color", "background_color TEXT")
         _ensure_column(connection, "campaign_components", "header_accent_color", "header_accent_color TEXT")
+        _ensure_column(connection, "campaign_components", "render_region", "render_region TEXT")
+        _ensure_column(connection, "campaign_components", "render_mode", "render_mode TEXT")
+        _ensure_column(connection, "campaign_components", "style_json", "style_json TEXT")
         _ensure_column(connection, "campaign_component_items", "background_color", "background_color TEXT")
+        _ensure_column(connection, "campaign_component_items", "render_role", "render_role TEXT")
+        _ensure_column(connection, "campaign_component_items", "style_json", "style_json TEXT")
+        _backfill_renderer_fields(connection)
         connection.commit()
 
 

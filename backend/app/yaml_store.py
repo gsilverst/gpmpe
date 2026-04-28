@@ -105,7 +105,7 @@ def _business_payload(connection: sqlite3.Connection, business_id: int) -> dict[
 def _component_payloads(connection: sqlite3.Connection, campaign_id: int) -> list[dict[str, Any]]:
     components = connection.execute(
         """
-        SELECT id, component_key, component_kind, display_title, background_color, header_accent_color, footnote_text, subtitle, description_text, display_order
+        SELECT id, component_key, component_kind, render_region, render_mode, style_json, display_title, background_color, header_accent_color, footnote_text, subtitle, description_text, display_order
         FROM campaign_components
         WHERE campaign_id = ?
         ORDER BY display_order ASC, id ASC;
@@ -117,7 +117,7 @@ def _component_payloads(connection: sqlite3.Connection, campaign_id: int) -> lis
     for component in components:
         items = connection.execute(
             """
-            SELECT item_name, item_kind, duration_label, item_value, background_color, description_text, terms_text, display_order
+            SELECT item_name, item_kind, duration_label, item_value, background_color, render_role, style_json, description_text, terms_text, display_order
             FROM campaign_component_items
             WHERE component_id = ?
             ORDER BY display_order ASC, id ASC;
@@ -128,6 +128,9 @@ def _component_payloads(connection: sqlite3.Connection, campaign_id: int) -> lis
             {
                 "component_key": component["component_key"],
                 "component_kind": component["component_kind"],
+                "render_region": component["render_region"],
+                "render_mode": component["render_mode"],
+                "style": json.loads(component["style_json"] or "{}"),
                 "display_title": component["display_title"],
                 "background_color": component["background_color"],
                 "header_accent_color": component["header_accent_color"],
@@ -142,6 +145,8 @@ def _component_payloads(connection: sqlite3.Connection, campaign_id: int) -> lis
                         "duration_label": item["duration_label"],
                         "item_value": item["item_value"],
                         "background_color": item["background_color"],
+                        "render_role": item["render_role"],
+                        "style": json.loads(item["style_json"] or "{}"),
                         "description_text": item["description_text"],
                         "terms_text": item["terms_text"],
                         "display_order": item["display_order"],

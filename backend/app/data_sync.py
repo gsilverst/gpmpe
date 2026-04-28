@@ -78,6 +78,18 @@ def _optional_string(payload: dict[str, Any], field_name: str) -> str | None:
     return stripped if stripped else None
 
 
+def _component_render_defaults(component_kind: str | None) -> tuple[str | None, str | None]:
+    defaults = {
+        "featured-offers": ("featured", "offer-card-grid"),
+        "weekday-specials": ("secondary", "strip-list"),
+        "other-offers": ("secondary", "strip-list"),
+        "secondary-offers": ("secondary", "strip-list"),
+        "discount-strip": ("discount", "discount-panel"),
+        "legal-note": ("legal", "legal-text"),
+    }
+    return defaults.get(component_kind or "", (None, None))
+
+
 def discover_data_directory(data_dir: Path) -> list[BusinessYamlRecord]:
     businesses: list[BusinessYamlRecord] = []
     if not data_dir.exists():
@@ -283,18 +295,23 @@ def _sync_campaign_components(connection: sqlite3.Connection, campaign_id: int, 
     for component_index, component in enumerate(components):
         if not isinstance(component, dict):
             raise ValueError(f"components entries must be objects in {record.file_path}")
+        component_kind = _optional_string(component, "component_kind") or "featured-offers"
+        default_region, default_mode = _component_render_defaults(component_kind)
 
         cursor = connection.execute(
             """
             INSERT INTO campaign_components (
-                            campaign_id, component_key, component_kind, display_title, background_color, header_accent_color, footnote_text, subtitle, description_text, display_order
+                            campaign_id, component_key, component_kind, render_region, render_mode, style_json, display_title, background_color, header_accent_color, footnote_text, subtitle, description_text, display_order
             )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             (
                 campaign_id,
                 _required_string(component, "component_key", record.file_path),
-                _optional_string(component, "component_kind") or "featured-offers",
+                component_kind,
+                _optional_string(component, "render_region") or default_region,
+                _optional_string(component, "render_mode") or default_mode,
+                json.dumps(component.get("style") or component.get("style_json") or {}),
                 _required_string(component, "display_title", record.file_path),
                 _optional_string(component, "background_color"),
                 _optional_string(component, "header_accent_color"),
@@ -317,9 +334,9 @@ def _sync_campaign_components(connection: sqlite3.Connection, campaign_id: int, 
                 """
                 INSERT INTO campaign_component_items (
                   component_id, item_name, item_kind, duration_label, item_value,
-                                    background_color, description_text, terms_text, display_order
+                                    background_color, render_role, style_json, description_text, terms_text, display_order
                 )
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     component_id,
@@ -328,6 +345,8 @@ def _sync_campaign_components(connection: sqlite3.Connection, campaign_id: int, 
                     _optional_string(item, "duration_label"),
                     _optional_string(item, "item_value"),
                                         _optional_string(item, "background_color"),
+                    _optional_string(item, "render_role"),
+                    json.dumps(item.get("style") or item.get("style_json") or {}),
                     _optional_string(item, "description_text"),
                     _optional_string(item, "terms_text"),
                     item.get("display_order", item_index),

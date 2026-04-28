@@ -438,7 +438,7 @@ def _campaign_snapshot(connection: Any, display_name: str, campaign_name: str, q
     ).fetchone()
     components = connection.execute(
         """
-        SELECT id, component_key, component_kind, display_title, footnote_text, subtitle, description_text, display_order
+        SELECT id, component_key, component_kind, render_region, render_mode, style_json, display_title, footnote_text, subtitle, description_text, display_order
         FROM campaign_components
         WHERE campaign_id = ?
         ORDER BY display_order ASC, id ASC;
@@ -450,7 +450,7 @@ def _campaign_snapshot(connection: Any, display_name: str, campaign_name: str, q
     for component in components:
         items = connection.execute(
             """
-            SELECT item_name, item_kind, duration_label, item_value, description_text, terms_text, display_order
+            SELECT item_name, item_kind, duration_label, item_value, render_role, style_json, description_text, terms_text, display_order
             FROM campaign_component_items
             WHERE component_id = ?
             ORDER BY display_order ASC, id ASC;
@@ -461,6 +461,9 @@ def _campaign_snapshot(connection: Any, display_name: str, campaign_name: str, q
             {
                 "component_key": component["component_key"],
                 "component_kind": component["component_kind"],
+                "render_region": component["render_region"],
+                "render_mode": component["render_mode"],
+                "style": json.loads(component["style_json"] or "{}"),
                 "display_title": component["display_title"],
                 "footnote_text": component["footnote_text"],
                 "subtitle": component["subtitle"],
@@ -472,6 +475,8 @@ def _campaign_snapshot(connection: Any, display_name: str, campaign_name: str, q
                         "item_kind": item["item_kind"],
                         "duration_label": item["duration_label"],
                         "item_value": item["item_value"],
+                        "render_role": item["render_role"],
+                        "style": json.loads(item["style_json"] or "{}"),
                         "description_text": item["description_text"],
                         "terms_text": item["terms_text"],
                         "display_order": item["display_order"],
@@ -1504,7 +1509,7 @@ def create_app() -> FastAPI:
             _require_campaign(connection, campaign_id)
             rows = connection.execute(
                 """
-                SELECT id, component_key, component_kind, display_title, subtitle,
+                SELECT id, component_key, component_kind, render_region, render_mode, style_json, display_title, subtitle,
                        description_text, footnote_text, display_order
                 FROM campaign_components
                 WHERE campaign_id = ?
@@ -1519,6 +1524,9 @@ def create_app() -> FastAPI:
                     "id": r["id"],
                     "component_key": r["component_key"],
                     "component_kind": r["component_kind"],
+                    "render_region": r["render_region"],
+                    "render_mode": r["render_mode"],
+                    "style": json.loads(r["style_json"] or "{}"),
                     "display_title": r["display_title"],
                     "subtitle": r["subtitle"],
                     "description_text": r["description_text"],
