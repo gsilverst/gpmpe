@@ -21,6 +21,52 @@ You can have as many campaigns as you like. If you run the same promotion in dif
 ### 3. The Chat Interface
 Once your business profile is set up and you've started a campaign, you work through a simple chat window. You type what you want to change — update the headline, adjust a date, swap out a discount amount — and GPMPE updates the campaign immediately. There's no complicated form to fill out.
 
+#### Chat Context Rules
+
+GPMPE keeps two chat contexts during an edit session:
+
+- active campaign context
+- active component context
+
+Active campaign context:
+
+- The active campaign is set automatically when you select a campaign in the UI.
+- The active campaign is set automatically when you create a new campaign and begin editing it.
+- The active campaign is set automatically when you clone a campaign and the cloned campaign becomes the current editing target.
+- In backend chat handling, the active campaign is derived from the `campaign_id` sent with the chat message.
+- When the active campaign changes, any previous component context is cleared automatically so stale component references do not leak across campaigns.
+
+Active component context:
+
+- The active component is set automatically whenever you reference a component in a successful component or component-item command.
+- If you rename a component, the rename is applied first and the active component context immediately changes to the new component key.
+- The active component is also set when you explicitly say something like `I am working on the weekday-specials component`, but this is optional and no longer required for normal editing.
+- If you switch to a different campaign, the active component context is cleared and must be re-established by referencing a component in that campaign.
+
+When you need to include the campaign or component name:
+
+- You usually do not need to include the campaign name in chat because the selected campaign is already the active campaign.
+- You should include the component name the first time you talk about a component in the current campaign.
+- You should include the component name again after changing campaigns, because component context is reset on campaign switch.
+- You should include the component name if the chatbot has not yet seen any successful component reference in the current campaign.
+
+When you can leave the campaign or component name out:
+
+- You can omit the campaign name for normal edits because there is only one active campaign at a time.
+- You can omit the component name after a successful component reference in the current campaign.
+- You can omit the component name after a component rename; follow-up item or component edits will use the renamed component automatically.
+
+Examples:
+
+- First component reference in a campaign:
+	- `change the name of the weekday-specials component to other-services`
+- Follow-up command using automatic component context:
+	- `change the item_value field of the Signature Facial item to $45`
+- Explicit context command when you want to set it directly:
+	- `I am working on the other-services component`
+
+If a command omits the component name before a component context has been established, GPMPE returns a clarification message instead of applying the change to the wrong component.
+
 ### 4. Generating the PDF
 When you're happy with the content, you click to generate the PDF. GPMPE combines your business information and campaign details into a fixed, professionally formatted document and saves it to a folder on your computer. The output location is configurable, and defaults to the folder you're working in.
 

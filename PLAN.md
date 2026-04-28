@@ -19,6 +19,14 @@
   - Rename component key by natural language.
   - Rename component key using explicit "component-key field" phrasing.
   - Update component display title through explicit component field commands.
+- Chat command handling now supports nested component-item edits:
+  - Update component item fields by ordinal selector (`first`, `second`, `last`, `2nd`, etc.).
+  - Update component item fields by exact item name.
+- Chat session context now tracks active campaign and active component state:
+  - Active campaign is updated automatically from the current editing target.
+  - Active component is updated automatically from successful component/component-item references.
+  - Renaming a component immediately moves active component context to the new component key.
+  - Changing campaigns clears stale component context automatically.
 - Incomplete component-rename messages now return a successful clarification response (`target=clarify`) instead of a hard HTTP 400 failure.
 
 Notable new/updated backend tests:
@@ -27,7 +35,12 @@ Notable new/updated backend tests:
 - `test_chat_message_can_rename_component_key_with_component_key_field_phrase`
 - `test_chat_message_component_rename_without_new_name_returns_helpful_error`
 - `test_chat_message_component_key_field_phrase_without_new_name_returns_helpful_error`
-- Backend suite remains green after these changes (`111 passed` in current baseline run).
+- `test_chat_message_can_update_component_item_field_by_ordinal`
+- `test_chat_message_can_update_component_item_field_by_item_name`
+- `test_chat_message_can_set_active_component_context_and_edit_item_without_component_name`
+- `test_component_rename_updates_active_component_context_automatically`
+- `test_changing_campaign_clears_stale_component_context`
+- Backend suite remains green after these changes (`119 passed` in current baseline run).
 
 ## Working Assumptions (to confirm)
 - Early implementation may start with one active campaign path per business, but the schema and API must extend cleanly to many campaigns per business.
@@ -182,6 +195,10 @@ Schema and service highlights:
 - Deterministic command/update layer that maps user chat requests into campaign field changes.
 - Server-side validation so edits remain simple, explicit, and reproducible.
 - Transient in-process chat state that survives until the user exits the process, without database persistence.
+- Session context tracks the current campaign and current component within the in-process chat store.
+- Campaign context is derived automatically from the currently selected/active campaign sent by the UI.
+- Component context is updated automatically from successful component and component-item commands rather than requiring a separate explicit context-setting step.
+- Component context is cleared automatically when campaign context changes so cross-campaign leakage cannot occur.
 - YAML write service that updates business and campaign files in the configured data directory.
 - YAML write behavior runs on each mutation so repository files stay current with edited campaign state.
 - Optional git commit-on-save is controlled by `COMMIT_ON_SAVE` (default on) and Save performs no action when commit-on-save is disabled or git settings are incomplete.
@@ -197,8 +214,10 @@ Schema and service highlights:
 Testing highlights:
 - Unit tests for command parsing or update routing logic.
 - Validation tests for edit requests that touch offers, dates, branding, and campaign metadata.
+- Validation tests for component and component-item edits, including rename-driven context changes and implicit component resolution.
 - Tests ensuring only current state is persisted and reflected in the rendered output.
 - Session tests proving chat history is discarded on process restart while campaign state remains.
+- Session tests proving component context follows successful references and resets correctly on campaign changes.
 - YAML write tests for deterministic file output and round-trip compatibility with YAML loading.
 - Reconciliation tests for added, removed, and modified YAML/business/campaign records against database state.
 
@@ -481,6 +500,8 @@ Implementation highlights:
 - Update `post_chat_message` to: detect clone intent (existing regex, fast path) → call LLM for all other messages → dispatch the structured command to existing handlers → persist YAML → return result.
 - Add `set_component_field` action support in `apply_chat_command` for updating `display_title`, `subtitle`, `description_text`, `footnote_text` on a component by `component_key`.
 - Extend regex component edit support to include `component_key` rename operations with safe key normalization and uniqueness enforcement per campaign.
+- Extend regex edit support to include component item field updates by ordinal selector or exact item name within a component.
+- Maintain session-scoped active campaign and active component context in the chat store so follow-up commands can omit repeated names safely.
 - Keep the regex fast-path for clone commands (no LLM needed).
 - Add graceful degradation: if `OPENROUTER_API_KEY` is not set or the LLM call fails, fall back to the existing regex router and return a user-visible warning.
 
@@ -558,6 +579,7 @@ Phase gate:
   - User natural-language edit request is translated by LLM into a structured command and applied correctly.
   - Component-level edits (display_title, subtitle, footnote_text) update the correct component by key.
   - Component-key rename edits are supported through natural-language and explicit `component-key field` commands, with conflict handling for duplicate keys.
+  - Component-item edits are supported by ordinal selector and exact item name, with automatic component context reuse after a successful component reference.
   - Clone command creates the correct directory structure and DB record from a natural-language message.
   - Invalid structured command from LLM is rejected with actionable validation output.
   - Clarification response from LLM is forwarded to the user without applying any mutation.
