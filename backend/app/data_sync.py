@@ -512,6 +512,9 @@ def clone_campaign_directory(
     data_dir: Path,
     source_campaign_name: str,
     new_campaign_name: str,
+    source_campaign_key: str | None = None,
+    destination_directory_name: str | None = None,
+    new_campaign_key: str | None = None,
     business_name: str | None = None,
     new_title: str | None = None,
 ) -> CampaignYamlRecord:
@@ -526,6 +529,8 @@ def clone_campaign_directory(
     destination already exists.
     """
     _ensure_safe_name(new_campaign_name, "campaign")
+    destination_directory = destination_directory_name or new_campaign_name
+    _ensure_safe_name(destination_directory, "campaign")
 
     # Locate source directory
     source_dir: Path | None = None
@@ -534,7 +539,13 @@ def clone_campaign_directory(
         if business_name and business_dir.name.lower() != business_name.lower():
             continue
         candidate = business_dir / source_campaign_name
-        if candidate.is_dir() and (candidate / f"{source_campaign_name}.yaml").exists():
+        candidate_yaml = candidate / f"{source_campaign_name}.yaml"
+        if candidate.is_dir() and candidate_yaml.exists():
+            if source_campaign_key is not None:
+                candidate_payload = _load_yaml_file(candidate_yaml)
+                candidate_key = _optional_string(candidate_payload, "qualifier") or ""
+                if candidate_key != source_campaign_key:
+                    continue
             source_dir = candidate
             source_business_dir = business_dir
             break
@@ -545,7 +556,7 @@ def clone_campaign_directory(
             + (f" for business '{business_name}'" if business_name else "")
         )
 
-    dest_dir = source_business_dir / new_campaign_name
+    dest_dir = source_business_dir / destination_directory
     if dest_dir.exists():
         raise ValueError(f"Destination '{dest_dir}' already exists")
 
@@ -554,13 +565,14 @@ def clone_campaign_directory(
 
     # Rename the YAML file inside the copy
     old_yaml = dest_dir / f"{source_campaign_name}.yaml"
-    new_yaml = dest_dir / f"{new_campaign_name}.yaml"
+    new_yaml = dest_dir / f"{destination_directory}.yaml"
     old_yaml.rename(new_yaml)
 
     # Update campaign_name, display_name, and title inside the YAML
     payload = _load_yaml_file(new_yaml)
     payload["campaign_name"] = new_campaign_name
-    payload["display_name"] = new_campaign_name
+    payload["display_name"] = destination_directory
+    payload["qualifier"] = (new_campaign_key or "").strip() or None
     if new_title:
         payload["title"] = new_title
     else:
@@ -573,7 +585,7 @@ def clone_campaign_directory(
 
     # Sync the new campaign into the DB
     record = CampaignYamlRecord(
-        directory_name=new_campaign_name,
+        directory_name=destination_directory,
         file_path=new_yaml,
         payload=payload,
     )

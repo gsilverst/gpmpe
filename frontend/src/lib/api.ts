@@ -439,6 +439,19 @@ export async function updateCampaignForBusiness(
   );
 }
 
+export async function cloneCampaignForBusiness(
+  businessId: number,
+  campaignId: number,
+  payload: { new_campaign_name: string; campaign_key?: string },
+  baseUrl = apiBaseUrl()
+): Promise<CampaignRecord> {
+  return postJson<CampaignRecord>(
+    `/businesses/${businessId}/campaigns/${campaignId}/clone`,
+    payload,
+    baseUrl
+  );
+}
+
 export async function lookupCampaigns(
   businessId: number,
   campaignName: string,

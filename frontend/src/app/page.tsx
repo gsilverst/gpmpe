@@ -5,6 +5,7 @@ import React, { useEffect, useState } from "react";
 
 import {
   artifactDownloadUrl,
+  cloneCampaignForBusiness,
   createBusiness,
   createCampaignForBusiness,
   createChatSession,
@@ -500,14 +501,14 @@ export default function HomePage() {
   }
 
   async function handleCloneFromBuilder(): Promise<void> {
-    if (selectedBusinessId == null) {
-      setError("Select a business first");
+    if (selectedBusinessId == null || selectedCampaignId == null) {
+      setError("Select an existing campaign to clone");
       return;
     }
 
-    const selected = campaigns.find((item) => item.id === selectedCampaignId) ?? campaigns[0] ?? null;
+    const selected = campaigns.find((item) => item.id === selectedCampaignId) ?? null;
     if (selected == null) {
-      setError("No existing campaign is available to clone");
+      setError("Select an existing campaign to clone");
       return;
     }
 
@@ -516,33 +517,38 @@ export default function HomePage() {
       return;
     }
 
-    let sessionId = chatSessionId;
-    if (sessionId == null) {
-      const session = await createChatSession();
-      sessionId = session.session_id;
-      setChatSessionId(sessionId);
-    }
-
     setError(null);
-    setChatStatus(null);
-    try {
-      const command = `clone ${selected.campaign_name} and rename it to ${cloneName.trim()}`;
-      const payload = await postChatMessage(sessionId, selected.id, command);
-      setChatHistory(payload.history);
 
-      const result = payload.result as Record<string, unknown>;
-      const newCampaignId = typeof result.new_campaign_id === "number" ? result.new_campaign_id : null;
-      if (newCampaignId == null) {
-        throw new Error("Clone did not return a new campaign id");
+    let campaignKey: string | undefined;
+    try {
+      const existingNameMatches = await lookupCampaigns(selectedBusinessId, cloneName.trim());
+      if (existingNameMatches.matches.length > 0) {
+        const provided = window.prompt(
+          "That campaign name already exists. Enter a secondary key to make it unique (example: 2026)",
+          ""
+        );
+        if (provided == null || provided.trim() === "") {
+          return;
+        }
+        campaignKey = provided.trim();
       }
+
+      const cloned = await cloneCampaignForBusiness(selectedBusinessId, selectedCampaignId, {
+        new_campaign_name: cloneName.trim(),
+        campaign_key: campaignKey,
+      });
 
       const refreshedCampaigns = await listCampaignsForBusiness(selectedBusinessId);
       setCampaigns(refreshedCampaigns);
-      setSelectedCampaignId(newCampaignId);
+      setSelectedCampaignId(cloned.id);
       setCampaignMode("edit");
-      setLatestCloneArtifact(null);
-      setClonePreviewPrompt({ campaignId: newCampaignId, campaignName: cloneName.trim() });
-      setChatStatus(`Campaign '${cloneName.trim()}' cloned and selected.`);
+      setCampaignForm({
+        campaign_name: cloned.campaign_name,
+        campaign_key: cloned.campaign_key ?? "",
+        title: cloned.title,
+        objective: cloned.objective ?? "",
+      });
+      setCollisionMatches([]);
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Failed to clone campaign";
       setError(message);
@@ -987,8 +993,8 @@ export default function HomePage() {
             type="button"
             className="ghost-button"
             onClick={() => void handleCloneFromBuilder()}
-            disabled={campaigns.length === 0}
-            title={campaigns.length === 0 ? "No campaigns available to clone" : "Clone selected campaign"}
+            disabled={selectedCampaignId == null}
+            title={selectedCampaignId == null ? "Select a campaign to clone" : "Clone selected campaign"}
           >
             Clone Existing Campaign
           </button>

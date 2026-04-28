@@ -156,6 +156,11 @@ class CampaignUpdate(BaseModel):
     end_date: str | None = None
 
 
+class CampaignCloneRequest(BaseModel):
+    new_campaign_name: str = Field(min_length=1, max_length=200)
+    campaign_key: str | None = Field(default=None, max_length=100)
+
+
 class CampaignOfferCreate(BaseModel):
     offer_name: str = Field(min_length=1, max_length=200)
     offer_type: str = Field(default="discount", min_length=1, max_length=100)
@@ -1001,6 +1006,92 @@ def create_app() -> FastAPI:
         if updated is None:
             raise HTTPException(status_code=500, detail="Campaign update failed")
         return _campaign_row_to_dict(updated)
+
+    @app.post("/businesses/{business_id}/campaigns/{campaign_id}/clone", status_code=201)
+    def clone_campaign(business_id: int, campaign_id: int, payload: CampaignCloneRequest) -> dict[str, Any]:
+        new_name = payload.new_campaign_name.strip()
+        new_key = (payload.campaign_key or "").strip()
+        if new_name == "":
+            raise HTTPException(status_code=400, detail="new_campaign_name cannot be empty")
+
+        config = resolve_config()
+        with connect_database(config) as connection:
+            _require_business(connection, business_id)
+            source = connection.execute(
+                """
+                SELECT c.id, c.business_id, c.campaign_name, c.campaign_key, b.display_name AS business_display_name
+                FROM campaigns c
+                JOIN businesses b ON b.id = c.business_id
+                WHERE c.id = ? AND c.business_id = ?;
+                """,
+                (campaign_id, business_id),
+            ).fetchone()
+            if source is None:
+                raise HTTPException(status_code=404, detail="Campaign not found")
+
+            name_matches = connection.execute(
+                """
+                SELECT id, campaign_key
+                FROM campaigns
+                WHERE business_id = ? AND campaign_name = ?
+                ORDER BY id ASC;
+                """,
+                (business_id, new_name),
+            ).fetchall()
+            if name_matches and new_key == "":
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": "Campaign name already exists. Provide campaign_key to make it unique.",
+                        "resolution": "provide_secondary_key",
+                        "matches": [
+                            {"id": row["id"], "campaign_key": row["campaign_key"] or None}
+                            for row in name_matches
+                        ],
+                    },
+                )
+
+            duplicate = connection.execute(
+                """
+                SELECT id
+                FROM campaigns
+                WHERE business_id = ? AND campaign_name = ? AND campaign_key = ?;
+                """,
+                (business_id, new_name, new_key),
+            ).fetchone()
+            if duplicate is not None:
+                raise HTTPException(status_code=409, detail="Campaign name and secondary key already exist")
+
+            destination_slug = new_name if new_key == "" else f"{new_name}-{new_key}"
+            try:
+                record = clone_campaign_directory(
+                    connection,
+                    config.data_dir,
+                    source_campaign_name=source["campaign_name"],
+                    source_campaign_key=source["campaign_key"] or "",
+                    new_campaign_name=new_name,
+                    new_campaign_key=new_key or None,
+                    destination_directory_name=destination_slug,
+                    business_name=source["business_display_name"],
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+            row = connection.execute(
+                """
+                SELECT id, business_id, campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date
+                FROM campaigns
+                WHERE business_id = ? AND campaign_name = ? AND campaign_key = ?
+                ORDER BY id DESC
+                LIMIT 1;
+                """,
+                (business_id, record.payload.get("campaign_name"), record.payload.get("qualifier") or ""),
+            ).fetchone()
+            connection.commit()
+
+        if row is None:
+            raise HTTPException(status_code=500, detail="Campaign clone failed")
+        return _campaign_row_to_dict(row)
 
     @app.get("/businesses/{business_id}/campaigns")
     def list_campaigns(business_id: int) -> dict[str, Any]:
