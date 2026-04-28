@@ -167,6 +167,14 @@ small {
   flex-wrap: wrap;
 }
 
+.campaign-actions-row {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 0.75rem 0;
+}
+
 .ghost-button {
   margin-top: 0;
   background: #ffffff;

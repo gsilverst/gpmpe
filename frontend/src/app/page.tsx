@@ -18,6 +18,7 @@ import {
   renderArtifact,
   resolveStartup,
   syncYamlData,
+  updateCampaignForBusiness,
   updateBusiness,
   type ArtifactItem,
   type BusinessRecord,
@@ -74,6 +75,7 @@ export default function HomePage() {
     title: "",
     objective: "",
   });
+  const [campaignMode, setCampaignMode] = useState<"list" | "create" | "edit">("list");
 
   async function handleClonePreviewChoice(shouldView: boolean): Promise<void> {
     const pending = clonePreviewPrompt;
@@ -207,6 +209,7 @@ export default function HomePage() {
     if (selectedBusinessId == null) {
       setCampaigns([]);
       setSelectedCampaignId(null);
+      setCampaignMode("list");
       return;
     }
     const businessId = selectedBusinessId;
@@ -216,7 +219,8 @@ export default function HomePage() {
         const items = await listCampaignsForBusiness(businessId);
         if (!active) return;
         setCampaigns(items);
-        setSelectedCampaignId(items[0]?.id ?? null);
+        setSelectedCampaignId(null);
+        setCampaignMode("list");
       } catch (caught) {
         if (!active) return;
         const message = caught instanceof Error ? caught.message : "Failed to load campaigns";
@@ -229,6 +233,25 @@ export default function HomePage() {
       active = false;
     };
   }, [selectedBusinessId]);
+
+  useEffect(() => {
+    if (selectedCampaignId == null) {
+      if (campaignMode === "edit") {
+        setCampaignMode("list");
+      }
+      return;
+    }
+    const selected = campaigns.find((item) => item.id === selectedCampaignId);
+    if (selected == null) {
+      return;
+    }
+    setCampaignForm({
+      campaign_name: selected.campaign_name,
+      campaign_key: selected.campaign_key ?? "",
+      title: selected.title,
+      objective: selected.objective ?? "",
+    });
+  }, [campaigns, selectedCampaignId, campaignMode]);
 
   useEffect(() => {
     const selected = businesses.find((item) => item.id === selectedBusinessId);
@@ -435,15 +458,93 @@ export default function HomePage() {
       const updatedCampaigns = [...campaigns, created].sort((a, b) => a.campaign_name.localeCompare(b.campaign_name));
       setCampaigns(updatedCampaigns);
       setSelectedCampaignId(created.id);
+      setCampaignMode("edit");
       setCollisionMatches([]);
       setCampaignForm({
-        campaign_name: "",
-        campaign_key: "",
-        title: "",
-        objective: "",
+        campaign_name: created.campaign_name,
+        campaign_key: created.campaign_key ?? "",
+        title: created.title,
+        objective: created.objective ?? "",
       });
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Failed to create campaign";
+      setError(message);
+    }
+  }
+
+  async function handleCampaignUpdate(event: React.FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (selectedBusinessId == null || selectedCampaignId == null) {
+      setError("Select a campaign before updating");
+      return;
+    }
+
+    setError(null);
+    try {
+      const updated = await updateCampaignForBusiness(selectedBusinessId, selectedCampaignId, {
+        title: campaignForm.title,
+        objective: campaignForm.objective || undefined,
+      });
+      const nextCampaigns = campaigns.map((item) => (item.id === updated.id ? updated : item));
+      setCampaigns(nextCampaigns);
+      setCampaignForm({
+        campaign_name: updated.campaign_name,
+        campaign_key: updated.campaign_key ?? "",
+        title: updated.title,
+        objective: updated.objective ?? "",
+      });
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Failed to update campaign";
+      setError(message);
+    }
+  }
+
+  async function handleCloneFromBuilder(): Promise<void> {
+    if (selectedBusinessId == null) {
+      setError("Select a business first");
+      return;
+    }
+
+    const selected = campaigns.find((item) => item.id === selectedCampaignId) ?? campaigns[0] ?? null;
+    if (selected == null) {
+      setError("No existing campaign is available to clone");
+      return;
+    }
+
+    const cloneName = window.prompt("New campaign name", `${selected.campaign_name}-copy`);
+    if (cloneName == null || cloneName.trim() === "") {
+      return;
+    }
+
+    let sessionId = chatSessionId;
+    if (sessionId == null) {
+      const session = await createChatSession();
+      sessionId = session.session_id;
+      setChatSessionId(sessionId);
+    }
+
+    setError(null);
+    setChatStatus(null);
+    try {
+      const command = `clone ${selected.campaign_name} and rename it to ${cloneName.trim()}`;
+      const payload = await postChatMessage(sessionId, selected.id, command);
+      setChatHistory(payload.history);
+
+      const result = payload.result as Record<string, unknown>;
+      const newCampaignId = typeof result.new_campaign_id === "number" ? result.new_campaign_id : null;
+      if (newCampaignId == null) {
+        throw new Error("Clone did not return a new campaign id");
+      }
+
+      const refreshedCampaigns = await listCampaignsForBusiness(selectedBusinessId);
+      setCampaigns(refreshedCampaigns);
+      setSelectedCampaignId(newCampaignId);
+      setCampaignMode("edit");
+      setLatestCloneArtifact(null);
+      setClonePreviewPrompt({ campaignId: newCampaignId, campaignName: cloneName.trim() });
+      setChatStatus(`Campaign '${cloneName.trim()}' cloned and selected.`);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Failed to clone campaign";
       setError(message);
     }
   }
@@ -545,6 +646,7 @@ export default function HomePage() {
 
   function openExistingCampaign(campaignId: number): void {
     setSelectedCampaignId(campaignId);
+    setCampaignMode("edit");
     setCollisionMatches([]);
     setError(null);
   }
@@ -839,44 +941,142 @@ export default function HomePage() {
 
       <section className="card section-gap">
         <h2>Campaign Builder</h2>
-        <form className="grid-form" onSubmit={handleCampaignCreate}>
-          <label className="stacked-label" htmlFor="campaign-name">
-            <span>Campaign name</span>
-            <input
-              id="campaign-name"
-              value={campaignForm.campaign_name}
-              onChange={(event) => setCampaignForm((prev) => ({ ...prev, campaign_name: event.target.value }))}
-              required
-            />
-          </label>
-          <label className="stacked-label" htmlFor="campaign-key">
-            <span>Secondary key (optional)</span>
-            <input
-              id="campaign-key"
-              placeholder="2026"
-              value={campaignForm.campaign_key}
-              onChange={(event) => setCampaignForm((prev) => ({ ...prev, campaign_key: event.target.value }))}
-            />
-          </label>
-          <label className="stacked-label" htmlFor="campaign-title">
-            <span>Title</span>
-            <input
-              id="campaign-title"
-              value={campaignForm.title}
-              onChange={(event) => setCampaignForm((prev) => ({ ...prev, title: event.target.value }))}
-              required
-            />
-          </label>
-          <label className="stacked-label" htmlFor="campaign-objective">
-            <span>Objective (optional)</span>
-            <input
-              id="campaign-objective"
-              value={campaignForm.objective}
-              onChange={(event) => setCampaignForm((prev) => ({ ...prev, objective: event.target.value }))}
-            />
-          </label>
-          <button type="submit">Create Campaign</button>
-        </form>
+
+        <label className="stacked-label" htmlFor="campaign-select">
+          <span>Select existing campaign</span>
+          <select
+            id="campaign-select"
+            value={selectedCampaignId ?? ""}
+            onChange={(event) => {
+              const value = parseSelectedId(event.target.value);
+              setSelectedCampaignId(value);
+              if (value == null) {
+                setCampaignMode("list");
+              } else {
+                setCampaignMode("edit");
+              }
+            }}
+          >
+            <option value="">Choose a campaign...</option>
+            {campaigns.map((campaign) => (
+              <option key={campaign.id} value={campaign.id}>
+                {campaign.campaign_name}
+                {campaign.campaign_key ? ` (${campaign.campaign_key})` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <div className="campaign-actions-row">
+          <button
+            type="button"
+            onClick={() => {
+              setCampaignMode("create");
+              setSelectedCampaignId(null);
+              setCampaignForm({
+                campaign_name: "",
+                campaign_key: "",
+                title: "",
+                objective: "",
+              });
+            }}
+          >
+            Create Campaign
+          </button>
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() => void handleCloneFromBuilder()}
+            disabled={campaigns.length === 0}
+            title={campaigns.length === 0 ? "No campaigns available to clone" : "Clone selected campaign"}
+          >
+            Clone Existing Campaign
+          </button>
+        </div>
+
+        {campaignMode === "create" ? (
+          <form className="grid-form" onSubmit={handleCampaignCreate}>
+            <label className="stacked-label" htmlFor="campaign-name">
+              <span>Campaign name</span>
+              <input
+                id="campaign-name"
+                value={campaignForm.campaign_name}
+                onChange={(event) => setCampaignForm((prev) => ({ ...prev, campaign_name: event.target.value }))}
+                required
+              />
+            </label>
+            <label className="stacked-label" htmlFor="campaign-key">
+              <span>Secondary key (optional)</span>
+              <input
+                id="campaign-key"
+                placeholder="2026"
+                value={campaignForm.campaign_key}
+                onChange={(event) => setCampaignForm((prev) => ({ ...prev, campaign_key: event.target.value }))}
+              />
+            </label>
+            <label className="stacked-label" htmlFor="campaign-title">
+              <span>Title</span>
+              <input
+                id="campaign-title"
+                value={campaignForm.title}
+                onChange={(event) => setCampaignForm((prev) => ({ ...prev, title: event.target.value }))}
+                required
+              />
+            </label>
+            <label className="stacked-label" htmlFor="campaign-objective">
+              <span>Objective (optional)</span>
+              <input
+                id="campaign-objective"
+                value={campaignForm.objective}
+                onChange={(event) => setCampaignForm((prev) => ({ ...prev, objective: event.target.value }))}
+              />
+            </label>
+            <button type="submit">Create Campaign</button>
+          </form>
+        ) : null}
+
+        {campaignMode === "edit" && selectedCampaignId != null ? (
+          <form className="grid-form" onSubmit={handleCampaignUpdate}>
+            <label className="stacked-label" htmlFor="campaign-name-readonly">
+              <span>Campaign name</span>
+              <input
+                id="campaign-name-readonly"
+                value={campaignForm.campaign_name}
+                disabled
+              />
+            </label>
+            <label className="stacked-label" htmlFor="campaign-key-readonly">
+              <span>Secondary key</span>
+              <input
+                id="campaign-key-readonly"
+                value={campaignForm.campaign_key || "(none)"}
+                disabled
+              />
+            </label>
+            <label className="stacked-label" htmlFor="campaign-title-edit">
+              <span>Title</span>
+              <input
+                id="campaign-title-edit"
+                value={campaignForm.title}
+                onChange={(event) => setCampaignForm((prev) => ({ ...prev, title: event.target.value }))}
+                required
+              />
+            </label>
+            <label className="stacked-label" htmlFor="campaign-objective-edit">
+              <span>Objective (optional)</span>
+              <input
+                id="campaign-objective-edit"
+                value={campaignForm.objective}
+                onChange={(event) => setCampaignForm((prev) => ({ ...prev, objective: event.target.value }))}
+              />
+            </label>
+            <button type="submit">Save Campaign</button>
+          </form>
+        ) : null}
+
+        {campaignMode === "list" ? (
+          <p>Select a campaign, create a new one, or clone an existing campaign to begin.</p>
+        ) : null}
 
         {collisionMatches.length > 0 ? (
           <div className="collision-box">
@@ -896,21 +1096,6 @@ export default function HomePage() {
           </div>
         ) : null}
 
-        <label className="stacked-label" htmlFor="campaign-select">
-          <span>Active campaign</span>
-          <select
-            id="campaign-select"
-            value={selectedCampaignId ?? ""}
-            onChange={(event) => setSelectedCampaignId(parseSelectedId(event.target.value))}
-          >
-            {campaigns.map((campaign) => (
-              <option key={campaign.id} value={campaign.id}>
-                {campaign.campaign_name}
-                {campaign.campaign_key ? ` (${campaign.campaign_key})` : ""}
-              </option>
-            ))}
-          </select>
-        </label>
       </section>
 
       <section className="card section-gap">

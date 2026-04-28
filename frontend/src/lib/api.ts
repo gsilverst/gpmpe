@@ -420,6 +420,25 @@ export async function createCampaignForBusiness(
   return postJson<CampaignRecord>(`/businesses/${businessId}/campaigns`, payload, baseUrl);
 }
 
+export async function updateCampaignForBusiness(
+  businessId: number,
+  campaignId: number,
+  payload: {
+    title?: string;
+    objective?: string;
+    status?: string;
+    start_date?: string;
+    end_date?: string;
+  },
+  baseUrl = apiBaseUrl()
+): Promise<CampaignRecord> {
+  return patchJson<CampaignRecord>(
+    `/businesses/${businessId}/campaigns/${campaignId}`,
+    payload,
+    baseUrl
+  );
+}
+
 export async function lookupCampaigns(
   businessId: number,
   campaignName: string,
