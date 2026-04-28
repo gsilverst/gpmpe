@@ -105,7 +105,7 @@ def _business_payload(connection: sqlite3.Connection, business_id: int) -> dict[
 def _component_payloads(connection: sqlite3.Connection, campaign_id: int) -> list[dict[str, Any]]:
     components = connection.execute(
         """
-        SELECT id, component_key, component_kind, display_title, subtitle, description_text, display_order
+        SELECT id, component_key, component_kind, display_title, footnote_text, subtitle, description_text, display_order
         FROM campaign_components
         WHERE campaign_id = ?
         ORDER BY display_order ASC, id ASC;
@@ -129,6 +129,7 @@ def _component_payloads(connection: sqlite3.Connection, campaign_id: int) -> lis
                 "component_key": component["component_key"],
                 "component_kind": component["component_kind"],
                 "display_title": component["display_title"],
+                "footnote_text": component["footnote_text"],
                 "subtitle": component["subtitle"],
                 "description_text": component["description_text"],
                 "display_order": component["display_order"],
@@ -152,7 +153,7 @@ def _component_payloads(connection: sqlite3.Connection, campaign_id: int) -> lis
 def _campaign_payload(connection: sqlite3.Connection, campaign_id: int) -> tuple[str, dict[str, Any]]:
     campaign = connection.execute(
         """
-        SELECT c.business_id, c.campaign_name, c.campaign_key, c.title, c.objective, c.status, c.start_date, c.end_date, c.details_json,
+        SELECT c.business_id, c.campaign_name, c.campaign_key, c.title, c.objective, c.footnote_text, c.status, c.start_date, c.end_date, c.details_json,
                b.display_name AS business_display_name
         FROM campaigns c
         JOIN businesses b ON b.id = c.business_id
@@ -203,6 +204,7 @@ def _campaign_payload(connection: sqlite3.Connection, campaign_id: int) -> tuple
         "qualifier": campaign["campaign_key"] or None,
         "title": campaign["title"],
         "objective": campaign["objective"],
+        "footnote_text": campaign["footnote_text"],
         "status": campaign["status"],
         "start_date": campaign["start_date"],
         "end_date": campaign["end_date"],

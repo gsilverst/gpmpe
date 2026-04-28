@@ -241,12 +241,24 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
     _draw_centered(pdf, biz_sub, w / 2, _HEADER_Y + 8,
                    "Times-Italic", 16, palette["primary_light"])
 
+    component_footnotes: list[str] = []
+
+    def title_with_marker(component: dict[str, Any] | None) -> str:
+        if component is None:
+            return ""
+        title = component.get("display_title") or ""
+        footnote = (component.get("footnote_text") or "").strip()
+        if footnote:
+            component_footnotes.append(footnote)
+            return f"{title} **"
+        return title
+
     # ----- Featured offers panel (Mother's Day / similar) -----
     if featured:
         comp = featured[0]
         _draw_rounded_panel(pdf, hx, _FEATURED_Y, panel_w, _FEATURED_H,
                             palette["blush"], palette["accent"], radius=24, stroke_w=2)
-        _draw_centered(pdf, comp.get("display_title") or "".upper(), w / 2,
+        _draw_centered(pdf, title_with_marker(comp), w / 2,
                        _FEATURED_Y + _FEATURED_H - 34, "Helvetica-Bold", 23, palette["primary"])
         subtitle = comp.get("subtitle") or ""
         if subtitle:
@@ -285,7 +297,7 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
 
     if weekday:
         wd_comp = weekday[0]
-        _draw_centered(pdf, wd_comp.get("display_title") or "".upper(), w / 2,
+        _draw_centered(pdf, title_with_marker(wd_comp), w / 2,
                        _WEEKDAY_Y + _WEEKDAY_H - 34, "Helvetica-Bold", 22, palette["white"])
         wd_sub = wd_comp.get("subtitle") or ""
         if wd_sub:
@@ -355,6 +367,16 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
         _draw_centered(pdf, legal_text, w / 2, _LEGAL_Y + 7,
                        "Helvetica-Bold", 10, _COLOR_INK)
 
+    campaign_footnote = (ctx.get("campaign_footnote_text") or "").strip()
+    footer_notes = [f"** {note}" for note in component_footnotes]
+    if campaign_footnote:
+        footer_notes.append(f"** {campaign_footnote}")
+    if footer_notes:
+        note_y = 18.0
+        for note in footer_notes[:2]:
+            _draw_wrapped_centered(pdf, note, w / 2, note_y, w - 80, "Helvetica", 8.5, 9.5, _COLOR_INK)
+            note_y -= 10.0
+
 
 # ---------------------------------------------------------------------------
 # Simple fallback layout (generic campaigns without rich component kinds)
@@ -394,7 +416,10 @@ def _draw_simple_flyer(pdf: Any, ctx: dict, palette: dict) -> None:
         # Section title
         pdf.setFillColor(palette["accent"])
         pdf.roundRect(_MARGIN, y - 6, w - _MARGIN * 2, 22, 8, fill=1, stroke=0)
-        _draw_centered(pdf, (comp.get("display_title") or "").upper(), w / 2, y + 8,
+        title = (comp.get("display_title") or "").upper()
+        if (comp.get("footnote_text") or "").strip():
+            title = f"{title} **"
+        _draw_centered(pdf, title, w / 2, y + 8,
                        "Helvetica-Bold", 12, palette["white"])
         y -= 36
 
@@ -424,6 +449,18 @@ def _draw_simple_flyer(pdf: Any, ctx: dict, palette: dict) -> None:
     footer = ev.get("footer") or ""
     if footer:
         _draw_centered(pdf, footer, w / 2, 40, "Helvetica", 9, palette["secondary"])
+
+    component_notes = [
+        f"** {(comp.get('footnote_text') or '').strip()}"
+        for comp in ctx.get("components", [])
+        if (comp.get("footnote_text") or "").strip()
+    ]
+    campaign_note = (ctx.get("campaign_footnote_text") or "").strip()
+    if campaign_note:
+        component_notes.append(f"** {campaign_note}")
+    if component_notes:
+        _draw_wrapped_centered(pdf, "   ".join(component_notes[:2]), w / 2, 24, w - 100,
+                               "Helvetica", 8.5, 10, palette["ink"])
 
 
 # ---------------------------------------------------------------------------
@@ -462,7 +499,7 @@ def _fallback_components(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) -> dict[str, Any]:
     row = connection.execute(
         """
-        SELECT c.id, c.campaign_name, c.campaign_key, c.title, c.objective,
+        SELECT c.id, c.campaign_name, c.campaign_key, c.title, c.objective, c.footnote_text,
                c.status, c.start_date, c.end_date,
                b.display_name AS business_display_name,
                b.legal_name   AS business_legal_name,
@@ -518,7 +555,7 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
     ).fetchall()
     components = connection.execute(
         """
-        SELECT id, component_key, component_kind, display_title, subtitle, description_text, display_order
+        SELECT id, component_key, component_kind, display_title, footnote_text, subtitle, description_text, display_order
         FROM campaign_components
         WHERE campaign_id = ?
         ORDER BY display_order ASC, id ASC;
@@ -563,6 +600,7 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
                 "component_key": component["component_key"],
                 "component_kind": component["component_kind"],
                 "display_title": component["display_title"],
+                "footnote_text": component["footnote_text"],
                 "subtitle": component["subtitle"],
                 "description_text": component["description_text"],
                 "display_order": component["display_order"],
@@ -577,6 +615,7 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
         "campaign_name": row["campaign_name"],
         "title": row["title"],
         "objective": row["objective"],
+        "campaign_footnote_text": row["footnote_text"],
         "start_date": row["start_date"],
         "end_date": row["end_date"],
         "business_display_name": row["business_display_name"],

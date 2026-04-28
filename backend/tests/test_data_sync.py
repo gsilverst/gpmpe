@@ -297,11 +297,13 @@ def test_sync_data_directory_persists_components_and_export_round_trips(monkeypa
                 "campaign_name: spring-refresh",
                 "title: Spring Refresh",
                 "objective: Drive bookings",
+                "footnote_text: Promotion-wide terms apply.",
                 "status: active",
                 "components:",
                 "  - component_key: featured",
                 "    component_kind: featured-offers",
                 "    display_title: Featured Services",
+                "    footnote_text: Featured service restrictions apply.",
                 "    subtitle: Limited time",
                 "    description_text: Seasonal appointment highlights",
                 "    items:",
@@ -335,7 +337,7 @@ def test_sync_data_directory_persists_components_and_export_round_trips(monkeypa
 
         components = connection.execute(
             """
-            SELECT component_key, component_kind, display_title, subtitle, description_text, display_order
+            SELECT component_key, component_kind, display_title, footnote_text, subtitle, description_text, display_order
             FROM campaign_components
             ORDER BY display_order ASC, id ASC;
             """
@@ -353,9 +355,12 @@ def test_sync_data_directory_persists_components_and_export_round_trips(monkeypa
 
     assert [row["component_key"] for row in components] == ["featured", "notes"]
     assert components[0]["display_title"] == "Featured Services"
+    assert components[0]["footnote_text"] == "Featured service restrictions apply."
     assert items[0]["item_name"] == "Signature Facial"
     assert items[0]["duration_label"] == "60 min"
     assert campaign_detail.status_code == 200
     payload = campaign_detail.json()["campaign"]
+    assert payload["footnote_text"] == "Promotion-wide terms apply."
+    assert payload["components"][0]["footnote_text"] == "Featured service restrictions apply."
     assert payload["components"][0]["component_key"] == "featured"
     assert payload["components"][0]["items"][0]["item_value"] == "$95"

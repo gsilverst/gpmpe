@@ -276,15 +276,16 @@ def _sync_campaign_components(connection: sqlite3.Connection, campaign_id: int, 
         cursor = connection.execute(
             """
             INSERT INTO campaign_components (
-              campaign_id, component_key, component_kind, display_title, subtitle, description_text, display_order
+                            campaign_id, component_key, component_kind, display_title, footnote_text, subtitle, description_text, display_order
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?);
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?);
             """,
             (
                 campaign_id,
                 _required_string(component, "component_key", record.file_path),
                 _optional_string(component, "component_kind") or "featured-offers",
                 _required_string(component, "display_title", record.file_path),
+                                _optional_string(component, "footnote_text"),
                 _optional_string(component, "subtitle"),
                 _optional_string(component, "description_text"),
                 component.get("display_order", component_index),
@@ -326,6 +327,7 @@ def _sync_campaign(connection: sqlite3.Connection, business_id: int, record: Cam
     qualifier = _optional_string(payload, "qualifier") or ""
     title = _required_string(payload, "title", record.file_path)
     objective = _optional_string(payload, "objective")
+    footnote_text = _optional_string(payload, "footnote_text")
     status = _optional_string(payload, "status") or "draft"
     start_date = _optional_string(payload, "start_date")
     end_date = _optional_string(payload, "end_date")
@@ -342,9 +344,9 @@ def _sync_campaign(connection: sqlite3.Connection, business_id: int, record: Cam
         cursor = connection.execute(
             """
             INSERT INTO campaigns (
-              business_id, campaign_name, campaign_key, title, objective, status, start_date, end_date, details_json
+                            business_id, campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date, details_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             (
                 business_id,
@@ -352,6 +354,7 @@ def _sync_campaign(connection: sqlite3.Connection, business_id: int, record: Cam
                 qualifier,
                 title,
                 objective,
+                                footnote_text,
                 status,
                 start_date,
                 end_date,
@@ -364,10 +367,19 @@ def _sync_campaign(connection: sqlite3.Connection, business_id: int, record: Cam
         connection.execute(
             """
             UPDATE campaigns
-            SET title = ?, objective = ?, status = ?, start_date = ?, end_date = ?, details_json = ?, updated_at = CURRENT_TIMESTAMP
+            SET title = ?, objective = ?, footnote_text = ?, status = ?, start_date = ?, end_date = ?, details_json = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?;
             """,
-            (title, objective, status, start_date, end_date, json.dumps({"display_name": display_name}), campaign_id),
+            (
+                title,
+                objective,
+                footnote_text,
+                status,
+                start_date,
+                end_date,
+                json.dumps({"display_name": display_name}),
+                campaign_id,
+            ),
         )
 
     offers = payload.get("offers", []) or []

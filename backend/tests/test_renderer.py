@@ -418,117 +418,194 @@ def test_render_flyer_supports_multi_component_context() -> None:
     assert pdf_bytes.startswith(b"%PDF")
 
 
-    def test_render_flyer_preserves_weekday_item_order(monkeypatch) -> None:
-        from app import renderer as renderer_module
+def test_render_flyer_preserves_weekday_item_order(monkeypatch) -> None:
+    from app import renderer as renderer_module
 
-        captured_titles: list[str] = []
+    captured_titles: list[str] = []
 
-        original_draw_weekday_strip = renderer_module._draw_weekday_strip
+    original_draw_weekday_strip = renderer_module._draw_weekday_strip
 
-        def _capture_strip(pdf, x, y, w, title, detail, price, palette):
-            captured_titles.append(title)
-            return original_draw_weekday_strip(pdf, x, y, w, title, detail, price, palette)
+    def _capture_strip(pdf, x, y, w, title, detail, price, palette):
+        captured_titles.append(title)
+        return original_draw_weekday_strip(pdf, x, y, w, title, detail, price, palette)
 
-        monkeypatch.setattr(renderer_module, "_draw_weekday_strip", _capture_strip)
+    monkeypatch.setattr(renderer_module, "_draw_weekday_strip", _capture_strip)
 
-        ctx = {
-            "campaign_id": 42,
-            "campaign_name": "weekday-order",
-            "title": "Weekday Order",
-            "objective": "Preserve item ordering",
-            "start_date": "2026-05-01",
-            "end_date": "2026-05-31",
-            "business_display_name": "ACME",
-            "business_legal_name": "ACME LLC",
-            "theme": {
-                "primary_color": "#3E1C5C",
-                "secondary_color": "#6E4A8E",
-                "accent_color": "#E0559A",
+    ctx = {
+        "campaign_id": 42,
+        "campaign_name": "weekday-order",
+        "title": "Weekday Order",
+        "objective": "Preserve item ordering",
+        "start_date": "2026-05-01",
+        "end_date": "2026-05-31",
+        "business_display_name": "ACME",
+        "business_legal_name": "ACME LLC",
+        "theme": {
+            "primary_color": "#3E1C5C",
+            "secondary_color": "#6E4A8E",
+            "accent_color": "#E0559A",
+        },
+        "location": None,
+        "contacts": [],
+        "offers": [],
+        "components": [
+            {
+                "component_key": "featured",
+                "component_kind": "featured-offers",
+                "display_title": "Featured",
+                "subtitle": "Subtitle",
+                "description_text": None,
+                "display_order": 0,
+                "items": [
+                    {
+                        "item_name": "A",
+                        "item_kind": "service",
+                        "duration_label": "60 min",
+                        "item_value": "$10",
+                        "description_text": None,
+                        "terms_text": None,
+                        "display_order": 0,
+                    },
+                    {
+                        "item_name": "B",
+                        "item_kind": "service",
+                        "duration_label": "60 min",
+                        "item_value": "$20",
+                        "description_text": None,
+                        "terms_text": None,
+                        "display_order": 1,
+                    },
+                ],
             },
-            "location": None,
-            "contacts": [],
-            "offers": [],
-            "components": [
-                {
-                    "component_key": "featured",
-                    "component_kind": "featured-offers",
-                    "display_title": "Featured",
-                    "subtitle": "Subtitle",
-                    "description_text": None,
-                    "display_order": 0,
-                    "items": [
-                        {
-                            "item_name": "A",
-                            "item_kind": "service",
-                            "duration_label": "60 min",
-                            "item_value": "$10",
-                            "description_text": None,
-                            "terms_text": None,
-                            "display_order": 0,
-                        },
-                        {
-                            "item_name": "B",
-                            "item_kind": "service",
-                            "duration_label": "60 min",
-                            "item_value": "$20",
-                            "description_text": None,
-                            "terms_text": None,
-                            "display_order": 1,
-                        },
-                    ],
-                },
-                {
-                    "component_key": "weekday-specials",
-                    "component_kind": "weekday-specials",
-                    "display_title": "Weekday Specials",
-                    "subtitle": "Wednesday-Friday",
-                    "description_text": None,
-                    "display_order": 1,
-                    "items": [
-                        {
-                            "item_name": "Chair Massage",
-                            "item_kind": "service",
-                            "duration_label": "30 minutes",
-                            "item_value": "$40",
-                            "description_text": None,
-                            "terms_text": None,
-                            "display_order": 0,
-                        },
-                        {
-                            "item_name": "Lymphatic Drainage",
-                            "item_kind": "service",
-                            "duration_label": "60 minutes",
-                            "item_value": "$135",
-                            "description_text": None,
-                            "terms_text": None,
-                            "display_order": 1,
-                        },
-                        {
-                            "item_name": "Body Sculpting Lymphatic",
-                            "item_kind": "service",
-                            "duration_label": "90 minutes",
-                            "item_value": "$195",
-                            "description_text": None,
-                            "terms_text": None,
-                            "display_order": 2,
-                        },
-                    ],
-                },
-            ],
-            "effective_values": {
-                "business_name": "ACME",
-                "business_subtitle": "LLC",
-                "footer": "acme.example • 555-0100",
-                "legal": "Offer valid while supplies last.",
+            {
+                "component_key": "weekday-specials",
+                "component_kind": "weekday-specials",
+                "display_title": "Weekday Specials",
+                "subtitle": "Wednesday-Friday",
+                "description_text": None,
+                "display_order": 1,
+                "items": [
+                    {
+                        "item_name": "Chair Massage",
+                        "item_kind": "service",
+                        "duration_label": "30 minutes",
+                        "item_value": "$40",
+                        "description_text": None,
+                        "terms_text": None,
+                        "display_order": 0,
+                    },
+                    {
+                        "item_name": "Lymphatic Drainage",
+                        "item_kind": "service",
+                        "duration_label": "60 minutes",
+                        "item_value": "$135",
+                        "description_text": None,
+                        "terms_text": None,
+                        "display_order": 1,
+                    },
+                    {
+                        "item_name": "Body Sculpting Lymphatic",
+                        "item_kind": "service",
+                        "duration_label": "90 minutes",
+                        "item_value": "$195",
+                        "description_text": None,
+                        "terms_text": None,
+                        "display_order": 2,
+                    },
+                ],
             },
-            "template_name": "flyer-standard",
-        }
+        ],
+        "effective_values": {
+            "business_name": "ACME",
+            "business_subtitle": "LLC",
+            "footer": "acme.example • 555-0100",
+            "legal": "Offer valid while supplies last.",
+        },
+        "template_name": "flyer-standard",
+    }
 
-        pdf_bytes = render_flyer(ctx)
+    pdf_bytes = render_flyer(ctx)
 
-        assert pdf_bytes.startswith(b"%PDF")
-        assert captured_titles == [
-            "Chair Massage",
-            "Lymphatic Drainage",
-            "Body Sculpting Lymphatic",
-        ]
+    assert pdf_bytes.startswith(b"%PDF")
+    assert captured_titles == [
+        "Chair Massage",
+        "Lymphatic Drainage",
+        "Body Sculpting Lymphatic",
+    ]
+
+
+def test_render_flyer_appends_component_markers_and_footer_footnotes(monkeypatch) -> None:
+    from app import renderer as renderer_module
+
+    centered_texts: list[str] = []
+    wrapped_texts: list[str] = []
+
+    original_centered = renderer_module._draw_centered
+    original_wrapped = renderer_module._draw_wrapped_centered
+
+    def _capture_centered(pdf, text, x, y, font, size, color):
+        centered_texts.append(text or "")
+        return original_centered(pdf, text, x, y, font, size, color)
+
+    def _capture_wrapped(pdf, text, cx, top_y, max_w, font, size, leading, color):
+        wrapped_texts.append(text or "")
+        return original_wrapped(pdf, text, cx, top_y, max_w, font, size, leading, color)
+
+    monkeypatch.setattr(renderer_module, "_draw_centered", _capture_centered)
+    monkeypatch.setattr(renderer_module, "_draw_wrapped_centered", _capture_wrapped)
+
+    ctx = {
+        "campaign_id": 9,
+        "campaign_name": "footnotes",
+        "title": "Footnote Test",
+        "objective": "Footnote behavior",
+        "campaign_footnote_text": "Promotion-wide disclaimer",
+        "start_date": "2026-05-01",
+        "end_date": "2026-05-31",
+        "business_display_name": "ACME",
+        "business_legal_name": "ACME LLC",
+        "theme": {
+            "primary_color": "#3E1C5C",
+            "secondary_color": "#6E4A8E",
+            "accent_color": "#E0559A",
+        },
+        "location": None,
+        "contacts": [],
+        "offers": [],
+        "components": [
+            {
+                "component_key": "featured",
+                "component_kind": "featured-offers",
+                "display_title": "Featured Services",
+                "footnote_text": "Featured section terms",
+                "subtitle": "Subtitle",
+                "description_text": None,
+                "display_order": 0,
+                "items": [
+                    {
+                        "item_name": "A",
+                        "item_kind": "service",
+                        "duration_label": "60 min",
+                        "item_value": "$10",
+                        "description_text": None,
+                        "terms_text": None,
+                        "display_order": 0,
+                    }
+                ],
+            }
+        ],
+        "effective_values": {
+            "business_name": "ACME",
+            "business_subtitle": "LLC",
+            "footer": "acme.example • 555-0100",
+            "legal": "Offer valid while supplies last.",
+        },
+        "template_name": "flyer-standard",
+    }
+
+    pdf_bytes = render_flyer(ctx)
+
+    assert pdf_bytes.startswith(b"%PDF")
+    assert any(text.endswith(" **") for text in centered_texts if "FEATURED" in text.upper())
+    assert "** Featured section terms" in wrapped_texts
+    assert "** Promotion-wide disclaimer" in wrapped_texts

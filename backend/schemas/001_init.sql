@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
   campaign_key TEXT NOT NULL DEFAULT '',
   title TEXT NOT NULL,
   objective TEXT,
+  footnote_text TEXT,
   status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'active', 'paused', 'completed', 'archived')),
   start_date TEXT,
   end_date TEXT,

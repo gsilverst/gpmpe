@@ -80,6 +80,7 @@ class CampaignCreate(BaseModel):
     campaign_key: str | None = Field(default=None, max_length=100)
     title: str = Field(min_length=1, max_length=300)
     objective: str | None = Field(default=None, max_length=1000)
+    footnote_text: str | None = Field(default=None, max_length=2000)
     status: Literal["draft", "active", "paused", "completed", "archived"] = "draft"
     start_date: str | None = None
     end_date: str | None = None
@@ -88,6 +89,7 @@ class CampaignCreate(BaseModel):
 class CampaignUpdate(BaseModel):
     title: str | None = Field(default=None, max_length=300)
     objective: str | None = Field(default=None, max_length=1000)
+    footnote_text: str | None = Field(default=None, max_length=2000)
     status: Literal["draft", "active", "paused", "completed", "archived"] | None = None
     start_date: str | None = None
     end_date: str | None = None
@@ -213,6 +215,7 @@ def _campaign_row_to_dict(row: Any) -> dict[str, Any]:
         "campaign_key": row["campaign_key"] or None,
         "title": row["title"],
         "objective": row["objective"],
+        "footnote_text": row["footnote_text"],
         "status": row["status"],
         "start_date": row["start_date"],
         "end_date": row["end_date"],
@@ -319,7 +322,7 @@ def _campaign_snapshot(connection: Any, display_name: str, campaign_name: str, q
 
     row = connection.execute(
         """
-        SELECT id, campaign_name, campaign_key, title, objective, status, start_date, end_date, details_json
+        SELECT id, campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date, details_json
         FROM campaigns
         WHERE business_id = ? AND campaign_name = ? AND campaign_key = ?;
         """,
@@ -355,7 +358,7 @@ def _campaign_snapshot(connection: Any, display_name: str, campaign_name: str, q
     ).fetchone()
     components = connection.execute(
         """
-        SELECT id, component_key, component_kind, display_title, subtitle, description_text, display_order
+        SELECT id, component_key, component_kind, display_title, footnote_text, subtitle, description_text, display_order
         FROM campaign_components
         WHERE campaign_id = ?
         ORDER BY display_order ASC, id ASC;
@@ -379,6 +382,7 @@ def _campaign_snapshot(connection: Any, display_name: str, campaign_name: str, q
                 "component_key": component["component_key"],
                 "component_kind": component["component_kind"],
                 "display_title": component["display_title"],
+                "footnote_text": component["footnote_text"],
                 "subtitle": component["subtitle"],
                 "description_text": component["description_text"],
                 "display_order": component["display_order"],
@@ -404,6 +408,7 @@ def _campaign_snapshot(connection: Any, display_name: str, campaign_name: str, q
         "qualifier": row["campaign_key"] or None,
         "title": row["title"],
         "objective": row["objective"],
+        "footnote_text": row["footnote_text"],
         "status": row["status"],
         "start_date": row["start_date"],
         "end_date": row["end_date"],
@@ -623,7 +628,7 @@ def create_app() -> FastAPI:
             _require_business(connection, business_id)
             rows = connection.execute(
                 """
-                SELECT id, business_id, campaign_name, campaign_key, title, objective, status, start_date, end_date
+                SELECT id, business_id, campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date
                 FROM campaigns
                 WHERE business_id = ? AND campaign_name = ?
                 ORDER BY id ASC;
@@ -650,7 +655,7 @@ def create_app() -> FastAPI:
 
             name_matches = connection.execute(
                 """
-                SELECT id, business_id, campaign_name, campaign_key, title, objective, status, start_date, end_date
+                SELECT id, business_id, campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date
                 FROM campaigns
                 WHERE business_id = ? AND campaign_name = ?
                 ORDER BY id ASC;
@@ -688,9 +693,9 @@ def create_app() -> FastAPI:
             cursor = connection.execute(
                 """
                 INSERT INTO campaigns (
-                  business_id, campaign_name, campaign_key, title, objective, status, start_date, end_date
+                  business_id, campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     business_id,
@@ -698,6 +703,7 @@ def create_app() -> FastAPI:
                     normalized_key,
                     payload.title.strip(),
                     payload.objective,
+                    payload.footnote_text,
                     payload.status,
                     payload.start_date,
                     payload.end_date,
@@ -706,7 +712,7 @@ def create_app() -> FastAPI:
             campaign_id = int(cursor.lastrowid)
             row = connection.execute(
                 """
-                SELECT id, business_id, campaign_name, campaign_key, title, objective, status, start_date, end_date
+                SELECT id, business_id, campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date
                 FROM campaigns
                 WHERE id = ?;
                 """,
@@ -736,7 +742,7 @@ def create_app() -> FastAPI:
 
             existing = connection.execute(
                 """
-                SELECT id, business_id, campaign_name, campaign_key, title, objective, status, start_date, end_date
+                SELECT id, business_id, campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date
                 FROM campaigns
                 WHERE id = ? AND business_id = ?;
                 """,
@@ -754,7 +760,7 @@ def create_app() -> FastAPI:
 
             updated = connection.execute(
                 """
-                SELECT id, business_id, campaign_name, campaign_key, title, objective, status, start_date, end_date
+                SELECT id, business_id, campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date
                 FROM campaigns
                 WHERE id = ?;
                 """,
@@ -774,7 +780,7 @@ def create_app() -> FastAPI:
             _require_business(connection, business_id)
             rows = connection.execute(
                 """
-                SELECT id, business_id, campaign_name, campaign_key, title, objective, status, start_date, end_date
+                SELECT id, business_id, campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date
                 FROM campaigns
                 WHERE business_id = ?
                 ORDER BY campaign_name ASC, campaign_key ASC, id ASC;
@@ -791,7 +797,7 @@ def create_app() -> FastAPI:
             _require_business(connection, business_id)
             row = connection.execute(
                 """
-                SELECT id, business_id, campaign_name, campaign_key, title, objective, status, start_date, end_date
+                SELECT id, business_id, campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date
                 FROM campaigns
                 WHERE id = ? AND business_id = ?;
                 """,
@@ -1383,7 +1389,7 @@ def create_app() -> FastAPI:
 
             rows = connection.execute(
                 """
-                SELECT campaign_name, campaign_key, title, objective, status, start_date, end_date, details_json
+                SELECT campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date, details_json
                 FROM campaigns
                 WHERE business_id = ?
                 ORDER BY campaign_name ASC, campaign_key ASC;
@@ -1399,6 +1405,7 @@ def create_app() -> FastAPI:
                     "qualifier": row["campaign_key"] or None,
                     "title": row["title"],
                     "objective": row["objective"],
+                    "footnote_text": row["footnote_text"],
                     "status": row["status"],
                     "start_date": row["start_date"],
                     "end_date": row["end_date"],
