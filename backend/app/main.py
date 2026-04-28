@@ -14,6 +14,7 @@ from .chat import ChatSessionStore, apply_chat_command, parse_chat_command
 from .config import resolve_config
 from .data_sync import sync_data_directory
 from .db import connect_database, initialize_database
+from .yaml_store import persist_yaml_state_for_campaign
 
 
 @asynccontextmanager
@@ -951,6 +952,10 @@ def create_app() -> FastAPI:
         config = resolve_config()
         with connect_database(config) as connection:
             result = apply_chat_command(connection, payload.campaign_id, command)
+            try:
+                persist_yaml_state_for_campaign(connection, config.data_dir, payload.campaign_id)
+            except ValueError as error:
+                raise HTTPException(status_code=409, detail=str(error)) from error
             connection.commit()
 
         chat_store.append(session_id, "user", payload.message)

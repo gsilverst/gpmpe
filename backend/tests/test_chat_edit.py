@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import yaml
 
 from app.main import create_app
 
@@ -133,3 +134,37 @@ def test_chat_history_is_transient_but_campaign_state_persists(monkeypatch, tmp_
 
     campaigns = second_client.get(f"/businesses/{business_id}/campaigns").json()["items"]
     assert campaigns[0]["title"] == "Persisted Title"
+
+
+def test_chat_edit_persists_updates_to_yaml(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+
+    update_title = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={"campaign_id": campaign_id, "message": "set title to YAML Persisted Title"},
+    )
+    assert update_title.status_code == 200
+
+    update_brand = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={"campaign_id": campaign_id, "message": "set brand primary_color to #334455"},
+    )
+    assert update_brand.status_code == 200
+
+    business_yaml = tmp_path / "yaml-data" / "Acme" / "Acme.yaml"
+    campaign_yaml = tmp_path / "yaml-data" / "Acme" / "Summer" / "Summer.yaml"
+
+    assert business_yaml.exists()
+    assert campaign_yaml.exists()
+
+    business_payload = yaml.safe_load(business_yaml.read_text(encoding="utf-8"))
+    campaign_payload = yaml.safe_load(campaign_yaml.read_text(encoding="utf-8"))
+
+    assert business_payload["display_name"] == "Acme"
+    assert business_payload["brand_theme"]["primary_color"] == "#334455"
+    assert campaign_payload["campaign_name"] == "Summer"
+    assert campaign_payload["title"] == "YAML Persisted Title"
