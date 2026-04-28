@@ -5,6 +5,7 @@ import React, { useEffect, useState } from "react";
 
 import {
   artifactDownloadUrl,
+  artifactPreviewUrl,
   cloneCampaignForBusiness,
   createBusiness,
   createCampaignForBusiness,
@@ -1212,7 +1213,7 @@ export default function HomePage() {
             <iframe
               title="Campaign PDF Preview"
               className="preview-frame"
-              src={artifactDownloadUrl(previewArtifactId)}
+              src={artifactPreviewUrl(previewArtifactId)}
             />
           ) : (
             <p>Select or create a campaign and generate changes to see the live PDF preview.</p>

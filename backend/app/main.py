@@ -1728,6 +1728,25 @@ def create_app() -> FastAPI:
             filename=filename,
         )
 
+    @app.get("/artifacts/{artifact_id}/view")
+    def view_artifact(artifact_id: int):
+        from fastapi.responses import FileResponse
+
+        config = resolve_config()
+        with connect_database(config) as connection:
+            row = connection.execute(
+                "SELECT id, file_path, artifact_type FROM generated_artifacts WHERE id = ?",
+                (artifact_id,),
+            ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Artifact not found")
+        file_path = Path(row["file_path"])
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Artifact file missing")
+
+        # Return inline PDF for iframe/browser preview.
+        return FileResponse(path=str(file_path), media_type="application/pdf")
+
     @app.post("/data/sync")
     def sync_yaml_data() -> dict[str, Any]:
         config = resolve_config()

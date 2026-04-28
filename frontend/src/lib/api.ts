@@ -350,6 +350,10 @@ export function artifactDownloadUrl(artifactId: number, baseUrl = apiBaseUrl()):
   return `${baseUrl}/artifacts/${artifactId}/download`;
 }
 
+export function artifactPreviewUrl(artifactId: number, baseUrl = apiBaseUrl()): string {
+  return `${baseUrl}/artifacts/${artifactId}/view`;
+}
+
 export async function listBusinesses(baseUrl = apiBaseUrl()): Promise<BusinessRecord[]> {
   return fetchJson<BusinessRecord[]>("/businesses", baseUrl);
 }
