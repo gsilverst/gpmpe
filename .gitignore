@@ -12,6 +12,8 @@ venv/
 node_modules/
 dist/
 build/
+frontend/.next/
+frontend/tsconfig.tsbuildinfo
 coverage/
 playwright-report/
 test-results/
