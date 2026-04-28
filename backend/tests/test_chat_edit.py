@@ -372,6 +372,48 @@ def test_chat_message_component_item_field_update_rejects_missing_ordinal_target
     assert response.json()["detail"] == "Component item not found"
 
 
+def test_chat_message_can_update_component_item_field_by_item_name(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_items_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "change the item_value field of the Signature Facial item in the main-street-appreciation component to $45",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["target"] == "component_item"
+    assert payload["result"]["field"] == "item_value"
+    assert payload["result"]["item"]["item_name"] == "Signature Facial"
+    assert payload["result"]["item"]["item_value"] == "$45"
+
+
+def test_chat_message_component_item_field_update_rejects_missing_named_target(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_items_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "change the item_value field of the Deluxe Facial item in the main-street-appreciation component to $45",
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Component item not found"
+
+
 def test_save_is_noop_when_commit_on_save_disabled(monkeypatch, tmp_path: Path) -> None:
     config_path = _write_config(tmp_path, commit_on_save=False)
     client = _make_client(monkeypatch, config_path)

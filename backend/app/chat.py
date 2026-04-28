@@ -277,6 +277,24 @@ def _resolve_item_selector_index(item_ref: str, item_count: int) -> int | None:
     return None
 
 
+def _find_component_item(items: list[Any], item_ref: str) -> Any | None:
+    item_index = _resolve_item_selector_index(item_ref, len(items))
+    if item_index is not None:
+        return items[item_index]
+
+    normalized_ref = item_ref.strip().strip('"\'').lower()
+    if normalized_ref.startswith("the "):
+        normalized_ref = normalized_ref[4:].strip()
+    if normalized_ref.endswith(" item"):
+        normalized_ref = normalized_ref[:-5].strip()
+
+    for item in items:
+        if str(item["item_name"]).strip().lower() == normalized_ref:
+            return item
+
+    return None
+
+
 def apply_chat_command(connection: Any, campaign_id: int, command: ParsedCommand) -> dict[str, Any]:
     campaign = connection.execute(
         """
@@ -569,11 +587,10 @@ def apply_chat_command(connection: Any, campaign_id: int, command: ParsedCommand
         if not items:
             raise HTTPException(status_code=404, detail="Component has no items")
 
-        item_index = _resolve_item_selector_index(command.item_ref, len(items))
-        if item_index is None:
+        item = _find_component_item(items, command.item_ref)
+        if item is None:
             raise HTTPException(status_code=404, detail="Component item not found")
 
-        item = items[item_index]
         connection.execute(
             f"UPDATE campaign_component_items SET {command.field} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;",
             (value, item["id"]),
