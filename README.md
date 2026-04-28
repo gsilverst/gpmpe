@@ -9,10 +9,12 @@ You describe your promotion, and GPMPE produces a polished, print-ready PDF file
 ## How It Works
 
 ### 1. Your Business Profile
-Before creating any marketing material, GPMPE needs to know about your business — things like your name, logo, brand colors, address, phone number, website, and hours of operation. This information is stored in a database that belongs entirely to your business. It is kept separate from the application itself, so your data stays yours and is never mixed with another business's information.
+Before creating any marketing material, GPMPE needs to know about your business — things like your name, logo, brand colors, address, phone number, website, and hours of operation. This information is stored in a local SQLite database used by the running app.
 
 ### 2. Your Marketing Campaigns
 Each promotion you run is stored as a campaign. A campaign holds all the details specific to that promotion — the offer, dates, pricing, imagery, and any copy you want on the flyer or poster.
+
+Campaigns can also be structured as ordered promotion components (for example featured offers, weekday specials, discount strips, and legal notes), each with nested items. Campaigns and components support optional `footnote_text` fields used by rendering.
 
 You can have as many campaigns as you like. If you run the same promotion in different years (for example, a Mother's Day sale), GPMPE will recognize the name and ask whether you want to work on an existing campaign or create a fresh one for the new year.
 
@@ -24,11 +26,21 @@ When you're happy with the content, you click to generate the PDF. GPMPE combine
 
 ## Where Your Data Lives
 
-All information about your business and your campaigns is stored in a database that is specific to your business. This database lives outside the GPMPE application itself — in a separate repository that you control. This means:
+GPMPE uses two local stores together:
 
-- Your data is portable. You can move it, back it up, and version-control it independently of the application.
-- Different businesses using GPMPE each have their own isolated database. There is no shared data store.
-- The application only reads and writes to your database when you are actively working on your materials.
+- Runtime store (SQLite): configured by `DATABASE_PATH` (default `./backend/data/gpmpe.db`), used by the API and renderer.
+- Repository-facing store (YAML tree): configured by `DATA_DIR`, used for import/sync and write-back.
+
+On startup, GPMPE initializes schema and syncs YAML from `DATA_DIR` into SQLite. The YAML directory follows this structure:
+
+- one business directory per business
+- one business YAML file named after the business directory
+- one campaign directory per campaign under the business
+- one campaign YAML file named after the campaign directory
+
+This keeps campaign data portable and versionable while maintaining a fast runtime database for API and rendering.
+
+Important: in MVP, startup sync is authoritative for YAML-managed records and removes stale DB records that are no longer present in the YAML tree.
 
 ## Test Output
 
@@ -127,6 +139,8 @@ docker compose up
 ```
 
 This builds and runs a single container that serves both API and frontend on `http://127.0.0.1:8000`.
+
+Before running, make sure `.config` contains valid `DATA_DIR`, `DATABASE_PATH`, and `OUTPUT_DIR` values for your local machine.
 
 The compose file mounts:
 
