@@ -74,19 +74,21 @@ def discover_data_directory(data_dir: Path) -> list[BusinessYamlRecord]:
 
     for business_dir in sorted(path for path in data_dir.iterdir() if path.is_dir()):
         business_name = business_dir.name
-        _ensure_safe_name(business_name, "business")
         business_yaml = business_dir / f"{business_name}.yaml"
         if not business_yaml.exists():
-            raise ValueError(f"Missing business YAML file: {business_yaml}")
+            # Ignore non-business directories in DATA_DIR (for example notes/).
+            continue
+        _ensure_safe_name(business_name, "business")
         business_payload = _load_yaml_file(business_yaml)
 
         campaign_records: list[CampaignYamlRecord] = []
         for campaign_dir in sorted(path for path in business_dir.iterdir() if path.is_dir()):
             campaign_name = campaign_dir.name
-            _ensure_safe_name(campaign_name, "campaign")
             campaign_yaml = campaign_dir / f"{campaign_name}.yaml"
             if not campaign_yaml.exists():
-                raise ValueError(f"Missing campaign YAML file: {campaign_yaml}")
+                # Ignore non-campaign subdirectories inside a business directory.
+                continue
+            _ensure_safe_name(campaign_name, "campaign")
             campaign_payload = _load_yaml_file(campaign_yaml)
             campaign_records.append(
                 CampaignYamlRecord(

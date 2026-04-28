@@ -92,6 +92,32 @@ def test_discover_data_directory_rejects_unsafe_names(tmp_path: Path) -> None:
         raise AssertionError("Expected unsafe business name error")
 
 
+def test_discover_data_directory_ignores_non_business_directories(tmp_path: Path) -> None:
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir(parents=True, exist_ok=True)
+    (notes_dir / "readme.txt").write_text("local notes", encoding="utf-8")
+
+    _write_business_tree(tmp_path, "acme", "Acme Promotions LLC", "mothersday", "Mother's Day Sale")
+
+    records = discover_data_directory(tmp_path)
+
+    assert len(records) == 1
+    assert records[0].directory_name == "acme"
+
+
+def test_discover_data_directory_ignores_non_campaign_subdirectories(tmp_path: Path) -> None:
+    _write_business_tree(tmp_path, "acme", "Acme Promotions LLC", "mothersday", "Mother's Day Sale")
+    assets_dir = tmp_path / "acme" / "assets"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    (assets_dir / "logo.png").write_text("placeholder", encoding="utf-8")
+
+    records = discover_data_directory(tmp_path)
+
+    assert len(records) == 1
+    assert len(records[0].campaigns) == 1
+    assert records[0].campaigns[0].directory_name == "mothersday"
+
+
 def test_sync_data_directory_populates_database(monkeypatch, tmp_path: Path) -> None:
     config_path = _write_config(tmp_path, _sample_data_dir())
     monkeypatch.setenv("GPMPE_CONFIG_FILE", str(config_path))
