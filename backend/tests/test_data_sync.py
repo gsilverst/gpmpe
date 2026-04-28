@@ -28,6 +28,49 @@ def _write_config(tmp_path: Path, data_dir: Path) -> Path:
     return config_path
 
 
+def _write_dual_config(tmp_path: Path, runtime_data_dir: Path, test_data_dir: Path) -> tuple[Path, Path, Path]:
+    config_path = tmp_path / ".config"
+    runtime_database_path = tmp_path / "data" / "runtime.db"
+    test_database_path = tmp_path / "data" / "test.db"
+    output_dir = tmp_path / "output"
+    config_path.write_text(
+        "\n".join(
+            [
+                f"OUTPUT_DIR={output_dir}",
+                f"DATABASE_PATH={runtime_database_path}",
+                f"DATA_DIR={runtime_data_dir}",
+                f"TEST_DATABASE_PATH={test_database_path}",
+                f"TEST_DATA_DIR={test_data_dir}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return config_path, runtime_database_path, test_database_path
+
+
+def _write_business_tree(base_dir: Path, business_name: str, legal_name: str, campaign_name: str, campaign_title: str) -> None:
+    business_dir = base_dir / business_name
+    campaign_dir = business_dir / campaign_name
+    campaign_dir.mkdir(parents=True, exist_ok=True)
+    (business_dir / f"{business_name}.yaml").write_text(
+        f"display_name: {business_name}\nlegal_name: {legal_name}\ntimezone: America/New_York\n",
+        encoding="utf-8",
+    )
+    (campaign_dir / f"{campaign_name}.yaml").write_text(
+        "\n".join(
+            [
+                f"display_name: {campaign_name}",
+                f"campaign_name: {campaign_name}",
+                f"title: {campaign_title}",
+                "status: draft",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def test_discover_data_directory_reads_sample_tree() -> None:
     records = discover_data_directory(_sample_data_dir())
 
@@ -73,6 +116,49 @@ def test_sync_data_directory_populates_database(monkeypatch, tmp_path: Path) -> 
     assert campaign is not None
     assert campaign["campaign_key"] == ""
     assert campaign["title"] == "Mother's Day Appreciation Sale"
+
+
+def test_resolve_config_uses_test_database_and_data_dir_together(monkeypatch, tmp_path: Path) -> None:
+    runtime_data_dir = tmp_path / "runtime-data"
+    test_data_dir = tmp_path / "test-data"
+    _write_business_tree(runtime_data_dir, "runtimebiz", "Runtime Biz LLC", "runtime-campaign", "Runtime Campaign")
+    _write_business_tree(test_data_dir, "testbiz", "Test Biz LLC", "test-campaign", "Test Campaign")
+
+    config_path, runtime_database_path, test_database_path = _write_dual_config(
+        tmp_path,
+        runtime_data_dir,
+        test_data_dir,
+    )
+    monkeypatch.setenv("GPMPG_CONFIG_FILE", str(config_path))
+    monkeypatch.setenv("GPMPG_USE_TEST_PATHS", "true")
+
+    with TestClient(create_app()):
+        pass
+
+    runtime_config = resolve_config(repo_root=_repo_root(), cwd=_repo_root(), use_test_paths=False)
+    test_config = resolve_config(repo_root=_repo_root(), cwd=_repo_root(), use_test_paths=True)
+
+    assert runtime_config.database_path == runtime_database_path.resolve()
+    assert test_config.database_path == test_database_path.resolve()
+    assert test_database_path.exists()
+
+    runtime_database_path.parent.mkdir(parents=True, exist_ok=True)
+    runtime_connection = sqlite3.connect(runtime_database_path)
+    runtime_connection.row_factory = sqlite3.Row
+    runtime_connection.execute("PRAGMA foreign_keys = ON;")
+    runtime_tables = runtime_connection.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'businesses';"
+    ).fetchone()
+    runtime_businesses = []
+    if runtime_tables is not None:
+        runtime_businesses = runtime_connection.execute("SELECT display_name FROM businesses ORDER BY id ASC;").fetchall()
+    runtime_connection.close()
+
+    with connect_database(test_config) as connection:
+        synced_businesses = connection.execute("SELECT display_name FROM businesses ORDER BY id ASC;").fetchall()
+
+    assert [row["display_name"] for row in synced_businesses] == ["testbiz"]
+    assert runtime_businesses == []
 
 
 def test_data_manager_api_reads_synced_sample_data(monkeypatch, tmp_path: Path) -> None:

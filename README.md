@@ -39,6 +39,16 @@ Test-generated artifacts should stay in ignored directories.
 - Frontend Vite/Vitest cache and coverage output are written under `.test-output/frontend/`.
 - Ad hoc reports and future test artifacts should prefer subdirectories under `.test-output/`.
 
+## Test Path Overrides
+
+You can keep both runtime and test storage settings in the same `.config` file.
+
+- `DATABASE_PATH` and `DATA_DIR` remain the normal runtime paths.
+- `TEST_DATABASE_PATH` and `TEST_DATA_DIR` define an isolated test SQLite file and isolated YAML data tree.
+- GPMPG only switches to the test paths when both test settings are present and test-path mode is enabled.
+- Enable test-path mode by setting `GPMPG_USE_TEST_PATHS=true` for the test process.
+- If test-path mode is enabled but either `TEST_DATABASE_PATH` or `TEST_DATA_DIR` is missing, config resolution fails instead of mixing runtime and test state.
+
 ## Key Concepts at a Glance
 
 | Term | What It Means |

@@ -11,6 +11,7 @@ class AppConfig:
     output_dir: Path
     database_path: Path
     data_dir: Path
+    using_test_paths: bool
     commit_on_save: bool
     git_repo_path: Path | None
     git_user_name: str | None
@@ -57,7 +58,17 @@ def _resolve_path(value: str, cwd: Path) -> Path:
     return (cwd / candidate).resolve()
 
 
-def resolve_config(repo_root: Path | None = None, cwd: Path | None = None) -> AppConfig:
+def _use_test_paths_flag(explicit: bool | None) -> bool:
+    if explicit is not None:
+        return explicit
+    return _parse_bool(os.getenv("GPMPG_USE_TEST_PATHS"), default=False)
+
+
+def resolve_config(
+    repo_root: Path | None = None,
+    cwd: Path | None = None,
+    use_test_paths: bool | None = None,
+) -> AppConfig:
     root = repo_root or Path(__file__).resolve().parents[2]
     working_directory = (cwd or Path.cwd()).resolve()
 
@@ -71,15 +82,25 @@ def resolve_config(repo_root: Path | None = None, cwd: Path | None = None) -> Ap
     output_dir = _resolve_path(output_dir_value, config_directory) if output_dir_value else working_directory
 
     database_value = values.get("DATABASE_PATH")
-    if database_value:
-        database_path = _resolve_path(database_value, config_directory)
-    else:
-        database_path = (root / "backend" / "data" / "gpmpg.db").resolve()
-
     data_dir_value = values.get("DATA_DIR")
     if data_dir_value is None:
         raise ValueError("DATA_DIR must be configured in .config")
-    data_dir = _resolve_path(data_dir_value, config_directory)
+
+    using_test_paths = _use_test_paths_flag(use_test_paths)
+    test_database_value = values.get("TEST_DATABASE_PATH")
+    test_data_dir_value = values.get("TEST_DATA_DIR")
+
+    if using_test_paths:
+        if not test_database_value or not test_data_dir_value:
+            raise ValueError("TEST_DATABASE_PATH and TEST_DATA_DIR must both be configured when test paths are enabled")
+        database_path = _resolve_path(test_database_value, config_directory)
+        data_dir = _resolve_path(test_data_dir_value, config_directory)
+    else:
+        if database_value:
+            database_path = _resolve_path(database_value, config_directory)
+        else:
+            database_path = (root / "backend" / "data" / "gpmpg.db").resolve()
+        data_dir = _resolve_path(data_dir_value, config_directory)
 
     commit_on_save = _parse_bool(values.get("COMMIT_ON_SAVE"), default=True)
     git_repo_value = values.get("GIT_REPO_PATH")
@@ -92,6 +113,7 @@ def resolve_config(repo_root: Path | None = None, cwd: Path | None = None) -> Ap
         output_dir=output_dir,
         database_path=database_path,
         data_dir=data_dir,
+        using_test_paths=using_test_paths,
         commit_on_save=commit_on_save,
         git_repo_path=git_repo_path,
         git_user_name=git_user_name,
