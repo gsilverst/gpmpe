@@ -204,15 +204,16 @@ def test_chat_message_can_rename_component_by_natural_language(monkeypatch, tmp_
         f"/chat/sessions/{session_id}/messages",
         json={
             "campaign_id": campaign_id,
-            "message": "change the name of the mothers-day-specials component to MAIN STREET APPRECIATION MONTH",
+            "message": "change the name of the mothers-day-specials component to main-street-appreciation-month",
         },
     )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["result"]["target"] == "component"
-    assert payload["result"]["component"]["component_key"] == "mothers-day-specials"
-    assert payload["result"]["component"]["display_title"] == "MAIN STREET APPRECIATION MONTH"
+    assert payload["result"]["field"] == "component_key"
+    assert payload["result"]["component"]["component_key"] == "main-street-appreciation-month"
+    assert payload["result"]["component"]["display_title"] == "Mothers Day Specials"
 
 
 def test_chat_message_can_rename_component_by_display_title(monkeypatch, tmp_path: Path) -> None:
@@ -226,14 +227,34 @@ def test_chat_message_can_rename_component_by_display_title(monkeypatch, tmp_pat
         f"/chat/sessions/{session_id}/messages",
         json={
             "campaign_id": campaign_id,
-            "message": "rename component Mothers Day Specials to Main Street Appreciation Month",
+            "message": "set component mothers-day-specials display_title to Main Street Appreciation Month",
         },
     )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["result"]["target"] == "component"
+    assert payload["result"]["field"] == "display_title"
     assert payload["result"]["component"]["display_title"] == "Main Street Appreciation Month"
+
+
+def test_chat_message_component_rename_without_new_name_returns_helpful_error(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "change the name of the mothers-day-specials component",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Missing new component name" in response.json()["detail"]
 
 
 def test_save_is_noop_when_commit_on_save_disabled(monkeypatch, tmp_path: Path) -> None:

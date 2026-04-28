@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 import re
+import sqlite3
 import uuid
 from typing import Any, Literal
 
@@ -33,11 +34,15 @@ BRAND_PATTERN = re.compile(
     re.IGNORECASE,
 )
 COMPONENT_SET_PATTERN = re.compile(
-    r"^set\s+component\s+(.+?)\s+(?:name|title|display_title)\s+to\s+(.+)$",
+    r"^set\s+component\s+(.+?)\s+(name|title|display_title|component_key|key)\s+to\s+(.+)$",
     re.IGNORECASE,
 )
 COMPONENT_CHANGE_NAME_PATTERN = re.compile(
     r"^change\s+the\s+name\s+of\s+(?:the\s+)?(.+?)\s+component\s+to\s+(.+)$",
+    re.IGNORECASE,
+)
+COMPONENT_CHANGE_NAME_INCOMPLETE_PATTERN = re.compile(
+    r"^change\s+the\s+name\s+of\s+(?:the\s+)?(.+?)\s+component\s*[.!?]?$",
     re.IGNORECASE,
 )
 COMPONENT_RENAME_PATTERN = re.compile(
@@ -132,20 +137,31 @@ def parse_chat_command(message: str) -> ParsedCommand:
     component_set_match = COMPONENT_SET_PATTERN.match(text)
     if component_set_match:
         component_ref = component_set_match.group(1).strip().strip("\"'")
-        value = component_set_match.group(2).strip()
-        return ParsedCommand(target="component", field="display_title", value=value, component_ref=component_ref)
+        field_token = component_set_match.group(2).lower().strip()
+        value = component_set_match.group(3).strip()
+        field = "component_key" if field_token in {"name", "component_key", "key"} else "display_title"
+        return ParsedCommand(target="component", field=field, value=value, component_ref=component_ref)
 
     component_change_name_match = COMPONENT_CHANGE_NAME_PATTERN.match(text)
     if component_change_name_match:
         component_ref = component_change_name_match.group(1).strip().strip("\"'")
         value = component_change_name_match.group(2).strip()
-        return ParsedCommand(target="component", field="display_title", value=value, component_ref=component_ref)
+        return ParsedCommand(target="component", field="component_key", value=value, component_ref=component_ref)
+
+    if COMPONENT_CHANGE_NAME_INCOMPLETE_PATTERN.match(text):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Missing new component name. Use: "
+                "'change the name of <component> component to <new_component_key>'."
+            ),
+        )
 
     component_rename_match = COMPONENT_RENAME_PATTERN.match(text)
     if component_rename_match:
         component_ref = component_rename_match.group(1).strip().strip("\"'")
         value = component_rename_match.group(2).strip()
-        return ParsedCommand(target="component", field="display_title", value=value, component_ref=component_ref)
+        return ParsedCommand(target="component", field="component_key", value=value, component_ref=component_ref)
 
     raise HTTPException(
         status_code=400,
@@ -154,7 +170,7 @@ def parse_chat_command(message: str) -> ParsedCommand:
             "'set <campaign_field> to <value>', "
             "'set offer <offer_id> <offer_field> to <value>', "
             "'set brand <brand_field> to <value>', "
-            "or 'change the name of <component> component to <value>'."
+            "or 'change the name of <component> component to <new_component_key>'."
         ),
     )
 
@@ -182,6 +198,12 @@ def _campaign_payload(row: Any) -> dict[str, Any]:
         "start_date": row["start_date"],
         "end_date": row["end_date"],
     }
+
+
+def _normalize_component_key(value: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "-", value.lower().strip())
+    normalized = normalized.strip("-")
+    return normalized
 
 
 def apply_chat_command(connection: Any, campaign_id: int, command: ParsedCommand) -> dict[str, Any]:
@@ -366,7 +388,7 @@ def apply_chat_command(connection: Any, campaign_id: int, command: ParsedCommand
 
         value = command.value.strip()
         if value == "":
-            raise HTTPException(status_code=400, detail="component display_title cannot be empty")
+            raise HTTPException(status_code=400, detail=f"component {command.field} cannot be empty")
 
         component = connection.execute(
             """
@@ -382,14 +404,32 @@ def apply_chat_command(connection: Any, campaign_id: int, command: ParsedCommand
         if component is None:
             raise HTTPException(status_code=404, detail="Component not found")
 
-        connection.execute(
-            """
-            UPDATE campaign_components
-            SET display_title = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?;
-            """,
-            (value, component["id"]),
-        )
+        if command.field == "display_title":
+            connection.execute(
+                """
+                UPDATE campaign_components
+                SET display_title = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?;
+                """,
+                (value, component["id"]),
+            )
+        elif command.field == "component_key":
+            normalized_key = _normalize_component_key(value)
+            if normalized_key == "":
+                raise HTTPException(status_code=400, detail="component_key must contain letters or numbers")
+            try:
+                connection.execute(
+                    """
+                    UPDATE campaign_components
+                    SET component_key = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?;
+                    """,
+                    (normalized_key, component["id"]),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise HTTPException(status_code=409, detail="component_key already exists for this campaign") from exc
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported component field")
         updated_component = connection.execute(
             """
             SELECT id, campaign_id, component_key, component_kind, display_title, footnote_text, subtitle, description_text, display_order
@@ -403,7 +443,7 @@ def apply_chat_command(connection: Any, campaign_id: int, command: ParsedCommand
 
         return {
             "target": "component",
-            "field": "display_title",
+            "field": command.field,
             "component": {
                 "id": updated_component["id"],
                 "campaign_id": updated_component["campaign_id"],
