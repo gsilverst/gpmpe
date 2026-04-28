@@ -129,7 +129,7 @@ export default function HomePage() {
   }
 
   async function handleReconciliationChoice(
-    direction: "yaml_to_db" | "db_to_yaml" | "skip"
+    direction: "yaml_to_db" | "db_to_yaml"
   ): Promise<void> {
     try {
       await resolveStartup(direction);
@@ -143,6 +143,19 @@ export default function HomePage() {
         caught instanceof Error ? caught.message : "Failed to resolve data conflict";
       setError(message);
     }
+  }
+
+  function pickMostRecentDirection(
+    report: StartupStatusReport
+  ): "yaml_to_db" | "db_to_yaml" {
+    const dbTime = report.db_latest_updated_at
+      ? new Date(report.db_latest_updated_at).getTime()
+      : 0;
+    const yamlTime = report.yaml_latest_mtime
+      ? new Date(report.yaml_latest_mtime).getTime()
+      : 0;
+    // If DB is strictly newer, write DB state to DATA_DIR. Otherwise prefer YAML.
+    return dbTime > yamlTime ? "db_to_yaml" : "yaml_to_db";
   }
 
   useEffect(() => {
@@ -826,22 +839,24 @@ export default function HomePage() {
               <button
                 type="button"
                 className="ghost-button"
-                onClick={() => void handleReconciliationChoice("skip")}
-              >
-                Continue As-Is
-              </button>
-              <button
-                type="button"
-                className="ghost-button"
                 onClick={() => void handleReconciliationChoice("db_to_yaml")}
               >
                 Overwrite DATA_DIR from DB
               </button>
               <button
                 type="button"
+                className="ghost-button"
                 onClick={() => void handleReconciliationChoice("yaml_to_db")}
               >
                 Load DATA_DIR into DB
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  void handleReconciliationChoice(pickMostRecentDirection(reconciliationReport))
+                }
+              >
+                Use Most Recent (Recommended)
               </button>
             </div>
           </div>
