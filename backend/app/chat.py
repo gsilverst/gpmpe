@@ -32,14 +32,27 @@ BRAND_PATTERN = re.compile(
     r"^set\s+brand\s+(primary_color|secondary_color|accent_color|font_family|logo_path)\s+to\s+(.+)$",
     re.IGNORECASE,
 )
+COMPONENT_SET_PATTERN = re.compile(
+    r"^set\s+component\s+(.+?)\s+(?:name|title|display_title)\s+to\s+(.+)$",
+    re.IGNORECASE,
+)
+COMPONENT_CHANGE_NAME_PATTERN = re.compile(
+    r"^change\s+the\s+name\s+of\s+(?:the\s+)?(.+?)\s+component\s+to\s+(.+)$",
+    re.IGNORECASE,
+)
+COMPONENT_RENAME_PATTERN = re.compile(
+    r"^rename\s+(?:the\s+)?component\s+(.+?)\s+to\s+(.+)$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
 class ParsedCommand:
-    target: Literal["campaign", "offer", "brand"]
+    target: Literal["campaign", "offer", "brand", "component"]
     field: str
     value: str
     offer_id: int | None = None
+    component_ref: str | None = None
 
 
 @dataclass(frozen=True)
@@ -116,13 +129,32 @@ def parse_chat_command(message: str) -> ParsedCommand:
         value = brand_match.group(2).strip()
         return ParsedCommand(target="brand", field=field, value=value)
 
+    component_set_match = COMPONENT_SET_PATTERN.match(text)
+    if component_set_match:
+        component_ref = component_set_match.group(1).strip().strip("\"'")
+        value = component_set_match.group(2).strip()
+        return ParsedCommand(target="component", field="display_title", value=value, component_ref=component_ref)
+
+    component_change_name_match = COMPONENT_CHANGE_NAME_PATTERN.match(text)
+    if component_change_name_match:
+        component_ref = component_change_name_match.group(1).strip().strip("\"'")
+        value = component_change_name_match.group(2).strip()
+        return ParsedCommand(target="component", field="display_title", value=value, component_ref=component_ref)
+
+    component_rename_match = COMPONENT_RENAME_PATTERN.match(text)
+    if component_rename_match:
+        component_ref = component_rename_match.group(1).strip().strip("\"'")
+        value = component_rename_match.group(2).strip()
+        return ParsedCommand(target="component", field="display_title", value=value, component_ref=component_ref)
+
     raise HTTPException(
         status_code=400,
         detail=(
             "Unsupported edit command. Use one of: "
             "'set <campaign_field> to <value>', "
             "'set offer <offer_id> <offer_field> to <value>', "
-            "or 'set brand <brand_field> to <value>'."
+            "'set brand <brand_field> to <value>', "
+            "or 'change the name of <component> component to <value>'."
         ),
     )
 
@@ -325,6 +357,63 @@ def apply_chat_command(connection: Any, campaign_id: int, command: ParsedCommand
                 "accent_color": theme["accent_color"],
                 "font_family": theme["font_family"],
                 "logo_path": theme["logo_path"],
+            },
+        }
+
+    if command.target == "component":
+        if command.component_ref is None:
+            raise HTTPException(status_code=400, detail="Component reference is required")
+
+        value = command.value.strip()
+        if value == "":
+            raise HTTPException(status_code=400, detail="component display_title cannot be empty")
+
+        component = connection.execute(
+            """
+            SELECT id, campaign_id, component_key, component_kind, display_title, footnote_text, subtitle, description_text, display_order
+            FROM campaign_components
+            WHERE campaign_id = ?
+              AND (LOWER(component_key) = LOWER(?) OR LOWER(display_title) = LOWER(?))
+            ORDER BY id ASC
+            LIMIT 1;
+            """,
+            (campaign_id, command.component_ref, command.component_ref),
+        ).fetchone()
+        if component is None:
+            raise HTTPException(status_code=404, detail="Component not found")
+
+        connection.execute(
+            """
+            UPDATE campaign_components
+            SET display_title = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?;
+            """,
+            (value, component["id"]),
+        )
+        updated_component = connection.execute(
+            """
+            SELECT id, campaign_id, component_key, component_kind, display_title, footnote_text, subtitle, description_text, display_order
+            FROM campaign_components
+            WHERE id = ?;
+            """,
+            (component["id"],),
+        ).fetchone()
+        if updated_component is None:
+            raise HTTPException(status_code=500, detail="Component update failed")
+
+        return {
+            "target": "component",
+            "field": "display_title",
+            "component": {
+                "id": updated_component["id"],
+                "campaign_id": updated_component["campaign_id"],
+                "component_key": updated_component["component_key"],
+                "component_kind": updated_component["component_kind"],
+                "display_title": updated_component["display_title"],
+                "footnote_text": updated_component["footnote_text"],
+                "subtitle": updated_component["subtitle"],
+                "description_text": updated_component["description_text"],
+                "display_order": updated_component["display_order"],
             },
         }
 

@@ -4,6 +4,9 @@ import subprocess
 from fastapi.testclient import TestClient
 import yaml
 
+from app.config import resolve_config
+from app.db import connect_database
+
 from .conftest import make_test_client, write_isolated_config
 
 
@@ -48,6 +51,21 @@ def _seed_campaign(client: TestClient) -> tuple[int, int]:
     ).json()["id"]
 
     return business_id, campaign_id
+
+
+def _seed_component_for_campaign(campaign_id: int) -> None:
+    config = resolve_config()
+    with connect_database(config) as connection:
+        connection.execute(
+            """
+            INSERT INTO campaign_components (
+              campaign_id, component_key, component_kind, display_title, display_order
+            )
+            VALUES (?, 'mothers-day-specials', 'featured-offers', 'Mothers Day Specials', 1);
+            """,
+            (campaign_id,),
+        )
+        connection.commit()
 
 
 def test_chat_message_updates_campaign_and_brand(monkeypatch, tmp_path: Path) -> None:
@@ -173,6 +191,49 @@ def test_chat_edit_persists_updates_to_yaml_on_mutation(monkeypatch, tmp_path: P
     assert business_payload["brand_theme"]["primary_color"] == "#334455"
     assert campaign_payload["campaign_name"] == "Summer"
     assert campaign_payload["title"] == "YAML Persisted Title"
+
+
+def test_chat_message_can_rename_component_by_natural_language(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "change the name of the mothers-day-specials component to MAIN STREET APPRECIATION MONTH",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["target"] == "component"
+    assert payload["result"]["component"]["component_key"] == "mothers-day-specials"
+    assert payload["result"]["component"]["display_title"] == "MAIN STREET APPRECIATION MONTH"
+
+
+def test_chat_message_can_rename_component_by_display_title(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "rename component Mothers Day Specials to Main Street Appreciation Month",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["target"] == "component"
+    assert payload["result"]["component"]["display_title"] == "Main Street Appreciation Month"
 
 
 def test_save_is_noop_when_commit_on_save_disabled(monkeypatch, tmp_path: Path) -> None:
