@@ -158,15 +158,26 @@ export default function HomePage() {
   useEffect(() => {
     let active = true;
     async function loadInitialData() {
+      let reconciliationNeeded = false;
       try {
         // Check for DB/DATA_DIR reconciliation before loading anything else.
         const startup = await fetchStartupStatus();
         if (!active) return;
         if (startup.reconciliation_needed && startup.report != null) {
           setReconciliationReport(startup.report);
-          return; // wait for the user to resolve before continuing
+          reconciliationNeeded = true;
         }
+      } catch (caught) {
+        if (!active) return;
+        const message = caught instanceof Error ? caught.message : "Failed to check startup status";
+        setError(message);
+      }
 
+      if (reconciliationNeeded) {
+        return; // wait for the user to resolve before continuing
+      }
+
+      try {
         const items = await listBusinesses();
         if (!active) return;
         setBusinesses(items);
