@@ -105,7 +105,7 @@ def _business_payload(connection: sqlite3.Connection, business_id: int) -> dict[
 def _component_payloads(connection: sqlite3.Connection, campaign_id: int) -> list[dict[str, Any]]:
     components = connection.execute(
         """
-        SELECT id, component_key, component_kind, display_title, background_color, footnote_text, subtitle, description_text, display_order
+        SELECT id, component_key, component_kind, display_title, background_color, header_accent_color, footnote_text, subtitle, description_text, display_order
         FROM campaign_components
         WHERE campaign_id = ?
         ORDER BY display_order ASC, id ASC;
@@ -130,6 +130,7 @@ def _component_payloads(connection: sqlite3.Connection, campaign_id: int) -> lis
                 "component_kind": component["component_kind"],
                 "display_title": component["display_title"],
                 "background_color": component["background_color"],
+                "header_accent_color": component["header_accent_color"],
                 "footnote_text": component["footnote_text"],
                 "subtitle": component["subtitle"],
                 "description_text": component["description_text"],

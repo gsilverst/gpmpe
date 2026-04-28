@@ -27,6 +27,7 @@ def initialize_database(config: AppConfig) -> None:
         _ensure_column(connection, "campaigns", "footnote_text", "footnote_text TEXT")
         _ensure_column(connection, "campaign_components", "footnote_text", "footnote_text TEXT")
         _ensure_column(connection, "campaign_components", "background_color", "background_color TEXT")
+        _ensure_column(connection, "campaign_components", "header_accent_color", "header_accent_color TEXT")
         _ensure_column(connection, "campaign_component_items", "background_color", "background_color TEXT")
         connection.commit()
 

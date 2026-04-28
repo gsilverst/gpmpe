@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS campaign_components (
   component_kind TEXT NOT NULL DEFAULT 'featured-offers',
   display_title TEXT NOT NULL,
   background_color TEXT,
+  header_accent_color TEXT,
   footnote_text TEXT,
   subtitle TEXT,
   description_text TEXT,

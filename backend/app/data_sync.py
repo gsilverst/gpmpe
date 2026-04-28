@@ -287,9 +287,9 @@ def _sync_campaign_components(connection: sqlite3.Connection, campaign_id: int, 
         cursor = connection.execute(
             """
             INSERT INTO campaign_components (
-                            campaign_id, component_key, component_kind, display_title, background_color, footnote_text, subtitle, description_text, display_order
+                            campaign_id, component_key, component_kind, display_title, background_color, header_accent_color, footnote_text, subtitle, description_text, display_order
             )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             (
                 campaign_id,
@@ -297,6 +297,7 @@ def _sync_campaign_components(connection: sqlite3.Connection, campaign_id: int, 
                 _optional_string(component, "component_kind") or "featured-offers",
                 _required_string(component, "display_title", record.file_path),
                 _optional_string(component, "background_color"),
+                _optional_string(component, "header_accent_color"),
                                 _optional_string(component, "footnote_text"),
                 _optional_string(component, "subtitle"),
                 _optional_string(component, "description_text"),

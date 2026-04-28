@@ -322,6 +322,10 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
         num_rows = math.ceil(num_items / cols_per_row) if num_items > 0 else 1
         
         featured_fill = _hex(comp.get("background_color"), _string_hex(palette["blush"]))
+        featured_header_color = comp.get("header_accent_color")
+        if not featured_header_color and items:
+            featured_header_color = items[0].get("background_color")
+        featured_header_accent = _hex(featured_header_color, _string_hex(palette["accent"]))
         panel_top = _FEATURED_Y
         panel_h = _FEATURED_H
         _draw_rounded_panel(pdf, hx, panel_top, panel_w, panel_h,
@@ -373,13 +377,10 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
                 item_idx = row_idx * cols_per_row + col_idx
                 if item_idx < num_items:
                     item = items[item_idx]
-                    # Alternate colors: blush, white, blush (or use card_1_bg)
-                    if col_idx % 2 == 0:
-                        item_fill = _hex(item.get("background_color"), _string_hex(palette["card_1_bg"]))
-                        item_accent = palette["accent"]
-                    else:
-                        item_fill = _hex(item.get("background_color"), _string_hex(palette["white"]))
-                        item_accent = palette["primary"]
+                    # Keep featured cards color-stable: item body can vary, but
+                    # header accent stays consistent across all cards.
+                    item_fill = _hex(item.get("background_color"), _string_hex(palette["card_1_bg"]))
+                    item_accent = featured_header_accent
                     
                     _draw_compact_offer_card(pdf, card_x_positions[col_idx], card_y, card_w, card_h,
                                             item.get("item_name") or "", item.get("duration_label") or "",
@@ -395,14 +396,15 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
     if weekday:
         wd_comp = weekday[0]
         weekday_fill = _hex(wd_comp.get("background_color"), _string_hex(palette["primary"]))
+        wd_text_color = _hex(wd_comp.get("header_accent_color"), _string_hex(palette["white"]))
         _draw_rounded_panel(pdf, hx, _WEEKDAY_Y, panel_w, _WEEKDAY_H,
-                            weekday_fill, palette["primary"], radius=24, stroke_w=2)
+                            weekday_fill, wd_text_color, radius=24, stroke_w=2)
         _draw_centered(pdf, title_with_marker(wd_comp), w / 2,
-                       _WEEKDAY_Y + _WEEKDAY_H - 34, "Helvetica-Bold", 22, palette["white"])
+                       _WEEKDAY_Y + _WEEKDAY_H - 34, "Helvetica-Bold", 22, wd_text_color)
         wd_sub = wd_comp.get("subtitle") or ""
         if wd_sub:
             _draw_centered(pdf, wd_sub, w / 2, _WEEKDAY_Y + _WEEKDAY_H - 56,
-                           "Times-Italic", 14, palette["primary_light"])
+                           "Times-Italic", 14, wd_text_color)
 
         strips_x = hx + 18
         strips_w = w - (hx + 18) * 2
@@ -415,7 +417,8 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
 
         # Carve out weekday item bounds so strips never collide with header/subtitle
         # or the lower discount/footer region.
-        strips_top = _WEEKDAY_Y + _WEEKDAY_H - 86.0
+        # Keep a little breathing room below the subtitle before the first item strip.
+        strips_top = _WEEKDAY_Y + _WEEKDAY_H - 92.0
         if has_discount_panel:
             strips_bottom = services_panel_y + services_panel_h + 10.0
         else:
@@ -434,6 +437,11 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
                                 item.get("item_value", ""),
                                 palette,
                                 strip_fill=strip_fill)
+
+        wd_note = (wd_comp.get("footnote_text") or "").strip()
+        if wd_note:
+            _draw_centered(pdf, f"** {wd_note}", w / 2, _WEEKDAY_Y + 12,
+                           "Helvetica", 8, wd_text_color)
 
     # ----- Discount strip (services panel) -----
     if discount:
@@ -602,6 +610,7 @@ def _fallback_components(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "component_kind": "featured-offers",
             "display_title": "Offer Details",
             "background_color": None,
+            "header_accent_color": None,
             "subtitle": None,
             "description_text": None,
             "display_order": 0,
@@ -683,7 +692,7 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
     ).fetchall()
     components = connection.execute(
         """
-        SELECT id, component_key, component_kind, display_title, background_color, footnote_text, subtitle, description_text, display_order
+        SELECT id, component_key, component_kind, display_title, background_color, header_accent_color, footnote_text, subtitle, description_text, display_order
         FROM campaign_components
         WHERE campaign_id = ?
         ORDER BY display_order ASC, id ASC;
@@ -729,6 +738,7 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
                 "component_kind": component["component_kind"],
                 "display_title": component["display_title"],
                 "background_color": component["background_color"],
+                "header_accent_color": component["header_accent_color"],
                 "footnote_text": component["footnote_text"],
                 "subtitle": component["subtitle"],
                 "description_text": component["description_text"],
