@@ -46,6 +46,9 @@ export default function HomePage() {
   const [artifacts, setArtifacts] = useState<ArtifactItem[]>([]);
   const [rendering, setRendering] = useState(false);
   const [renderStatus, setRenderStatus] = useState<string | null>(null);
+  const [previewArtifactId, setPreviewArtifactId] = useState<number | null>(null);
+  const [previewRendering, setPreviewRendering] = useState(false);
+  const [previewStatus, setPreviewStatus] = useState<string | null>(null);
   const [clonePreviewPrompt, setClonePreviewPrompt] = useState<{
     campaignId: number;
     campaignName: string;
@@ -124,6 +127,23 @@ export default function HomePage() {
       "_blank",
       "noopener,noreferrer"
     );
+  }
+
+  async function regenerateCampaignPreview(campaignId: number, reason?: string): Promise<void> {
+    setPreviewRendering(true);
+    setPreviewStatus(reason ? `Updating preview (${reason})...` : "Updating preview...");
+    try {
+      const artifact = await renderArtifact(campaignId, "flyer");
+      setPreviewArtifactId(artifact.id);
+      const items = await fetchArtifacts(campaignId);
+      setArtifacts(items);
+      setPreviewStatus("Preview updated.");
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Preview generation failed";
+      setPreviewStatus(`Preview generation failed: ${message}`);
+    } finally {
+      setPreviewRendering(false);
+    }
   }
 
   function parseSelectedId(value: string): number | null {
@@ -319,6 +339,8 @@ export default function HomePage() {
     let active = true;
     if (selectedCampaignId == null) {
       setArtifacts([]);
+      setPreviewArtifactId(null);
+      setPreviewStatus(null);
       return;
     }
     const campaignId = selectedCampaignId;
@@ -328,9 +350,11 @@ export default function HomePage() {
         const items = await fetchArtifacts(campaignId);
         if (!active) return;
         setArtifacts(items);
+        setPreviewArtifactId(items[0]?.id ?? null);
       } catch {
         if (!active) return;
         setArtifacts([]);
+        setPreviewArtifactId(null);
       }
     }
 
@@ -467,6 +491,7 @@ export default function HomePage() {
         title: created.title,
         objective: created.objective ?? "",
       });
+      await regenerateCampaignPreview(created.id, "campaign created");
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Failed to create campaign";
       setError(message);
@@ -494,6 +519,7 @@ export default function HomePage() {
         title: updated.title,
         objective: updated.objective ?? "",
       });
+      await regenerateCampaignPreview(updated.id, "campaign updated");
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Failed to update campaign";
       setError(message);
@@ -549,6 +575,7 @@ export default function HomePage() {
         objective: cloned.objective ?? "",
       });
       setCollisionMatches([]);
+      await regenerateCampaignPreview(cloned.id, "campaign cloned");
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Failed to clone campaign";
       setError(message);
@@ -594,6 +621,7 @@ export default function HomePage() {
           const campaignName = String(result.new_campaign_name ?? "new-campaign");
           setLatestCloneArtifact(null);
           setClonePreviewPrompt({ campaignId: activatedCampaignId, campaignName });
+          await regenerateCampaignPreview(activatedCampaignId, "chat clone");
           setChatStatus(
             `Campaign '${campaignName}' created and active. Do you want to view the new promotion PDF now?`
           );
@@ -602,6 +630,8 @@ export default function HomePage() {
             `Campaign '${String(result.new_campaign_name)}' created. It is now the active campaign — continue editing below.`
           );
         }
+      } else if (selectedCampaignId != null) {
+        await regenerateCampaignPreview(selectedCampaignId, "chat edit");
       }
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Failed to send chat edit";
@@ -638,7 +668,10 @@ export default function HomePage() {
     setRendering(true);
     setRenderStatus(null);
     try {
-      await renderArtifact(selectedCampaignId, artifactType);
+      const artifact = await renderArtifact(selectedCampaignId, artifactType);
+      if (artifactType === "flyer") {
+        setPreviewArtifactId(artifact.id);
+      }
       const items = await fetchArtifacts(selectedCampaignId);
       setArtifacts(items);
       setRenderStatus(`${artifactType} generated successfully.`);
@@ -1160,8 +1193,32 @@ export default function HomePage() {
           <button type="button" onClick={() => void handleGenerateArtifact("poster")} disabled={rendering}>
             {rendering ? "Generating..." : "Generate Poster"}
           </button>
+          {selectedCampaignId != null ? (
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => void regenerateCampaignPreview(selectedCampaignId, "manual refresh")}
+              disabled={previewRendering}
+            >
+              {previewRendering ? "Refreshing Preview..." : "Refresh Preview"}
+            </button>
+          ) : null}
         </div>
         {renderStatus ? <p>{renderStatus}</p> : null}
+        {previewStatus ? <p>{previewStatus}</p> : null}
+
+        <div className="preview-window">
+          {previewArtifactId != null ? (
+            <iframe
+              title="Campaign PDF Preview"
+              className="preview-frame"
+              src={artifactDownloadUrl(previewArtifactId)}
+            />
+          ) : (
+            <p>Select or create a campaign and generate changes to see the live PDF preview.</p>
+          )}
+        </div>
+
         {artifacts.length > 0 ? (
           <ul className="artifact-list">
             {artifacts.map((artifact) => (
