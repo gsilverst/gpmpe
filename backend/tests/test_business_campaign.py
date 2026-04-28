@@ -1,4 +1,5 @@
 from pathlib import Path
+import yaml
 
 from fastapi.testclient import TestClient
 
@@ -197,3 +198,47 @@ def test_campaign_status_validation_rejects_invalid_value(monkeypatch, tmp_path:
     )
 
     assert response.status_code == 422
+
+
+def test_campaign_create_and_update_persist_to_yaml(monkeypatch, tmp_path: Path) -> None:
+    client = _make_client(monkeypatch, tmp_path)
+
+    business_id = client.post(
+        "/businesses",
+        json={
+            "legal_name": "Acme LLC",
+            "display_name": "Acme",
+            "timezone": "America/New_York",
+        },
+    ).json()["id"]
+
+    created = client.post(
+        f"/businesses/{business_id}/campaigns",
+        json={
+            "campaign_name": "Summer",
+            "title": "Summer Launch",
+            "objective": "Increase awareness",
+            "status": "draft",
+        },
+    )
+    assert created.status_code == 201
+    campaign_id = created.json()["id"]
+
+    updated = client.patch(
+        f"/businesses/{business_id}/campaigns/{campaign_id}",
+        json={
+            "title": "Summer Launch Updated",
+            "objective": "Increase store visits",
+            "status": "active",
+        },
+    )
+    assert updated.status_code == 200
+
+    campaign_yaml = tmp_path / "yaml-data" / "Acme" / "Summer" / "Summer.yaml"
+    assert campaign_yaml.exists()
+
+    payload = yaml.safe_load(campaign_yaml.read_text(encoding="utf-8"))
+    assert payload["campaign_name"] == "Summer"
+    assert payload["title"] == "Summer Launch Updated"
+    assert payload["objective"] == "Increase store visits"
+    assert payload["status"] == "active"

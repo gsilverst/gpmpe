@@ -1,4 +1,5 @@
 from pathlib import Path
+import yaml
 
 from fastapi.testclient import TestClient
 
@@ -152,3 +153,64 @@ def test_template_override_precedence(monkeypatch, tmp_path: Path) -> None:
     assert payload["effective_values"]["headline"] == "Campaign Headline"
     assert payload["effective_values"]["cta"] == "Shop Now"
     assert payload["effective_values"]["accent"] == "#209dd7"
+
+
+def test_offer_asset_and_template_updates_persist_to_yaml(monkeypatch, tmp_path: Path) -> None:
+    client = _make_client(monkeypatch, tmp_path)
+    campaign_id = _seed_campaign(client)
+
+    offer = client.post(
+        f"/campaigns/{campaign_id}/offers",
+        json={
+            "offer_name": "Weekend",
+            "offer_value": "20%",
+            "start_date": "2026-05-01",
+            "end_date": "2026-05-10",
+            "terms_text": "In-store only",
+        },
+    )
+    assert offer.status_code == 201
+
+    asset = client.post(
+        f"/campaigns/{campaign_id}/assets",
+        json={
+            "asset_type": "hero_image",
+            "source_type": "upload",
+            "mime_type": "image/png",
+            "source_path": "assets/summer-hero.png",
+            "width": 1200,
+            "height": 800,
+            "metadata": {"alt": "Summer hero"},
+        },
+    )
+    assert asset.status_code == 201
+
+    template = client.post(
+        "/templates",
+        json={
+            "template_name": "flyer-summer",
+            "template_kind": "flyer",
+            "size_spec": "letter",
+            "default_values": {"headline": "Summer"},
+        },
+    )
+    assert template.status_code == 201
+    template_id = template.json()["id"]
+
+    binding = client.post(
+        f"/campaigns/{campaign_id}/template-bindings",
+        json={
+            "template_id": template_id,
+            "override_values": {"headline": "Summer Savings"},
+        },
+    )
+    assert binding.status_code == 201
+
+    campaign_yaml = tmp_path / "yaml-data" / "Acme" / "Summer" / "Summer.yaml"
+    assert campaign_yaml.exists()
+
+    payload = yaml.safe_load(campaign_yaml.read_text(encoding="utf-8"))
+    assert payload["offers"][0]["offer_name"] == "Weekend"
+    assert payload["assets"][0]["source_path"] == "assets/summer-hero.png"
+    assert payload["template_binding"]["template_name"] == "flyer-summer"
+    assert payload["template_binding"]["override_values"]["headline"] == "Summer Savings"

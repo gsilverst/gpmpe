@@ -12,9 +12,15 @@ import yaml
 SAFE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
-def _ensure_safe_name(name: str, kind: str) -> None:
-    if not SAFE_NAME_PATTERN.fullmatch(name):
-        raise ValueError(f"Unsafe {kind} name '{name}'. Rename is required before writing YAML files.")
+def _filesystem_name(name: str) -> str:
+    stripped = name.strip()
+    if stripped == "":
+        return "item"
+    if SAFE_NAME_PATTERN.fullmatch(stripped):
+        return stripped
+
+    normalized = re.sub(r"[^A-Za-z0-9._-]+", "-", stripped).strip("-")
+    return normalized or "item"
 
 
 def _business_payload(connection: sqlite3.Connection, business_id: int) -> dict[str, Any]:
@@ -204,19 +210,19 @@ def persist_yaml_state_for_campaign(connection: sqlite3.Connection, data_dir: Pa
 
     business_name = campaign["business_display_name"]
     campaign_name = campaign["campaign_name"]
-    _ensure_safe_name(business_name, "business")
-    _ensure_safe_name(campaign_name, "campaign")
+    business_path_name = _filesystem_name(business_name)
+    campaign_path_name = _filesystem_name(campaign_name)
 
     business_payload = _business_payload(connection, campaign["business_id"])
     _, campaign_payload = _campaign_payload(connection, campaign_id)
 
-    business_dir = data_dir / business_name
-    campaign_dir = business_dir / campaign_name
+    business_dir = data_dir / business_path_name
+    campaign_dir = business_dir / campaign_path_name
     business_dir.mkdir(parents=True, exist_ok=True)
     campaign_dir.mkdir(parents=True, exist_ok=True)
 
-    business_file = business_dir / f"{business_name}.yaml"
-    campaign_file = campaign_dir / f"{campaign_name}.yaml"
+    business_file = business_dir / f"{business_path_name}.yaml"
+    campaign_file = campaign_dir / f"{campaign_path_name}.yaml"
 
     business_file.write_text(yaml.safe_dump(business_payload, sort_keys=False, allow_unicode=False), encoding="utf-8")
     campaign_file.write_text(yaml.safe_dump(campaign_payload, sort_keys=False, allow_unicode=False), encoding="utf-8")

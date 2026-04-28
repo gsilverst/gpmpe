@@ -159,6 +159,13 @@ def _campaign_display_name(row: Any) -> str:
     return details.get("display_name") or row["campaign_name"]
 
 
+def _persist_campaign_yaml_or_raise(connection: Any, config: Any, campaign_id: int) -> None:
+    try:
+        persist_yaml_state_for_campaign(connection, config.data_dir, campaign_id)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
 def _business_snapshot(connection: Any, display_name: str) -> dict[str, Any]:
     business = connection.execute(
         """
@@ -506,6 +513,7 @@ def create_app() -> FastAPI:
                 """,
                 (campaign_id,),
             ).fetchone()
+            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
             connection.commit()
 
         if row is None:
@@ -553,6 +561,7 @@ def create_app() -> FastAPI:
                 """,
                 (campaign_id,),
             ).fetchone()
+            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
             connection.commit()
 
         if updated is None:
@@ -635,6 +644,7 @@ def create_app() -> FastAPI:
                 """,
                 (offer_id,),
             ).fetchone()
+            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
             connection.commit()
 
         if row is None:
@@ -717,6 +727,7 @@ def create_app() -> FastAPI:
                 """,
                 (asset_id,),
             ).fetchone()
+            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
             connection.commit()
 
         if row is None:
@@ -871,6 +882,7 @@ def create_app() -> FastAPI:
                 """,
                 (binding_id,),
             ).fetchone()
+            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
             connection.commit()
 
         if row is None:
@@ -952,10 +964,7 @@ def create_app() -> FastAPI:
         config = resolve_config()
         with connect_database(config) as connection:
             result = apply_chat_command(connection, payload.campaign_id, command)
-            try:
-                persist_yaml_state_for_campaign(connection, config.data_dir, payload.campaign_id)
-            except ValueError as error:
-                raise HTTPException(status_code=409, detail=str(error)) from error
+            _persist_campaign_yaml_or_raise(connection, config, payload.campaign_id)
             connection.commit()
 
         chat_store.append(session_id, "user", payload.message)
