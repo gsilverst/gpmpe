@@ -61,7 +61,7 @@ COMPONENT_RENAME_PATTERN = re.compile(
 
 @dataclass(frozen=True)
 class ParsedCommand:
-    target: Literal["campaign", "offer", "brand", "component"]
+    target: Literal["campaign", "offer", "brand", "component", "clarify"]
     field: str
     value: str
     offer_id: int | None = None
@@ -157,11 +157,12 @@ def parse_chat_command(message: str) -> ParsedCommand:
         return ParsedCommand(target="component", field="component_key", value=value, component_ref=component_ref)
 
     if COMPONENT_CHANGE_NAME_INCOMPLETE_PATTERN.match(text):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Missing new component name. Use: "
-                "'change the name of <component> component to <new_component_key>'."
+        return ParsedCommand(
+            target="clarify",
+            field="message",
+            value=(
+                "I can do that. Please provide the new component-key, for example: "
+                "'change the name of mothers-day-specials component to main-street-appreciation-month'."
             ),
         )
 
@@ -172,11 +173,13 @@ def parse_chat_command(message: str) -> ParsedCommand:
         return ParsedCommand(target="component", field="component_key", value=value, component_ref=component_ref)
 
     if COMPONENT_CHANGE_KEY_FIELD_INCOMPLETE_PATTERN.match(text):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Missing new component-key value. Use: "
-                "'change the component-key field of <component> component to <new_component_key>'."
+        return ParsedCommand(
+            target="clarify",
+            field="message",
+            value=(
+                "I can do that. Please provide the new component-key, for example: "
+                "'change the component-key field of mothers-day-specials component "
+                "to main-street-appreciation-month'."
             ),
         )
 
@@ -240,6 +243,9 @@ def apply_chat_command(connection: Any, campaign_id: int, command: ParsedCommand
     ).fetchone()
     if campaign is None:
         raise HTTPException(status_code=404, detail="Campaign not found")
+
+    if command.target == "clarify":
+        return {"target": "clarify", "message": command.value}
 
     if command.target == "campaign":
         if command.field not in CAMPAIGN_FIELDS:

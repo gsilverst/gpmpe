@@ -253,8 +253,10 @@ def test_chat_message_component_rename_without_new_name_returns_helpful_error(mo
         },
     )
 
-    assert response.status_code == 400
-    assert "Missing new component name" in response.json()["detail"]
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["target"] == "clarify"
+    assert "Please provide the new component-key" in payload["result"]["message"]
 
 
 def test_chat_message_can_rename_component_key_with_component_key_field_phrase(monkeypatch, tmp_path: Path) -> None:
@@ -294,8 +296,10 @@ def test_chat_message_component_key_field_phrase_without_new_name_returns_helpfu
         },
     )
 
-    assert response.status_code == 400
-    assert "Missing new component-key value" in response.json()["detail"]
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["target"] == "clarify"
+    assert "Please provide the new component-key" in payload["result"]["message"]
 
 
 def test_save_is_noop_when_commit_on_save_disabled(monkeypatch, tmp_path: Path) -> None:

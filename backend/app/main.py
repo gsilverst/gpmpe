@@ -1584,7 +1584,8 @@ def create_app() -> FastAPI:
             with connect_database(config) as connection:
                 command = parse_chat_command(payload.message)
                 result = apply_chat_command(connection, payload.campaign_id, command)
-                _persist_campaign_yaml_or_raise(connection, config, payload.campaign_id)
+                if result.get("target") != "clarify":
+                    _persist_campaign_yaml_or_raise(connection, config, payload.campaign_id)
                 connection.commit()
 
         chat_store.append(session_id, "user", payload.message)
