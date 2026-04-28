@@ -105,7 +105,7 @@ def _business_payload(connection: sqlite3.Connection, business_id: int) -> dict[
 def _component_payloads(connection: sqlite3.Connection, campaign_id: int) -> list[dict[str, Any]]:
     components = connection.execute(
         """
-        SELECT id, component_key, component_kind, display_title, footnote_text, subtitle, description_text, display_order
+        SELECT id, component_key, component_kind, display_title, background_color, footnote_text, subtitle, description_text, display_order
         FROM campaign_components
         WHERE campaign_id = ?
         ORDER BY display_order ASC, id ASC;
@@ -117,7 +117,7 @@ def _component_payloads(connection: sqlite3.Connection, campaign_id: int) -> lis
     for component in components:
         items = connection.execute(
             """
-            SELECT item_name, item_kind, duration_label, item_value, description_text, terms_text, display_order
+            SELECT item_name, item_kind, duration_label, item_value, background_color, description_text, terms_text, display_order
             FROM campaign_component_items
             WHERE component_id = ?
             ORDER BY display_order ASC, id ASC;
@@ -129,6 +129,7 @@ def _component_payloads(connection: sqlite3.Connection, campaign_id: int) -> lis
                 "component_key": component["component_key"],
                 "component_kind": component["component_kind"],
                 "display_title": component["display_title"],
+                "background_color": component["background_color"],
                 "footnote_text": component["footnote_text"],
                 "subtitle": component["subtitle"],
                 "description_text": component["description_text"],
@@ -139,6 +140,7 @@ def _component_payloads(connection: sqlite3.Connection, campaign_id: int) -> lis
                         "item_kind": item["item_kind"],
                         "duration_label": item["duration_label"],
                         "item_value": item["item_value"],
+                        "background_color": item["background_color"],
                         "description_text": item["description_text"],
                         "terms_text": item["terms_text"],
                         "display_order": item["display_order"],

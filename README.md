@@ -67,6 +67,146 @@ Examples:
 
 If a command omits the component name before a component context has been established, GPMPE returns a clarification message instead of applying the change to the wrong component.
 
+#### Supported Chat Commands
+
+Commands accept short/natural field names alongside the full canonical names. The word `field` is optional, and `set`, `change`, and `update` are all accepted as the leading verb.
+
+**Field edits — campaign**
+
+| You can say | Canonical field |
+|---|---|
+| `title`, `headline`, `header` | `title` |
+| `objective`, `goal` | `objective` |
+| `footnote`, `note`, `footnote_text` | `footnote_text` |
+| `status` | `status` |
+| `start`, `starts`, `start_date` | `start_date` |
+| `end`, `ends`, `end_date` | `end_date` |
+
+Examples:
+- `set headline to "Summer Savings Event"`
+- `change the title to Weekend Blowout`
+- `set footnote to Restrictions apply. See store for details.`
+- `update status to active`
+
+**Field edits — business profile**
+
+| You can say | Canonical field |
+|---|---|
+| `display name`, `display_name`, `business name`, `name` | `display_name` |
+| `legal name`, `legal_name` | `legal_name` |
+| `timezone`, `time zone` | `timezone` |
+| `active`, `enabled`, `is_active` | `is_active` |
+| `phone`, `phone number` | `phone` |
+| `street`, `street address`, `address line 1`, `address_line1` | `address_line1` |
+| `suite`, `unit`, `address line 2`, `address_line2` | `address_line2` |
+| `city` | `city` |
+| `state`, `province` | `state` |
+| `postal code`, `zip`, `zip code`, `postal_code` | `postal_code` |
+| `country` | `country` |
+
+Examples:
+- `set business display name to Merci Wellness`
+- `set business active to false`
+- `change business city to Teaneck`
+
+Address note: when editing address fields, GPMPE expects a complete address once any address field is present (`address_line1`, `city`, `state`, and `postal_code`).
+
+**Field edits — brand**
+
+| You can say | Canonical field |
+|---|---|
+| `primary`, `primary_color` | `primary_color` |
+| `secondary`, `secondary_color` | `secondary_color` |
+| `accent`, `accent_color` | `accent_color` |
+| `font`, `font_family` | `font_family` |
+| `logo`, `logo_path` | `logo_path` |
+
+Examples:
+- `set brand primary to #ecad0a`
+- `change brand font to Georgia`
+
+**Field edits — offer**
+
+| You can say | Canonical field |
+|---|---|
+| `value`, `discount`, `amount`, `offer_value` | `offer_value` |
+| `start`, `starts`, `start_date` | `start_date` |
+| `end`, `ends`, `end_date` | `end_date` |
+| `terms`, `terms_text` | `terms_text` |
+
+Example: `set offer 1 discount to 20%`
+
+**Field edits — components**
+
+| You can say | Canonical field |
+|---|---|
+| `name`, `key`, `component_key` | `component_key` |
+| `kind`, `type`, `component_kind` | `component_kind` |
+| `title`, `display title`, `display_title` | `display_title` |
+| `subtitle`, `subheading` | `subtitle` |
+| `description`, `desc`, `description_text` | `description_text` |
+| `footnote`, `note`, `footnote_text` | `footnote_text` |
+
+Examples:
+- `change the kind of the other-services component to legal-note`
+- `change the subtitle of the other-services component to Weekday Specials`
+- `change the description of the other-services component to Neighborhood appreciation offers`
+- `change the footnote of the other-services component to Offers valid Monday through Thursday only`
+
+**Field edits — component items**
+
+| You can say | Canonical field |
+|---|---|
+| `value`, `price`, `cost`, `item_value` | `item_value` |
+| `duration`, `duration_label` | `duration_label` |
+| `description`, `desc`, `description_text` | `description_text` |
+| `terms`, `terms_text` | `terms_text` |
+| `name`, `item_name` | `item_name` |
+| `kind`, `type`, `item_kind` | `item_kind` |
+
+Items can be referenced by **name** or by **ordinal** (`first`, `second`, `last`, `2nd`, etc.). The component name can be omitted when an active component context is established.
+
+Examples:
+- `set the value of the Swedish Massage item to $85`
+- `change the price of the second item in the main-street-appreciation component to $80`
+- `change the duration of the Express Facial item to 45 min`
+- `change the item_value field of the second item to $85`
+
+**Component rename**
+
+- `change the name of the weekday-specials component to other-services`
+
+**Component item clone**
+
+Clone an existing item (optionally with a new name) and insert it at a specific position:
+
+- `clone the Swedish Massage item and add it between the Swedish Massage and the Deep Tissue items`
+- `create a new item like the Swedish Massage item called Lymphatic Drainage and add it between the Swedish Massage and the Deep Tissue items`
+
+**Component item delete**
+
+Delete an item by ordinal or name. The component name can be omitted when an active component context is already established:
+
+- `delete the second item in the main-street-appreciation component`
+- `delete the last item in the main-street-appreciation component`
+- `delete the Swedish Massage item in the main-street-appreciation component`
+- `delete the Swedish Massage item` *(uses active component context)*
+
+After deletion, GPMPE resequences the remaining items so display order stays contiguous (1, 2, 3 …).
+
+**Component delete**
+
+Delete an entire component and all its items. The active component context is cleared automatically:
+
+- `delete the weekday-specials component`
+
+**Query commands**
+
+- `what are the components of the current promotion` — lists all components of the active campaign
+- `list the components` — same
+- `what are the items of the current component` — lists all items in the active component
+- `list the items` — same (requires an active component to be set)
+
 ### 4. Generating the PDF
 When you're happy with the content, you click to generate the PDF. GPMPE combines your business information and campaign details into a fixed, professionally formatted document and saves it to a folder on your computer. The output location is configurable, and defaults to the folder you're working in.
 

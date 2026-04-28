@@ -511,3 +511,25 @@ export async function resolveStartup(
 ): Promise<{ ok: boolean }> {
   return postJson<{ ok: boolean }>("/startup/resolve", { direction }, baseUrl);
 }
+
+export type CampaignComponent = {
+  id: number;
+  component_key: string;
+  component_kind: string;
+  display_title: string | null;
+  subtitle: string | null;
+  description_text: string | null;
+  footnote_text: string | null;
+  display_order: number;
+};
+
+export async function fetchCampaignComponents(
+  campaignId: number,
+  baseUrl = apiBaseUrl()
+): Promise<CampaignComponent[]> {
+  const payload = await fetchJson<{ campaign_id: number; items: CampaignComponent[] }>(
+    `/campaigns/${campaignId}/components`,
+    baseUrl
+  );
+  return payload.items;
+}

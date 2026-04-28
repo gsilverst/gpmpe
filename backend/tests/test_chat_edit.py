@@ -69,30 +69,58 @@ def _seed_component_for_campaign(campaign_id: int) -> None:
 
 
 def _seed_component_items_for_campaign(campaign_id: int) -> None:
-        config = resolve_config()
-        with connect_database(config) as connection:
-                component_id = connection.execute(
-                        """
-                        INSERT INTO campaign_components (
-                            campaign_id, component_key, component_kind, display_title, display_order
-                        )
-                        VALUES (?, 'main-street-appreciation', 'featured-offers', 'Main Street Appreciation', 1)
-                        RETURNING id;
-                        """,
-                        (campaign_id,),
-                ).fetchone()["id"]
-                connection.execute(
-                        """
-                        INSERT INTO campaign_component_items (
-                            component_id, item_name, item_kind, duration_label, item_value, description_text, terms_text, display_order
-                        )
-                        VALUES
-                            (?, 'Express Facial', 'service', '30 min', '$35', 'Quick glow-up', NULL, 1),
-                            (?, 'Signature Facial', 'service', '60 min', '$75', 'Full treatment', NULL, 2);
-                        """,
-                        (component_id, component_id),
-                )
-                connection.commit()
+    config = resolve_config()
+    with connect_database(config) as connection:
+        component_id = connection.execute(
+            """
+            INSERT INTO campaign_components (
+                campaign_id, component_key, component_kind, display_title, display_order
+            )
+            VALUES (?, 'main-street-appreciation', 'featured-offers', 'Main Street Appreciation', 1)
+            RETURNING id;
+            """,
+            (campaign_id,),
+        ).fetchone()["id"]
+        connection.execute(
+            """
+            INSERT INTO campaign_component_items (
+                component_id, item_name, item_kind, duration_label, item_value, description_text, terms_text, display_order
+            )
+            VALUES
+                (?, 'Express Facial', 'service', '30 min', '$35', 'Quick glow-up', NULL, 1),
+                (?, 'Signature Facial', 'service', '60 min', '$75', 'Full treatment', NULL, 2);
+            """,
+            (component_id, component_id),
+        )
+        connection.commit()
+
+
+def _seed_massage_component_items_for_campaign(campaign_id: int) -> None:
+    config = resolve_config()
+    with connect_database(config) as connection:
+        component_id = connection.execute(
+            """
+            INSERT INTO campaign_components (
+                campaign_id, component_key, component_kind, display_title, display_order
+            )
+            VALUES (?, 'main-street-appreciation', 'featured-offers', 'Main Street Appreciation', 1)
+            RETURNING id;
+            """,
+            (campaign_id,),
+        ).fetchone()["id"]
+        connection.execute(
+            """
+            INSERT INTO campaign_component_items (
+                component_id, item_name, item_kind, duration_label, item_value, description_text, terms_text, display_order
+            )
+            VALUES
+                (?, 'Swedish Massage', 'service', '60 min', '$75', 'Relaxing full-body massage', NULL, 1),
+                (?, 'Deep Tissue', 'service', '60 min', '$95', 'Targeted muscle relief', NULL, 2),
+                (?, 'Hot Stone', 'service', '75 min', '$110', 'Heated stone therapy', NULL, 3);
+            """,
+            (component_id, component_id, component_id),
+        )
+        connection.commit()
 
 
 def test_chat_message_updates_campaign_and_brand(monkeypatch, tmp_path: Path) -> None:
@@ -395,6 +423,331 @@ def test_chat_message_can_update_component_item_field_by_item_name(monkeypatch, 
     assert payload["result"]["item"]["item_value"] == "$45"
 
 
+def test_chat_message_can_update_component_item_field_with_item_first_phrase(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_items_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "change the Signature Facial item value in the main-street-appreciation component to $45",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["target"] == "component_item"
+    assert payload["result"]["field"] == "item_value"
+    assert payload["result"]["item"]["item_name"] == "Signature Facial"
+    assert payload["result"]["item"]["item_value"] == "$45"
+
+
+def test_chat_message_can_update_component_background_color(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "change the background color of the mothers-day-specials component to light green",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["target"] == "component"
+    assert payload["result"]["field"] == "background_color"
+    assert payload["result"]["component"]["component_key"] == "mothers-day-specials"
+    assert payload["result"]["component"]["background_color"] == "light green"
+
+
+def test_chat_message_can_update_component_item_background_color(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_items_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "change the Signature Facial item background color in the main-street-appreciation component to #cfeccf",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["target"] == "component_item"
+    assert payload["result"]["field"] == "background_color"
+    assert payload["result"]["item"]["item_name"] == "Signature Facial"
+    assert payload["result"]["item"]["background_color"] == "#cfeccf"
+
+
+def test_chat_message_can_update_background_for_all_items_in_active_component(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_items_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+
+    context_response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "I am working on the main-street-appreciation component",
+        },
+    )
+    assert context_response.status_code == 200
+
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "change the color of the background to light purple for all items.",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["target"] == "component_item"
+    assert payload["result"]["field"] == "background_color"
+    assert payload["result"]["scope"] == "all_items"
+    assert payload["result"]["updated_count"] == 2
+
+    config = resolve_config()
+    with connect_database(config) as connection:
+        rows = connection.execute(
+            """
+            SELECT item_name, background_color
+            FROM campaign_component_items
+            WHERE component_id = (
+              SELECT id FROM campaign_components
+              WHERE campaign_id = ? AND component_key = 'main-street-appreciation'
+            )
+            ORDER BY display_order ASC, id ASC;
+            """,
+            (campaign_id,),
+        ).fetchall()
+
+    assert [r["background_color"] for r in rows] == ["light purple", "light purple"]
+
+
+def test_chat_message_can_update_background_for_all_components(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_for_campaign(campaign_id)
+    _seed_component_items_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "change the background color to lavender for all components.",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["target"] == "component"
+    assert payload["result"]["field"] == "background_color"
+    assert payload["result"]["scope"] == "all_components"
+    assert payload["result"]["updated_count"] == 2
+
+    config = resolve_config()
+    with connect_database(config) as connection:
+        rows = connection.execute(
+            """
+            SELECT component_key, background_color
+            FROM campaign_components
+            WHERE campaign_id = ?
+            ORDER BY display_order ASC, id ASC;
+            """,
+            (campaign_id,),
+        ).fetchall()
+
+    assert all(r["background_color"] == "lavender" for r in rows)
+
+
+def test_chat_message_can_clone_component_item_with_new_name_between_neighbors(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_massage_component_items_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+
+    context_response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "I am working on the main-street-appreciation component",
+        },
+    )
+    assert context_response.status_code == 200
+
+    clone_response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "create a new item like the Swedish Massage item called Lymphatic Drainage and add it between the Swedish Massage and the Deep Tissue items",
+        },
+    )
+
+    assert clone_response.status_code == 200
+    payload = clone_response.json()
+    assert payload["result"]["target"] == "component_item"
+    assert payload["result"]["field"] == "clone"
+    assert payload["result"]["component"]["component_key"] == "main-street-appreciation"
+    assert payload["result"]["item"]["item_name"] == "Lymphatic Drainage"
+    assert payload["result"]["item"]["item_value"] == "$75"
+    assert payload["result"]["item"]["display_order"] == 2
+
+    config = resolve_config()
+    with connect_database(config) as connection:
+        items = connection.execute(
+            """
+            SELECT item_name, display_order
+            FROM campaign_component_items
+            WHERE component_id = (
+                SELECT id
+                FROM campaign_components
+                WHERE campaign_id = ? AND component_key = 'main-street-appreciation'
+            )
+            ORDER BY display_order ASC, id ASC;
+            """,
+            (campaign_id,),
+        ).fetchall()
+
+    assert [(item["item_name"], item["display_order"]) for item in items] == [
+        ("Swedish Massage", 1),
+        ("Lymphatic Drainage", 2),
+        ("Deep Tissue", 3),
+        ("Hot Stone", 4),
+    ]
+
+
+def test_chat_message_can_delete_component_item_by_ordinal_with_context(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_items_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+
+    context_response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "I am working on the main-street-appreciation component",
+        },
+    )
+    assert context_response.status_code == 200
+
+    delete_response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "delete the second item",
+        },
+    )
+
+    assert delete_response.status_code == 200
+    payload = delete_response.json()
+    assert payload["result"]["target"] == "component_item"
+    assert payload["result"]["field"] == "delete"
+    assert payload["result"]["deleted"] is True
+    assert payload["result"]["item"]["item_name"] == "Signature Facial"
+
+    config = resolve_config()
+    with connect_database(config) as connection:
+        items = connection.execute(
+            """
+            SELECT item_name, display_order
+            FROM campaign_component_items
+            WHERE component_id = (
+                SELECT id
+                FROM campaign_components
+                WHERE campaign_id = ? AND component_key = 'main-street-appreciation'
+            )
+            ORDER BY display_order ASC, id ASC;
+            """,
+            (campaign_id,),
+        ).fetchall()
+
+    assert [(item["item_name"], item["display_order"]) for item in items] == [
+        ("Express Facial", 1),
+    ]
+
+
+def test_chat_message_can_delete_component_item_by_name(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_items_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "delete the Signature Facial item in the main-street-appreciation component",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["target"] == "component_item"
+    assert payload["result"]["field"] == "delete"
+    assert payload["result"]["deleted"] is True
+    assert payload["result"]["item"]["item_name"] == "Signature Facial"
+
+
+def test_chat_message_can_delete_component_by_name(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_items_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "delete the main-street-appreciation component",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["target"] == "component"
+    assert payload["result"]["field"] == "delete"
+    assert payload["result"]["deleted"] is True
+    assert payload["result"]["component"]["component_key"] == "main-street-appreciation"
+
+    config = resolve_config()
+    with connect_database(config) as connection:
+        component = connection.execute(
+            """
+            SELECT id
+            FROM campaign_components
+            WHERE campaign_id = ? AND component_key = 'main-street-appreciation';
+            """,
+            (campaign_id,),
+        ).fetchone()
+
+    assert component is None
+
+
 def test_chat_message_component_item_field_update_rejects_missing_named_target(monkeypatch, tmp_path: Path) -> None:
     config_path = _write_config(tmp_path)
     client = _make_client(monkeypatch, config_path)
@@ -542,6 +895,253 @@ def test_changing_campaign_clears_stale_component_context(monkeypatch, tmp_path:
     payload = response.json()
     assert payload["result"]["target"] == "clarify"
     assert "which component you are working on" in payload["result"]["message"]
+
+
+def test_chat_message_short_field_aliases(monkeypatch, tmp_path: Path) -> None:
+    """Short/natural field names should be accepted and normalized to canonical field names."""
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_items_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+
+    # Campaign alias: "headline" → "title"
+    r = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={"campaign_id": campaign_id, "message": "set headline to Flash Sale"},
+    )
+    assert r.status_code == 200
+    assert r.json()["result"]["campaign"]["title"] == "Flash Sale"
+
+    # Brand alias: "primary" → "primary_color"
+    r = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={"campaign_id": campaign_id, "message": "set brand primary to #aabbcc"},
+    )
+    assert r.status_code == 200
+    assert r.json()["result"]["brand_theme"]["primary_color"] == "#aabbcc"
+
+    # Item alias: "value" → "item_value" with "set ... of ... item to" phrasing
+    r = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "set the value of the Express Facial item in the main-street-appreciation component to $40",
+        },
+    )
+    assert r.status_code == 200
+    result = r.json()["result"]
+    assert result["target"] == "component_item"
+    assert result["item"]["item_name"] == "Express Facial"
+    assert result["item"]["item_value"] == "$40"
+
+    # Item alias: "price" → "item_value"
+    r = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "change the price of the Signature Facial item in the main-street-appreciation component to $80",
+        },
+    )
+    assert r.status_code == 200
+    result = r.json()["result"]
+    assert result["item"]["item_name"] == "Signature Facial"
+    assert result["item"]["item_value"] == "$80"
+
+    # Item alias: "duration" → "duration_label"
+    r = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "change the duration of the Express Facial item in the main-street-appreciation component to 45 min",
+        },
+    )
+    assert r.status_code == 200
+    result = r.json()["result"]
+    assert result["item"]["item_name"] == "Express Facial"
+    assert result["item"]["duration_label"] == "45 min"
+
+
+def test_chat_message_can_update_campaign_footnote_with_short_alias(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={"campaign_id": campaign_id, "message": "set footnote to Restrictions apply. See store for details."},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["target"] == "campaign"
+    assert payload["result"]["field"] == "footnote_text"
+    assert payload["result"]["campaign"]["footnote_text"] == "Restrictions apply. See store for details."
+
+
+def test_chat_message_can_update_component_metadata_fields_with_aliases(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "change the kind of the mothers-day-specials component to legal-note",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["result"]["field"] == "component_kind"
+    assert response.json()["result"]["component"]["component_kind"] == "legal-note"
+
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "change the description of the mothers-day-specials component to Limited-time neighborhood appreciation offers",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["result"]["field"] == "description_text"
+    assert response.json()["result"]["component"]["description_text"] == "Limited-time neighborhood appreciation offers"
+
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "change the footnote of the mothers-day-specials component to Offers valid Monday through Thursday only",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["result"]["field"] == "footnote_text"
+    assert response.json()["result"]["component"]["footnote_text"] == "Offers valid Monday through Thursday only"
+
+
+def test_chat_message_can_update_business_profile_fields(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    business_id, campaign_id = _seed_campaign(client)
+
+    seed_address = client.patch(
+        f"/businesses/{business_id}",
+        json={
+            "phone": "(201) 555-0100",
+            "address_line1": "263 Main St.",
+            "city": "Hackensack",
+            "state": "NJ",
+            "postal_code": "07601",
+            "country": "US",
+        },
+    )
+    assert seed_address.status_code == 200
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={"campaign_id": campaign_id, "message": "set business display name to Merci Wellness"},
+    )
+    assert response.status_code == 200
+    assert response.json()["result"]["target"] == "business"
+    assert response.json()["result"]["business"]["display_name"] == "Merci Wellness"
+
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={"campaign_id": campaign_id, "message": "set business active to false"},
+    )
+    assert response.status_code == 200
+    assert response.json()["result"]["business"]["is_active"] is False
+
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={"campaign_id": campaign_id, "message": "set business city to Teaneck"},
+    )
+    assert response.status_code == 200
+    assert response.json()["result"]["business"]["city"] == "Teaneck"
+
+    business = client.get(f"/businesses/{business_id}")
+    assert business.status_code == 200
+    business_payload = business.json()
+    assert business_payload["display_name"] == "Merci Wellness"
+    assert business_payload["is_active"] is False
+    assert business_payload["city"] == "Teaneck"
+
+
+def test_chat_message_can_list_components_of_current_promotion(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_for_campaign(campaign_id)
+    _seed_component_items_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={"campaign_id": campaign_id, "message": "what are the components of the current promotion"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    result = payload["result"]
+    assert result["target"] == "query"
+    assert result["query_type"] == "list_components"
+    keys = [c["component_key"] for c in result["components"]]
+    assert "mothers-day-specials" in keys
+    assert "main-street-appreciation" in keys
+    assert "mothers-day-specials" in result["message"]
+    assert "main-street-appreciation" in result["message"]
+
+
+def test_chat_message_can_list_items_of_active_component(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_items_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+
+    # Establish active component context
+    client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={"campaign_id": campaign_id, "message": "I am working on the main-street-appreciation component"},
+    )
+
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={"campaign_id": campaign_id, "message": "what are the items of the current component"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    result = payload["result"]
+    assert result["target"] == "query"
+    assert result["query_type"] == "list_items"
+    assert result["component_key"] == "main-street-appreciation"
+    item_names = [it["item_name"] for it in result["items"]]
+    assert "Express Facial" in item_names
+    assert "Signature Facial" in item_names
+    assert "Express Facial" in result["message"]
+    assert "Signature Facial" in result["message"]
+
+
+def test_chat_message_list_items_without_active_component_returns_clarify(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={"campaign_id": campaign_id, "message": "list the items"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["target"] == "clarify"
+    assert "No active component" in payload["result"]["message"]
 
 
 def test_save_is_noop_when_commit_on_save_disabled(monkeypatch, tmp_path: Path) -> None:

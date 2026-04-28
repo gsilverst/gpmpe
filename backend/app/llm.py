@@ -20,7 +20,27 @@ log = logging.getLogger(__name__)
 # The LLM is instructed to respond with a JSON object matching one of these
 # shapes.  Unknown actions are treated as clarification requests.
 
-COMPONENT_EDITABLE_FIELDS = {"display_title", "subtitle", "description_text", "footnote_text"}
+COMPONENT_EDITABLE_FIELDS = {
+    "component_key",
+    "component_kind",
+    "display_title",
+    "subtitle",
+    "description_text",
+    "footnote_text",
+}
+BUSINESS_EDITABLE_FIELDS = {
+    "legal_name",
+    "display_name",
+    "timezone",
+    "is_active",
+    "phone",
+    "address_line1",
+    "address_line2",
+    "city",
+    "state",
+    "postal_code",
+    "country",
+}
 
 _ACTIONS = """
 Respond ONLY with a JSON object (no markdown fences, no commentary) that
@@ -28,7 +48,7 @@ matches exactly one of the following shapes:
 
 1. Set a campaign-level field:
    {"action": "set_campaign_field", "field": "<field>", "value": "<value>"}
-   Allowed fields: title, objective, status, start_date, end_date
+    Allowed fields: title, objective, footnote_text, status, start_date, end_date
    Status must be one of: draft, active, paused, completed, archived
    Dates must be YYYY-MM-DD
 
@@ -38,13 +58,18 @@ matches exactly one of the following shapes:
 
 3. Set a field on a named component:
    {"action": "set_component_field", "component_key": "<key>", "field": "<field>", "value": "<value>"}
-   Allowed fields: display_title, subtitle, description_text, footnote_text
+    Allowed fields: component_key, component_kind, display_title, subtitle, description_text, footnote_text
 
 4. Set a field on a campaign offer (use the numeric id from the context):
    {"action": "set_offer_field", "offer_id": <int>, "field": "<field>", "value": "<value>"}
    Allowed fields: offer_value, start_date, end_date, terms_text
 
-5. Ask the user a clarifying question when the request is ambiguous or
+5. Set a business profile field for the business that owns the active campaign:
+    {"action": "set_business_field", "field": "<field>", "value": "<value>"}
+    Allowed fields: legal_name, display_name, timezone, is_active, phone,
+    address_line1, address_line2, city, state, postal_code, country
+
+6. Ask the user a clarifying question when the request is ambiguous or
    references something not present in the provided context:
    {"action": "clarify", "message": "<question>"}
 
@@ -130,6 +155,79 @@ def build_system_prompt(connection: Any, campaign_id: int) -> str:
         "",
         f"Business: {campaign['business_name']} ({campaign['legal_name']})",
     ]
+
+    business = connection.execute(
+        """
+        SELECT b.timezone, b.is_active,
+               (
+                   SELECT contact_value
+                   FROM business_contacts bc
+                   WHERE bc.business_id = b.id AND bc.contact_type = 'phone'
+                   ORDER BY bc.is_primary DESC, bc.id ASC
+                   LIMIT 1
+               ) AS phone,
+               (
+                   SELECT line1
+                   FROM business_locations bl
+                   WHERE bl.business_id = b.id
+                   ORDER BY bl.id ASC
+                   LIMIT 1
+               ) AS address_line1,
+               (
+                   SELECT line2
+                   FROM business_locations bl
+                   WHERE bl.business_id = b.id
+                   ORDER BY bl.id ASC
+                   LIMIT 1
+               ) AS address_line2,
+               (
+                   SELECT city
+                   FROM business_locations bl
+                   WHERE bl.business_id = b.id
+                   ORDER BY bl.id ASC
+                   LIMIT 1
+               ) AS city,
+               (
+                   SELECT state
+                   FROM business_locations bl
+                   WHERE bl.business_id = b.id
+                   ORDER BY bl.id ASC
+                   LIMIT 1
+               ) AS state,
+               (
+                   SELECT postal_code
+                   FROM business_locations bl
+                   WHERE bl.business_id = b.id
+                   ORDER BY bl.id ASC
+                   LIMIT 1
+               ) AS postal_code,
+               (
+                   SELECT country
+                   FROM business_locations bl
+                   WHERE bl.business_id = b.id
+                   ORDER BY bl.id ASC
+                   LIMIT 1
+               ) AS country
+        FROM businesses b
+        WHERE b.id = ?;
+        """,
+        (campaign["business_id"],),
+    ).fetchone()
+
+    if business:
+        lines += [
+            f"  display_name: {campaign['business_name']}",
+            f"  legal_name: {campaign['legal_name']}",
+            f"  timezone: {business['timezone']}",
+            f"  is_active: {bool(business['is_active'])}",
+            f"  phone: {business['phone']}",
+            f"  address_line1: {business['address_line1']}",
+            f"  address_line2: {business['address_line2']}",
+            f"  city: {business['city']}",
+            f"  state: {business['state']}",
+            f"  postal_code: {business['postal_code']}",
+            f"  country: {business['country']}",
+        ]
 
     if theme:
         lines += [
@@ -260,6 +358,7 @@ def dispatch_llm_action(
         apply_chat_command,
         CAMPAIGN_FIELDS,
         BRAND_FIELDS,
+        BUSINESS_FIELDS,
         CAMPAIGN_STATUS_VALUES,
     )
 
@@ -282,6 +381,13 @@ def dispatch_llm_action(
         if field not in BRAND_FIELDS:
             raise HTTPException(status_code=400, detail=f"LLM returned unknown brand field: {field!r}")
         return apply_chat_command(connection, campaign_id, ParsedCommand(target="brand", field=field, value=value))
+
+    if action == "set_business_field":
+        field = str(action_obj.get("field", "")).strip()
+        value = str(action_obj.get("value", "")).strip()
+        if field not in BUSINESS_FIELDS:
+            raise HTTPException(status_code=400, detail=f"LLM returned unknown business field: {field!r}")
+        return apply_chat_command(connection, campaign_id, ParsedCommand(target="business", field=field, value=value))
 
     if action == "set_offer_field":
         from .chat import OFFER_FIELDS
@@ -317,23 +423,11 @@ def dispatch_llm_action(
                 status_code=404,
                 detail=f"Component '{component_key}' not found in campaign {campaign_id}",
             )
-
-        connection.execute(
-            f"UPDATE campaign_components SET {field} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;",
-            (value, comp["id"]),
+        return apply_chat_command(
+            connection,
+            campaign_id,
+            ParsedCommand(target="component", field=field, value=value, component_ref=component_key),
         )
-        updated = connection.execute(
-            """
-            SELECT component_key, component_kind, display_title, subtitle, description_text, footnote_text
-            FROM campaign_components WHERE id = ?;
-            """,
-            (comp["id"],),
-        ).fetchone()
-        return {
-            "target": "component",
-            "field": field,
-            "component": dict(updated),
-        }
 
     raise HTTPException(status_code=400, detail=f"LLM returned unknown action: {action!r}")
 

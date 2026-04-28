@@ -6,7 +6,9 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.renderer import _collect_render_context, _file_checksum, render_campaign_artifact, render_flyer
+from reportlab.lib import colors
+
+from app.renderer import _collect_render_context, _file_checksum, _hex, render_campaign_artifact, render_flyer
 from .conftest import make_test_client, write_isolated_config
 
 
@@ -445,9 +447,9 @@ def test_render_flyer_preserves_weekday_item_order(monkeypatch) -> None:
 
     original_draw_weekday_strip = renderer_module._draw_weekday_strip
 
-    def _capture_strip(pdf, x, y, w, title, detail, price, palette):
+    def _capture_strip(pdf, x, y, w, title, detail, price, palette, strip_fill=None):
         captured_titles.append(title)
-        return original_draw_weekday_strip(pdf, x, y, w, title, detail, price, palette)
+        return original_draw_weekday_strip(pdf, x, y, w, title, detail, price, palette, strip_fill=strip_fill)
 
     monkeypatch.setattr(renderer_module, "_draw_weekday_strip", _capture_strip)
 
@@ -629,3 +631,98 @@ def test_render_flyer_places_component_footnote_in_box_and_campaign_footnote_in_
     assert any(text.endswith(" **") for text in centered_texts if "FEATURED" in text.upper())
     assert "** Featured section terms" in centered_texts
     assert "** Promotion-wide disclaimer" in wrapped_texts
+
+
+def test_render_flyer_accepts_named_component_and_item_background_colors() -> None:
+    ctx = {
+        "campaign_id": 13,
+        "campaign_name": "named-colors",
+        "title": "Named Colors",
+        "objective": "Verify natural color names",
+        "campaign_footnote_text": None,
+        "start_date": "2026-05-01",
+        "end_date": "2026-05-31",
+        "business_display_name": "ACME",
+        "business_legal_name": "ACME LLC",
+        "theme": {
+            "primary_color": "#3E1C5C",
+            "secondary_color": "#6E4A8E",
+            "accent_color": "#E0559A",
+        },
+        "location": None,
+        "contacts": [],
+        "offers": [],
+        "components": [
+            {
+                "component_key": "featured",
+                "component_kind": "featured-offers",
+                "display_title": "Featured",
+                "background_color": "light green",
+                "footnote_text": None,
+                "subtitle": "Subtitle",
+                "description_text": None,
+                "display_order": 0,
+                "items": [
+                    {
+                        "item_name": "A",
+                        "item_kind": "service",
+                        "duration_label": "60 min",
+                        "item_value": "$10",
+                        "background_color": "mintcream",
+                        "description_text": None,
+                        "terms_text": None,
+                        "display_order": 0,
+                    },
+                    {
+                        "item_name": "B",
+                        "item_kind": "service",
+                        "duration_label": "60 min",
+                        "item_value": "$20",
+                        "background_color": "honeydew",
+                        "description_text": None,
+                        "terms_text": None,
+                        "display_order": 1,
+                    },
+                ],
+            },
+            {
+                "component_key": "weekday-specials",
+                "component_kind": "weekday-specials",
+                "display_title": "Weekday Specials",
+                "background_color": "palegreen",
+                "footnote_text": None,
+                "subtitle": "Wednesday-Friday",
+                "description_text": None,
+                "display_order": 1,
+                "items": [
+                    {
+                        "item_name": "Chair Massage",
+                        "item_kind": "service",
+                        "duration_label": "30 minutes",
+                        "item_value": "$40",
+                        "background_color": "lightyellow",
+                        "description_text": None,
+                        "terms_text": None,
+                        "display_order": 0,
+                    }
+                ],
+            },
+        ],
+        "effective_values": {
+            "business_name": "ACME",
+            "business_subtitle": "LLC",
+            "footer": "acme.example • 555-0100",
+            "legal": "Offer valid while supplies last.",
+        },
+        "template_name": "flyer-standard",
+    }
+
+    pdf_bytes = render_flyer(ctx)
+    assert isinstance(pdf_bytes, bytes)
+    assert pdf_bytes.startswith(b"%PDF")
+
+
+def test_hex_normalizes_spaced_color_names() -> None:
+    light_green = _hex("light green")
+    assert hasattr(light_green, "rgb")
+    assert light_green.rgb() == colors.toColor("lightgreen").rgb()

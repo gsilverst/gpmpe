@@ -29,6 +29,29 @@
   - Changing campaigns clears stale component context automatically.
 - Incomplete component-rename messages now return a successful clarification response (`target=clarify`) instead of a hard HTTP 400 failure.
 
+## Execution Checkpoint (April 28, 2026)
+
+Current phase status:
+- Completed: plan expansion through Step 14 with explicit renderer data-externalization track.
+- Completed: chat editing surface expansion (campaign, business, component, item, clone/delete/query commands) with backend tests passing.
+- Completed: background color plumbing across schema, sync, YAML write-back, chat mutation, and renderer usage.
+- Completed: active component context synchronization in frontend editing flow.
+- In progress: renderer generalization cleanup (remove campaign-specific semantics and move remaining behavior into database-owned objects).
+
+Known current baseline:
+- Backend tests currently green on latest validation run.
+- Rich renderer now handles additional secondary component kinds and bounded layout regions for featured and secondary sections.
+- Step 14a/14b is now the controlling path for final renderer refactor from code-embedded semantics to DB-driven semantics.
+
+Approved next steps (strict order):
+1. Execute Step 14a only: create the full source-referenced extraction inventory and schema gap matrix.
+2. Pause for approval gate on Step 14a deliverable before any schema refactor.
+3. Execute Step 14b: implement schema objects/fields, migrations/backfill, YAML round-trip updates, renderer refactor, and regression coverage.
+4. Perform one focused check-in that bundles schema + migration + renderer + tests + design updates.
+
+Handoff note:
+- If work resumes on another platform, start from Step 14a deliverables first and do not begin schema changes until that inventory is reviewed and approved.
+
 Notable new/updated backend tests:
 - `test_chat_message_can_rename_component_by_natural_language`
 - `test_chat_message_can_rename_component_by_display_title`
@@ -597,6 +620,101 @@ Phase gate:
 - Runtime and container:
   - Service readiness endpoint gates integration/e2e start.
   - Container serves backend API and frontend static assets together.
+
+## Step 13: DESIGN.md Completion and Technical Reference
+
+**Goal:** Follow through on the current `docs/DESIGN.md` draft and expand it into a complete, authoritative technical reference that stays aligned with the implemented system.
+
+**Current status:**
+- `docs/DESIGN.md` now covers the high-level architecture, the data model, the current chat command interface, business/profile edits, component edits, item edits, field aliases, active-component context, and rendering overview.
+- The remaining work is no longer to create the design document, but to complete the deep technical drill-down and keep it synchronized with implementation changes.
+
+Execution checklist:
+
+1. **Renderer internals**
+  - Document template binding resolution, component footnote marker logic, N-up PDF output, and artifact lifecycle (`pending` / `generating` / `ready` / `failed`).
+2. **YAML round-trip specification**
+  - Define the YAML schema field-by-field.
+  - Specify startup reconciliation semantics (`yaml-wins`, `db-wins`, `newest-wins`).
+  - Document write-back determinism after each mutation type.
+3. **Chat interface specification**
+  - Document the regex router pattern registry, named-group conventions, alias extension rules, and parser routing priority.
+  - Keep examples aligned with the current supported business, campaign, component, offer, and item edit surfaces.
+4. **Template definition schema**
+  - Explain how new promotion shapes are registered, how layout regions are named, and how design tokens bind into templates.
+5. **API reference**
+  - Capture all currently supported endpoints, request/response payloads, session lifecycle rules, and error shapes.
+6. **Database migration strategy**
+  - Document the SQLite-to-RDS migration path, versioned schema handling, and migration tooling approach.
+7. **Security and validation model**
+  - Describe upload limits, path traversal prevention, address validation, schedule/date validation, and the LLM trust boundary.
+8. **Operations guide**
+  - Document Docker build/run flows, environment variables, startup readiness checks, output directories, and log/debug locations.
+9. **Synchronization rule**
+  - Whenever the command grammar, data model, rendering behavior, or API response shape changes, update `docs/DESIGN.md` in the same implementation phase rather than deferring documentation drift.
+
+**Acceptance criteria:** A developer unfamiliar with the codebase can use `docs/DESIGN.md` alone to understand the system, set it up locally, and add a new promotion shape, chat command, or renderer feature without reading the source first.
+
+---
+
+## Step 14: Renderer Data Externalization (DB-Driven Campaign Semantics)
+
+**Goal:** Remove campaign-specific and layout-specific assumptions from renderer code so campaign behavior is represented explicitly in database objects and can be changed without code edits.
+
+### Step 14a: Discovery and Extraction Inventory
+
+Objective:
+- Audit rendering and render-context code paths to enumerate every embedded assumption that should be represented as data.
+
+Scope of inventory:
+- Component classification assumptions (for example, hardcoded `component_kind` routing into featured/weekday/discount/legal regions).
+- Layout geometry assumptions (hardcoded coordinates, fixed heights, inter-section spacing, footnote/title boundaries).
+- Style and typography assumptions (hardcoded fonts, sizes, color fallbacks, accent alternation rules).
+- Content-format assumptions (title markers, footnote formatting, subtitle handling, list row truncation/capacity rules).
+- Template fallback assumptions (implicit default promotion shape when data is incomplete).
+
+Deliverables:
+- A source-referenced inventory document in `docs/DESIGN.md` (or linked section) mapping each embedded rule to:
+  - current implementation location,
+  - why it is campaign-specific,
+  - proposed data model ownership level (global template, campaign, component, item, or theme token).
+- A gap matrix from current schema -> required fields/objects.
+- A migration-impact summary describing how existing campaigns are backfilled.
+
+Testing highlights:
+- Add snapshot-style baseline tests that lock current visual behavior before extraction work begins.
+- Add context-shape tests for `_collect_render_context` to ensure future schema additions are present in renderer input.
+
+Phase gate:
+- Inventory is complete, reviewed, and approved before schema or renderer refactor begins.
+
+### Step 14b: Schema, Migration, and Renderer Refactor
+
+Objective:
+- Implement the approved extraction plan by moving campaign semantics from renderer code into explicit database-backed objects and fields.
+
+Implementation highlights:
+- Add schema objects/fields for layout regions, component render modes, spacing/bounds, typography rules, and style tokens at the appropriate ownership levels.
+- Add migrations and deterministic backfill defaults so existing campaign records continue rendering correctly.
+- Update YAML sync/write paths to round-trip newly introduced fields.
+- Refactor renderer to consume only render-context data and remove embedded campaign behavior branches that are representable as data.
+- Keep renderer logic generic (drawing primitives and data-driven composition), not promotion-specific.
+
+Testing highlights:
+- Migration tests for new schema objects and backfill behavior.
+- Round-trip tests for DB <-> YAML with new fields.
+- Rendering regression tests confirming no unintended drift for existing fixtures.
+- New tests proving two campaigns with different data-defined layout/styling rules can render without renderer code changes.
+
+Phase gate:
+- Renderer contains no campaign-specific semantic rules that can be represented as data.
+- Existing campaigns render correctly after migration/backfill.
+- End-to-end mutation, save, reload, and render flows are green.
+
+Check-in readiness for next step:
+- After Step 14a plan artifacts are approved and Step 14b implementation/tests are complete, perform a focused commit that includes schema changes, migrations, renderer refactor, tests, and DESIGN updates as one coherent unit before starting the next phase.
+
+---
 
 ## Risks and Mitigations
 - Risk: Overfitting schema to current flyer use case.

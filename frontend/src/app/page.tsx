@@ -12,6 +12,7 @@ import {
   createChatSession,
   fetchArtifacts,
   fetchBackendHealth,
+  fetchCampaignComponents,
   fetchStartupStatus,
   listBusinesses,
   listCampaignsForBusiness,
@@ -24,6 +25,7 @@ import {
   updateBusiness,
   type ArtifactItem,
   type BusinessRecord,
+  type CampaignComponent,
   type CampaignRecord,
   type ChatHistoryItem,
   type HealthResponse,
@@ -81,6 +83,8 @@ export default function HomePage() {
     objective: "",
   });
   const [campaignMode, setCampaignMode] = useState<"list" | "create" | "edit">("list");
+  const [campaignComponents, setCampaignComponents] = useState<CampaignComponent[]>([]);
+  const [activeComponentKey, setActiveComponentKey] = useState<string | null>(null);
 
   async function handleClonePreviewChoice(shouldView: boolean): Promise<void> {
     const pending = clonePreviewPrompt;
@@ -335,6 +339,48 @@ export default function HomePage() {
       active = false;
     };
   }, [selectedCampaignId]);
+
+  useEffect(() => {
+    let active = true;
+    if (selectedCampaignId == null) {
+      setCampaignComponents([]);
+      setActiveComponentKey(null);
+      return;
+    }
+    const campaignId = selectedCampaignId;
+
+    async function loadComponents() {
+      try {
+        const items = await fetchCampaignComponents(campaignId);
+        if (!active) return;
+        setCampaignComponents(items);
+        setActiveComponentKey(items[0]?.component_key ?? null);
+      } catch {
+        if (!active) return;
+        setCampaignComponents([]);
+        setActiveComponentKey(null);
+      }
+    }
+
+    void loadComponents();
+    return () => {
+      active = false;
+    };
+  }, [selectedCampaignId]);
+
+  // Sync the active component key to the chat session whenever either changes.
+  // This handles the auto-default case where the component is set before the
+  // session exists, and the explicit-select case where both already exist.
+  useEffect(() => {
+    if (activeComponentKey == null || chatSessionId == null || selectedCampaignId == null) {
+      return;
+    }
+    void postChatMessage(
+      chatSessionId,
+      selectedCampaignId,
+      `I am working on the ${activeComponentKey} component`
+    );
+  }, [activeComponentKey, chatSessionId, selectedCampaignId]);
 
   useEffect(() => {
     let active = true;
@@ -633,11 +679,35 @@ export default function HomePage() {
         }
       } else if (selectedCampaignId != null) {
         await regenerateCampaignPreview(selectedCampaignId, "chat edit");
+        // Refresh components in case the chat command added, removed, or renamed a component.
+        const updatedComponents = await fetchCampaignComponents(selectedCampaignId);
+        setCampaignComponents(updatedComponents);
+        // If the active component was deleted or renamed, update the active key.
+        if (result.target === "component" && result.field === "delete") {
+          setActiveComponentKey(updatedComponents[0]?.component_key ?? null);
+        } else if (activeComponentKey != null) {
+          const stillExists = updatedComponents.some((c) => c.component_key === activeComponentKey);
+          if (!stillExists) {
+            // Component was renamed — the result carries the new key.
+            const newKey =
+              typeof result.component === "object" &&
+              result.component !== null &&
+              "component_key" in (result.component as object)
+                ? String((result.component as Record<string, unknown>).component_key)
+                : updatedComponents[0]?.component_key ?? null;
+            setActiveComponentKey(newKey);
+          }
+        }
       }
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Failed to send chat edit";
       setChatStatus(message);
     }
+  }
+
+  function handleActiveComponentChange(componentKey: string): void {
+    setActiveComponentKey(componentKey);
+    // Context is synced to the chat session by the dedicated useEffect above.
   }
 
   async function handleSyncNow(): Promise<void> {
@@ -1114,6 +1184,30 @@ export default function HomePage() {
             </label>
             <button type="submit">Save Campaign</button>
           </form>
+        ) : null}
+
+        {campaignMode === "edit" && campaignComponents.length > 0 ? (
+          <div className="component-selector section-gap">
+            <label className="stacked-label" htmlFor="component-select">
+              <span>Active component</span>
+              <select
+                id="component-select"
+                value={activeComponentKey ?? ""}
+                onChange={(event) => handleActiveComponentChange(event.target.value)}
+              >
+                {campaignComponents.map((c) => (
+                  <option key={c.component_key} value={c.component_key}>
+                    {c.display_title ? `${c.display_title} (${c.component_key})` : c.component_key}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {activeComponentKey ? (
+              <p className="component-hint">
+                Chat commands that reference items will use <strong>{activeComponentKey}</strong> by default.
+              </p>
+            ) : null}
+          </div>
         ) : null}
 
         {campaignMode === "list" ? (

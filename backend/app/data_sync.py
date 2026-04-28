@@ -287,15 +287,16 @@ def _sync_campaign_components(connection: sqlite3.Connection, campaign_id: int, 
         cursor = connection.execute(
             """
             INSERT INTO campaign_components (
-                            campaign_id, component_key, component_kind, display_title, footnote_text, subtitle, description_text, display_order
+                            campaign_id, component_key, component_kind, display_title, background_color, footnote_text, subtitle, description_text, display_order
             )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             (
                 campaign_id,
                 _required_string(component, "component_key", record.file_path),
                 _optional_string(component, "component_kind") or "featured-offers",
                 _required_string(component, "display_title", record.file_path),
+                _optional_string(component, "background_color"),
                                 _optional_string(component, "footnote_text"),
                 _optional_string(component, "subtitle"),
                 _optional_string(component, "description_text"),
@@ -315,9 +316,9 @@ def _sync_campaign_components(connection: sqlite3.Connection, campaign_id: int, 
                 """
                 INSERT INTO campaign_component_items (
                   component_id, item_name, item_kind, duration_label, item_value,
-                  description_text, terms_text, display_order
+                                    background_color, description_text, terms_text, display_order
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     component_id,
@@ -325,6 +326,7 @@ def _sync_campaign_components(connection: sqlite3.Connection, campaign_id: int, 
                     _optional_string(item, "item_kind") or "service",
                     _optional_string(item, "duration_label"),
                     _optional_string(item, "item_value"),
+                                        _optional_string(item, "background_color"),
                     _optional_string(item, "description_text"),
                     _optional_string(item, "terms_text"),
                     item.get("display_order", item_index),

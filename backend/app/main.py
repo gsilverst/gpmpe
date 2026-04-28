@@ -20,9 +20,11 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from .chat import (
     ChatSessionStore,
     ParsedCloneCommand,
+    ParsedQueryCommand,
     apply_chat_command,
     parse_chat_command,
     parse_clone_command,
+    parse_query_command,
     parse_session_context_command,
     resolve_component,
 )
@@ -1495,6 +1497,38 @@ def create_app() -> FastAPI:
             "is_active": bool(row["is_active"]),
         }
 
+    @app.get("/campaigns/{campaign_id}/components")
+    def list_campaign_components(campaign_id: int) -> dict[str, Any]:
+        config = resolve_config()
+        with connect_database(config) as connection:
+            _require_campaign(connection, campaign_id)
+            rows = connection.execute(
+                """
+                SELECT id, component_key, component_kind, display_title, subtitle,
+                       description_text, footnote_text, display_order
+                FROM campaign_components
+                WHERE campaign_id = ?
+                ORDER BY display_order ASC, id ASC;
+                """,
+                (campaign_id,),
+            ).fetchall()
+        return {
+            "campaign_id": campaign_id,
+            "items": [
+                {
+                    "id": r["id"],
+                    "component_key": r["component_key"],
+                    "component_kind": r["component_kind"],
+                    "display_title": r["display_title"],
+                    "subtitle": r["subtitle"],
+                    "description_text": r["description_text"],
+                    "footnote_text": r["footnote_text"],
+                    "display_order": r["display_order"],
+                }
+                for r in rows
+            ],
+        }
+
     @app.post("/chat/sessions", status_code=201)
     def create_chat_session() -> dict[str, str]:
         return {"session_id": chat_store.create()}
@@ -1601,6 +1635,111 @@ def create_app() -> FastAPI:
                 "history": chat_store.history(session_id),
             }
 
+        query_cmd = parse_query_command(payload.message)
+        if query_cmd is not None:
+            config = resolve_config()
+            session_context = chat_store.get_context(session_id)
+            with connect_database(config) as connection:
+                if query_cmd.query_type == "list_components":
+                    rows = connection.execute(
+                        """
+                        SELECT component_key, display_title, component_kind, display_order
+                        FROM campaign_components
+                        WHERE campaign_id = ?
+                        ORDER BY display_order ASC, id ASC;
+                        """,
+                        (payload.campaign_id,),
+                    ).fetchall()
+                    components_list = [
+                        {
+                            "component_key": r["component_key"],
+                            "display_title": r["display_title"],
+                            "component_kind": r["component_kind"],
+                            "display_order": r["display_order"],
+                        }
+                        for r in rows
+                    ]
+                    if components_list:
+                        lines = [f"{i + 1}. {c['component_key']} — {c['display_title'] or '(no title)'}" for i, c in enumerate(components_list)]
+                        message = "Components of the current promotion:\n" + "\n".join(lines)
+                    else:
+                        message = "This promotion has no components yet."
+                    result: dict[str, Any] = {
+                        "target": "query",
+                        "query_type": "list_components",
+                        "components": components_list,
+                        "message": message,
+                    }
+                else:  # list_items
+                    active_component_ref = session_context.get("active_component_ref")
+                    if not active_component_ref:
+                        result = {
+                            "target": "clarify",
+                            "message": (
+                                "No active component is set. "
+                                "Reference a component first, for example: "
+                                "'change the name of the weekday-specials component to …' "
+                                "or 'I am working on the weekday-specials component'."
+                            ),
+                        }
+                    else:
+                        component_row = connection.execute(
+                            """
+                            SELECT id FROM campaign_components
+                            WHERE campaign_id = ? AND component_key = ?;
+                            """,
+                            (payload.campaign_id, active_component_ref),
+                        ).fetchone()
+                        if component_row is None:
+                            result = {
+                                "target": "clarify",
+                                "message": f"Component '{active_component_ref}' not found in this campaign.",
+                            }
+                        else:
+                            item_rows = connection.execute(
+                                """
+                                SELECT item_name, item_kind, item_value, duration_label, display_order
+                                FROM campaign_component_items
+                                WHERE component_id = ?
+                                ORDER BY display_order ASC, id ASC;
+                                """,
+                                (component_row["id"],),
+                            ).fetchall()
+                            items_list = [
+                                {
+                                    "item_name": r["item_name"],
+                                    "item_kind": r["item_kind"],
+                                    "item_value": r["item_value"],
+                                    "duration_label": r["duration_label"],
+                                    "display_order": r["display_order"],
+                                }
+                                for r in item_rows
+                            ]
+                            if items_list:
+                                lines = [
+                                    f"{i + 1}. {it['item_name']}"
+                                    + (f" — {it['item_value']}" if it["item_value"] else "")
+                                    + (f" ({it['duration_label']})" if it["duration_label"] else "")
+                                    for i, it in enumerate(items_list)
+                                ]
+                                message = f"Items in '{active_component_ref}':\n" + "\n".join(lines)
+                            else:
+                                message = f"Component '{active_component_ref}' has no items yet."
+                            result = {
+                                "target": "query",
+                                "query_type": "list_items",
+                                "component_key": active_component_ref,
+                                "items": items_list,
+                                "message": message,
+                            }
+            chat_store.append(session_id, "user", payload.message)
+            chat_store.append(session_id, "assistant", result.get("message", ""))
+            return {
+                "session_id": session_id,
+                "result": result,
+                "history": chat_store.history(session_id),
+            }
+
         config = resolve_config()
         llm_warning: str | None = None
         session_context = chat_store.get_context(session_id)
@@ -1643,11 +1782,14 @@ def create_app() -> FastAPI:
             chat_store.append(session_id, "assistant", result.get("message", ""))
         else:
             if result.get("target") == "component":
-                chat_store.set_context_value(
-                    session_id,
-                    "active_component_ref",
-                    result.get("component", {}).get("component_key"),
-                )
+                if result.get("field") == "delete":
+                    chat_store.set_context_value(session_id, "active_component_ref", None)
+                else:
+                    chat_store.set_context_value(
+                        session_id,
+                        "active_component_ref",
+                        result.get("component", {}).get("component_key"),
+                    )
             elif result.get("target") == "component_item":
                 component_key = result.get("component", {}).get("component_key")
                 if component_key is not None:

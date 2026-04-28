@@ -11,10 +11,112 @@ from fastapi import HTTPException
 
 
 CAMPAIGN_STATUS_VALUES = {"draft", "active", "paused", "completed", "archived"}
-CAMPAIGN_FIELDS = {"title", "objective", "status", "start_date", "end_date"}
+CAMPAIGN_FIELDS = {"title", "objective", "footnote_text", "status", "start_date", "end_date"}
 OFFER_FIELDS = {"offer_value", "start_date", "end_date", "terms_text"}
 BRAND_FIELDS = {"primary_color", "secondary_color", "accent_color", "font_family", "logo_path"}
-COMPONENT_ITEM_FIELDS = {"item_name", "item_kind", "duration_label", "item_value", "description_text", "terms_text"}
+COMPONENT_FIELDS = {
+    "component_key",
+    "component_kind",
+    "display_title",
+    "background_color",
+    "subtitle",
+    "description_text",
+    "footnote_text",
+}
+COMPONENT_ITEM_FIELDS = {
+    "item_name",
+    "item_kind",
+    "duration_label",
+    "item_value",
+    "background_color",
+    "description_text",
+    "terms_text",
+}
+BUSINESS_FIELDS = {
+    "legal_name",
+    "display_name",
+    "timezone",
+    "is_active",
+    "phone",
+    "address_line1",
+    "address_line2",
+    "city",
+    "state",
+    "postal_code",
+    "country",
+}
+
+# Alias maps: short/natural names → canonical field name
+_CAMPAIGN_FIELD_ALIASES: dict[str, str] = {
+    "title": "title", "headline": "title", "header": "title",
+    "objective": "objective", "goal": "objective",
+    "footnote_text": "footnote_text", "footnote": "footnote_text", "note": "footnote_text",
+    "status": "status",
+    "start_date": "start_date", "start": "start_date", "starts": "start_date",
+    "end_date": "end_date", "end": "end_date", "ends": "end_date",
+}
+_OFFER_FIELD_ALIASES: dict[str, str] = {
+    "offer_value": "offer_value", "value": "offer_value", "discount": "offer_value", "amount": "offer_value",
+    "start_date": "start_date", "start": "start_date", "starts": "start_date",
+    "end_date": "end_date", "end": "end_date", "ends": "end_date",
+    "terms_text": "terms_text", "terms": "terms_text",
+}
+_BRAND_FIELD_ALIASES: dict[str, str] = {
+    "primary_color": "primary_color", "primary": "primary_color",
+    "secondary_color": "secondary_color", "secondary": "secondary_color",
+    "accent_color": "accent_color", "accent": "accent_color",
+    "font_family": "font_family", "font": "font_family",
+    "logo_path": "logo_path", "logo": "logo_path",
+}
+_ITEM_FIELD_ALIASES: dict[str, str] = {
+    "item_name": "item_name", "name": "item_name",
+    "item_kind": "item_kind", "kind": "item_kind", "type": "item_kind",
+    "duration_label": "duration_label", "duration": "duration_label",
+    "item_value": "item_value", "value": "item_value", "price": "item_value", "cost": "item_value",
+    "background_color": "background_color", "background color": "background_color", "color of the background": "background_color", "color_of_the_background": "background_color", "bg color": "background_color", "bg": "background_color",
+    "description_text": "description_text", "description": "description_text", "desc": "description_text",
+    "terms_text": "terms_text", "terms": "terms_text",
+}
+_COMPONENT_FIELD_ALIASES: dict[str, str] = {
+    "component_key": "component_key", "key": "component_key", "name": "component_key",
+    "component_kind": "component_kind", "kind": "component_kind", "type": "component_kind",
+    "display_title": "display_title", "display title": "display_title", "title": "display_title",
+    "background_color": "background_color", "background color": "background_color", "color of the background": "background_color", "color_of_the_background": "background_color", "bg color": "background_color", "bg": "background_color",
+    "subtitle": "subtitle", "subheading": "subtitle",
+    "description_text": "description_text", "description": "description_text", "desc": "description_text",
+    "footnote_text": "footnote_text", "footnote": "footnote_text", "note": "footnote_text",
+}
+_BUSINESS_FIELD_ALIASES: dict[str, str] = {
+    "legal_name": "legal_name", "legal name": "legal_name",
+    "display_name": "display_name", "display name": "display_name", "business name": "display_name", "name": "display_name",
+    "timezone": "timezone", "time zone": "timezone",
+    "is_active": "is_active", "active": "is_active", "enabled": "is_active",
+    "phone": "phone", "phone number": "phone",
+    "address_line1": "address_line1", "address line 1": "address_line1", "street": "address_line1", "street address": "address_line1",
+    "address_line2": "address_line2", "address line 2": "address_line2", "suite": "address_line2", "unit": "address_line2",
+    "city": "city",
+    "state": "state", "province": "state",
+    "postal_code": "postal_code", "postal code": "postal_code", "zip": "postal_code", "zip code": "postal_code",
+    "country": "country",
+}
+
+
+def _normalize_field(alias: str, alias_map: dict[str, str]) -> str | None:
+    """Return the canonical field name for an alias, or None if unrecognised."""
+    return alias_map.get(alias.lower().replace("-", "_").replace(" ", "_"))
+
+
+# Build alternation groups sorted longest-first to avoid partial matches.
+def _aliases_regex(alias_map: dict[str, str]) -> str:
+    return "|".join(sorted(alias_map.keys(), key=len, reverse=True))
+
+
+_CAMPAIGN_FIELD_RE = _aliases_regex(_CAMPAIGN_FIELD_ALIASES)
+_OFFER_FIELD_RE = _aliases_regex(_OFFER_FIELD_ALIASES)
+_BRAND_FIELD_RE = _aliases_regex(_BRAND_FIELD_ALIASES)
+_ITEM_FIELD_RE = _aliases_regex(_ITEM_FIELD_ALIASES)
+_COMPONENT_FIELD_RE = _aliases_regex(_COMPONENT_FIELD_ALIASES)
+_BUSINESS_FIELD_RE = _aliases_regex(_BUSINESS_FIELD_ALIASES)
 
 # Matches: "clone <source> [and] rename [it] to <new_name> [for <business>]"
 # Also accepts more verbose natural-language phrasings ("cloning the X ... renaming it to Y").
@@ -25,17 +127,66 @@ _CLONE_PATTERN = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
-CAMPAIGN_PATTERN = re.compile(r"^set\s+(title|objective|status|start_date|end_date)\s+to\s+(.+)$", re.IGNORECASE)
+CAMPAIGN_PATTERN = re.compile(
+    r"^(?:set|change|update)\s+(?:the\s+)?(?P<field>" + _CAMPAIGN_FIELD_RE + r")(?:\s+field)?\s+to\s+(?P<value>.+)$",
+    re.IGNORECASE,
+)
 OFFER_PATTERN = re.compile(
-    r"^set\s+offer\s+(\d+)\s+(offer_value|start_date|end_date|terms_text)\s+to\s+(.+)$",
+    r"^set\s+offer\s+(?P<offer_id>\d+)\s+(?P<field>" + _OFFER_FIELD_RE + r")(?:\s+field)?\s+to\s+(?P<value>.+)$",
     re.IGNORECASE,
 )
 BRAND_PATTERN = re.compile(
-    r"^set\s+brand\s+(primary_color|secondary_color|accent_color|font_family|logo_path)\s+to\s+(.+)$",
+    r"^(?:set|change|update)\s+(?:the\s+)?brand\s+(?P<field>" + _BRAND_FIELD_RE + r")(?:\s+field)?\s+to\s+(?P<value>.+)$",
+    re.IGNORECASE,
+)
+BUSINESS_PATTERN = re.compile(
+    r"^(?:set|change|update)\s+(?:the\s+)?(?:business|business\s+profile|profile)\s+(?P<field>" + _BUSINESS_FIELD_RE + r")(?:\s+field)?\s+to\s+(?P<value>.+)$",
+    re.IGNORECASE,
+)
+COMPONENT_ITEM_CHANGE_FIELD_PATTERN = re.compile(
+    r"^(?:change|set|update)\s+(?:the\s+)?"
+    r"(?P<field>" + _ITEM_FIELD_RE + r")"
+    r"(?:\s+field)?"
+    r"\s+(?:of\s+)?(?:the\s+)?(?P<item>.+?)\s+item"
+    r"(?:\s+in\s+(?:the\s+)?(?P<component>.+?)\s+component)?"
+    r"\s+to\s+(?P<value>.+)$",
+    re.IGNORECASE,
+)
+COMPONENT_ITEM_CHANGE_FIELD_ITEM_FIRST_PATTERN = re.compile(
+    r"^(?:change|set|update)\s+(?:the\s+)?"
+    r"(?P<item>.+?)\s+item\s+"
+    r"(?P<field>" + _ITEM_FIELD_RE + r")"
+    r"(?:\s+field)?"
+    r"(?:\s+in\s+(?:the\s+)?(?P<component>.+?)\s+component)?"
+    r"\s+to\s+(?P<value>.+)$",
+    re.IGNORECASE,
+)
+COMPONENT_ITEM_CHANGE_ALL_PATTERN = re.compile(
+    r"^(?:change|set|update)\s+(?:the\s+)?"
+    r"(?P<field>" + _ITEM_FIELD_RE + r")"
+    r"(?:\s+field)?"
+    r"\s+to\s+(?P<value>.+?)"
+    r"\s+for\s+all\s+items"
+    r"(?:\s+in\s+(?:the\s+)?(?P<component>.+?)\s+component)?"
+    r"[.!?]?$",
+    re.IGNORECASE,
+)
+COMPONENT_CHANGE_ALL_PATTERN = re.compile(
+    r"^(?:change|set|update)\s+(?:the\s+)?"
+    r"(?P<field>" + _COMPONENT_FIELD_RE + r")"
+    r"(?:\s+field)?"
+    r"\s+to\s+(?P<value>.+?)"
+    r"\s+for\s+all\s+components"
+    r"[.!?]?$",
     re.IGNORECASE,
 )
 COMPONENT_SET_PATTERN = re.compile(
-    r"^set\s+component\s+(.+?)\s+(name|title|display_title|component_key|key)\s+to\s+(.+)$",
+    r"^(?:set|change|update)\s+component\s+(?P<component>.+?)\s+(?P<field>" + _COMPONENT_FIELD_RE + r")(?:\s+field)?\s+to\s+(?P<value>.+)$",
+    re.IGNORECASE,
+)
+COMPONENT_CHANGE_FIELD_PATTERN = re.compile(
+    r"^(?:change|set|update)\s+(?:the\s+)?(?P<field>" + _COMPONENT_FIELD_RE + r")"
+    r"(?:\s+field)?\s+of\s+(?:the\s+)?(?P<component>.+?)\s+component\s+to\s+(?P<value>.+)$",
     re.IGNORECASE,
 )
 COMPONENT_CHANGE_NAME_PATTERN = re.compile(
@@ -58,24 +209,48 @@ COMPONENT_RENAME_PATTERN = re.compile(
     r"^rename\s+(?:the\s+)?component\s+(.+?)\s+to\s+(.+)$",
     re.IGNORECASE,
 )
-COMPONENT_ITEM_CHANGE_FIELD_PATTERN = re.compile(
-    r"^change\s+(?:the\s+)?(item_name|item_kind|duration_label|item_value|description_text|terms_text)\s+field\s+of\s+(.+?)\s+item(?:\s+in\s+(?:the\s+)?(.+?)\s+component)?\s+to\s+(.+)$",
+COMPONENT_DELETE_PATTERN = re.compile(
+    r"^delete\s+(?:the\s+)?(.+?)\s+component$",
+    re.IGNORECASE,
+)
+COMPONENT_ITEM_DELETE_PATTERN = re.compile(
+    r"^delete\s+(?:the\s+)?(.+?)\s+item(?:\s+in\s+(?:the\s+)?(.+?)\s+component)?$",
+    re.IGNORECASE,
+)
+COMPONENT_ITEM_CLONE_PATTERN = re.compile(
+    r"^create\s+a\s+new\s+item\s+like\s+(?:the\s+)?(?P<source>.+?)\s+item"
+    r"(?:\s+called\s+(?P<name>.+?))?"
+    r"\s+(?:and\s+add\s+it\s+)?between\s+(?:the\s+)?(?P<left>.+?)(?:\s+items?)?"
+    r"\s+and\s+(?:the\s+)?(?P<right>.+?)\s+items?"
+    r"(?:\s+in\s+(?:the\s+)?(?P<component>.+?)\s+component)?$",
     re.IGNORECASE,
 )
 COMPONENT_CONTEXT_PATTERN = re.compile(
     r"^(?:i\s+am\s+working\s+on|i'?m\s+working\s+on|set\s+(?:the\s+)?active\s+component\s+to|use)\s+(?:the\s+)?(.+?)\s+component[.!?]?$",
     re.IGNORECASE,
 )
+LIST_COMPONENTS_PATTERN = re.compile(
+    r"^(?:what\s+are\s+(?:the\s+)?|list\s+(?:the\s+)?|show\s+(?:me\s+)?(?:the\s+)?)components?"
+    r"(?:\s+of\s+(?:the\s+)?(?:current|active|this)\s+(?:promotion|campaign))?[.!?]?$",
+    re.IGNORECASE,
+)
+LIST_ITEMS_PATTERN = re.compile(
+    r"^(?:what\s+are\s+(?:the\s+)?|list\s+(?:the\s+)?|show\s+(?:me\s+)?(?:the\s+)?)items?"
+    r"(?:\s+(?:of|in)\s+(?:the\s+)?(?:current|active|this)\s+component)?[.!?]?$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
 class ParsedCommand:
-    target: Literal["campaign", "offer", "brand", "component", "component_item", "clarify"]
+    target: Literal["campaign", "offer", "brand", "business", "component", "component_item", "clarify"]
     field: str
     value: str
     offer_id: int | None = None
     component_ref: str | None = None
     item_ref: str | None = None
+    secondary_item_ref: str | None = None
+    tertiary_item_ref: str | None = None
 
 
 @dataclass(frozen=True)
@@ -89,6 +264,11 @@ class ParsedCloneCommand:
 class ParsedContextCommand:
     context_type: Literal["component"]
     component_ref: str
+
+
+@dataclass(frozen=True)
+class ParsedQueryCommand:
+    query_type: Literal["list_components", "list_items"]
 
 
 class ChatSessionStore:
@@ -159,35 +339,64 @@ def parse_session_context_command(message: str) -> ParsedContextCommand | None:
     return ParsedContextCommand(context_type="component", component_ref=component_ref)
 
 
+def parse_query_command(message: str) -> ParsedQueryCommand | None:
+    text = message.strip()
+    if LIST_COMPONENTS_PATTERN.match(text):
+        return ParsedQueryCommand(query_type="list_components")
+    if LIST_ITEMS_PATTERN.match(text):
+        return ParsedQueryCommand(query_type="list_items")
+    return None
+
+
 def parse_chat_command(message: str) -> ParsedCommand:
     text = message.strip()
 
     campaign_match = CAMPAIGN_PATTERN.match(text)
     if campaign_match:
-        field = campaign_match.group(1).lower()
-        value = campaign_match.group(2).strip()
-        return ParsedCommand(target="campaign", field=field, value=value)
+        raw_field = campaign_match.group("field").lower()
+        canonical = _normalize_field(raw_field, _CAMPAIGN_FIELD_ALIASES)
+        if canonical is None:
+            raise HTTPException(status_code=400, detail=f"Unrecognised campaign field: '{raw_field}'")
+        value = campaign_match.group("value").strip()
+        return ParsedCommand(target="campaign", field=canonical, value=value)
 
     offer_match = OFFER_PATTERN.match(text)
     if offer_match:
-        offer_id = int(offer_match.group(1))
-        field = offer_match.group(2).lower()
-        value = offer_match.group(3).strip()
-        return ParsedCommand(target="offer", field=field, value=value, offer_id=offer_id)
+        offer_id = int(offer_match.group("offer_id"))
+        raw_field = offer_match.group("field").lower()
+        canonical = _normalize_field(raw_field, _OFFER_FIELD_ALIASES)
+        if canonical is None:
+            raise HTTPException(status_code=400, detail=f"Unrecognised offer field: '{raw_field}'")
+        value = offer_match.group("value").strip()
+        return ParsedCommand(target="offer", field=canonical, value=value, offer_id=offer_id)
 
     brand_match = BRAND_PATTERN.match(text)
     if brand_match:
-        field = brand_match.group(1).lower()
-        value = brand_match.group(2).strip()
-        return ParsedCommand(target="brand", field=field, value=value)
+        raw_field = brand_match.group("field").lower()
+        canonical = _normalize_field(raw_field, _BRAND_FIELD_ALIASES)
+        if canonical is None:
+            raise HTTPException(status_code=400, detail=f"Unrecognised brand field: '{raw_field}'")
+        value = brand_match.group("value").strip()
+        return ParsedCommand(target="brand", field=canonical, value=value)
+
+    business_match = BUSINESS_PATTERN.match(text)
+    if business_match:
+        raw_field = business_match.group("field").lower()
+        canonical = _normalize_field(raw_field, _BUSINESS_FIELD_ALIASES)
+        if canonical is None:
+            raise HTTPException(status_code=400, detail=f"Unrecognised business field: '{raw_field}'")
+        value = business_match.group("value").strip()
+        return ParsedCommand(target="business", field=canonical, value=value)
 
     component_set_match = COMPONENT_SET_PATTERN.match(text)
     if component_set_match:
-        component_ref = component_set_match.group(1).strip().strip("\"'")
-        field_token = component_set_match.group(2).lower().strip()
-        value = component_set_match.group(3).strip()
-        field = "component_key" if field_token in {"name", "component_key", "key"} else "display_title"
-        return ParsedCommand(target="component", field=field, value=value, component_ref=component_ref)
+        component_ref = component_set_match.group("component").strip().strip("\"'")
+        raw_field = component_set_match.group("field").lower().strip()
+        canonical = _normalize_field(raw_field, _COMPONENT_FIELD_ALIASES)
+        if canonical is None:
+            raise HTTPException(status_code=400, detail=f"Unrecognised component field: '{raw_field}'")
+        value = component_set_match.group("value").strip()
+        return ParsedCommand(target="component", field=canonical, value=value, component_ref=component_ref)
 
     component_change_name_match = COMPONENT_CHANGE_NAME_PATTERN.match(text)
     if component_change_name_match:
@@ -228,19 +437,113 @@ def parse_chat_command(message: str) -> ParsedCommand:
         value = component_rename_match.group(2).strip()
         return ParsedCommand(target="component", field="component_key", value=value, component_ref=component_ref)
 
+    component_change_field_match = COMPONENT_CHANGE_FIELD_PATTERN.match(text)
+    if component_change_field_match:
+        component_ref = component_change_field_match.group("component").strip().strip("\"'")
+        raw_field = component_change_field_match.group("field").lower().strip()
+        canonical = _normalize_field(raw_field, _COMPONENT_FIELD_ALIASES)
+        if canonical is None:
+            raise HTTPException(status_code=400, detail=f"Unrecognised component field: '{raw_field}'")
+        value = component_change_field_match.group("value").strip()
+        return ParsedCommand(target="component", field=canonical, value=value, component_ref=component_ref)
+
+    component_change_all_match = COMPONENT_CHANGE_ALL_PATTERN.match(text)
+    if component_change_all_match:
+        raw_field = component_change_all_match.group("field").lower().strip()
+        canonical = _normalize_field(raw_field, _COMPONENT_FIELD_ALIASES)
+        if canonical is None:
+            raise HTTPException(status_code=400, detail=f"Unrecognised component field: '{raw_field}'")
+        value = component_change_all_match.group("value").strip().rstrip(".!?")
+        return ParsedCommand(target="component", field=canonical, value=value, component_ref="__all__")
+
     component_item_change_match = COMPONENT_ITEM_CHANGE_FIELD_PATTERN.match(text)
     if component_item_change_match:
-        field = component_item_change_match.group(1).lower().strip()
-        item_ref = component_item_change_match.group(2).strip().strip("\"'")
-        component_ref = component_item_change_match.group(3)
+        raw_field = component_item_change_match.group("field").lower().strip()
+        canonical = _normalize_field(raw_field, _ITEM_FIELD_ALIASES)
+        if canonical is None:
+            raise HTTPException(status_code=400, detail=f"Unrecognised item field: '{raw_field}'")
+        item_ref = component_item_change_match.group("item").strip().strip("\"'")
+        component_ref = component_item_change_match.group("component")
         component_ref = component_ref.strip().strip("\"'") if component_ref else None
-        value = component_item_change_match.group(4).strip()
+        value = component_item_change_match.group("value").strip()
         return ParsedCommand(
             target="component_item",
-            field=field,
+            field=canonical,
             value=value,
             component_ref=component_ref,
             item_ref=item_ref,
+        )
+
+    component_item_change_item_first_match = COMPONENT_ITEM_CHANGE_FIELD_ITEM_FIRST_PATTERN.match(text)
+    if component_item_change_item_first_match:
+        raw_field = component_item_change_item_first_match.group("field").lower().strip()
+        canonical = _normalize_field(raw_field, _ITEM_FIELD_ALIASES)
+        if canonical is None:
+            raise HTTPException(status_code=400, detail=f"Unrecognised component item field: '{raw_field}'")
+        item_ref = component_item_change_item_first_match.group("item").strip().strip("\"'")
+        component_ref = component_item_change_item_first_match.group("component")
+        component_ref = component_ref.strip().strip("\"'") if component_ref else None
+        value = component_item_change_item_first_match.group("value").strip()
+        return ParsedCommand(
+            target="component_item",
+            field=canonical,
+            value=value,
+            component_ref=component_ref,
+            item_ref=item_ref,
+        )
+
+    component_item_change_all_match = COMPONENT_ITEM_CHANGE_ALL_PATTERN.match(text)
+    if component_item_change_all_match:
+        raw_field = component_item_change_all_match.group("field").lower().strip()
+        canonical = _normalize_field(raw_field, _ITEM_FIELD_ALIASES)
+        if canonical is None:
+            raise HTTPException(status_code=400, detail=f"Unrecognised item field: '{raw_field}'")
+        component_ref = component_item_change_all_match.group("component")
+        component_ref = component_ref.strip().strip("\"'") if component_ref else None
+        value = component_item_change_all_match.group("value").strip().rstrip(".!?")
+        return ParsedCommand(
+            target="component_item",
+            field=canonical,
+            value=value,
+            component_ref=component_ref,
+            item_ref="__all__",
+        )
+
+    component_item_delete_match = COMPONENT_ITEM_DELETE_PATTERN.match(text)
+    if component_item_delete_match:
+        item_ref = component_item_delete_match.group(1).strip().strip("\"'")
+        component_ref = component_item_delete_match.group(2)
+        component_ref = component_ref.strip().strip("\"'") if component_ref else None
+        return ParsedCommand(
+            target="component_item",
+            field="delete",
+            value="",
+            component_ref=component_ref,
+            item_ref=item_ref,
+        )
+
+    component_delete_match = COMPONENT_DELETE_PATTERN.match(text)
+    if component_delete_match:
+        component_ref = component_delete_match.group(1).strip().strip("\"'")
+        return ParsedCommand(target="component", field="delete", value="", component_ref=component_ref)
+
+    component_item_clone_match = COMPONENT_ITEM_CLONE_PATTERN.match(text)
+    if component_item_clone_match:
+        source_item_ref = component_item_clone_match.group("source").strip().strip("\"'")
+        cloned_item_name = component_item_clone_match.group("name")
+        cloned_item_name = cloned_item_name.strip().strip("\"'") if cloned_item_name else source_item_ref
+        left_item_ref = component_item_clone_match.group("left").strip().strip("\"'")
+        right_item_ref = component_item_clone_match.group("right").strip().strip("\"'")
+        component_ref = component_item_clone_match.group("component")
+        component_ref = component_ref.strip().strip("\"'") if component_ref else None
+        return ParsedCommand(
+            target="component_item",
+            field="clone",
+            value=cloned_item_name,
+            component_ref=component_ref,
+            item_ref=source_item_ref,
+            secondary_item_ref=left_item_ref,
+            tertiary_item_ref=right_item_ref,
         )
 
     raise HTTPException(
@@ -250,8 +553,12 @@ def parse_chat_command(message: str) -> ParsedCommand:
             "'set <campaign_field> to <value>', "
             "'set offer <offer_id> <offer_field> to <value>', "
             "'set brand <brand_field> to <value>', "
+            "'set business <business_field> to <value>', "
             "'change the component-key field of <component> component to <new_component_key>', "
-            "or 'change the item_value field of the first item in <component> component to <value>'."
+            "'change the item_value field of the first item in <component> component to <value>', "
+            "'delete the second item', "
+            "'delete the Signature Facial item in the main-street-appreciation component', "
+            "or 'create a new item like the Swedish Massage item called Lymphatic Drainage and add it between the Swedish Massage and the Deep Tissue items'."
         ),
     )
 
@@ -275,10 +582,97 @@ def _campaign_payload(row: Any) -> dict[str, Any]:
         "campaign_key": row["campaign_key"] or None,
         "title": row["title"],
         "objective": row["objective"],
+        "footnote_text": row["footnote_text"],
         "status": row["status"],
         "start_date": row["start_date"],
         "end_date": row["end_date"],
     }
+
+
+def _parse_boolean_value(value: str, field_name: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"true", "yes", "1", "active", "enabled", "on"}:
+        return True
+    if normalized in {"false", "no", "0", "inactive", "disabled", "off"}:
+        return False
+    raise HTTPException(status_code=400, detail=f"Invalid {field_name}; expected true/false")
+
+
+def _business_payload(row: Any) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "legal_name": row["legal_name"],
+        "display_name": row["display_name"],
+        "timezone": row["timezone"],
+        "is_active": bool(row["is_active"]),
+        "phone": row["phone"],
+        "address_line1": row["address_line1"],
+        "address_line2": row["address_line2"],
+        "city": row["city"],
+        "state": row["state"],
+        "postal_code": row["postal_code"],
+        "country": row["country"],
+    }
+
+
+def _load_business(connection: Any, business_id: int) -> Any | None:
+    return connection.execute(
+        """
+        SELECT b.id, b.legal_name, b.display_name, b.timezone, b.is_active,
+               (
+                   SELECT contact_value
+                   FROM business_contacts bc
+                   WHERE bc.business_id = b.id AND bc.contact_type = 'phone'
+                   ORDER BY bc.is_primary DESC, bc.id ASC
+                   LIMIT 1
+               ) AS phone,
+               (
+                   SELECT line1
+                   FROM business_locations bl
+                   WHERE bl.business_id = b.id
+                   ORDER BY bl.id ASC
+                   LIMIT 1
+               ) AS address_line1,
+               (
+                   SELECT line2
+                   FROM business_locations bl
+                   WHERE bl.business_id = b.id
+                   ORDER BY bl.id ASC
+                   LIMIT 1
+               ) AS address_line2,
+               (
+                   SELECT city
+                   FROM business_locations bl
+                   WHERE bl.business_id = b.id
+                   ORDER BY bl.id ASC
+                   LIMIT 1
+               ) AS city,
+               (
+                   SELECT state
+                   FROM business_locations bl
+                   WHERE bl.business_id = b.id
+                   ORDER BY bl.id ASC
+                   LIMIT 1
+               ) AS state,
+               (
+                   SELECT postal_code
+                   FROM business_locations bl
+                   WHERE bl.business_id = b.id
+                   ORDER BY bl.id ASC
+                   LIMIT 1
+               ) AS postal_code,
+               (
+                   SELECT country
+                   FROM business_locations bl
+                   WHERE bl.business_id = b.id
+                   ORDER BY bl.id ASC
+                   LIMIT 1
+               ) AS country
+        FROM businesses b
+        WHERE b.id = ?;
+        """,
+        (business_id,),
+    ).fetchone()
 
 
 def _normalize_component_key(value: str) -> str:
@@ -287,10 +681,19 @@ def _normalize_component_key(value: str) -> str:
     return normalized
 
 
+def _normalize_item_ref(value: str) -> str:
+    normalized = value.strip().strip('"\'').lower()
+    if normalized.startswith("the "):
+        normalized = normalized[4:].strip()
+    if normalized.endswith(" item"):
+        normalized = normalized[:-5].strip()
+    return normalized
+
+
 def resolve_component(connection: Any, campaign_id: int, component_ref: str) -> Any | None:
         return connection.execute(
                 """
-                SELECT id, campaign_id, component_key, component_kind, display_title, footnote_text, subtitle, description_text, display_order
+                SELECT id, campaign_id, component_key, component_kind, display_title, background_color, footnote_text, subtitle, description_text, display_order
                 FROM campaign_components
                 WHERE campaign_id = ?
                     AND (LOWER(component_key) = LOWER(?) OR LOWER(display_title) = LOWER(?))
@@ -330,17 +733,34 @@ def _find_component_item(items: list[Any], item_ref: str) -> Any | None:
     if item_index is not None:
         return items[item_index]
 
-    normalized_ref = item_ref.strip().strip('"\'').lower()
-    if normalized_ref.startswith("the "):
-        normalized_ref = normalized_ref[4:].strip()
-    if normalized_ref.endswith(" item"):
-        normalized_ref = normalized_ref[:-5].strip()
+    normalized_ref = _normalize_item_ref(item_ref)
 
     for item in items:
-        if str(item["item_name"]).strip().lower() == normalized_ref:
+        if _normalize_item_ref(str(item["item_name"])) == normalized_ref:
             return item
 
     return None
+
+
+def _resequence_component_items(connection: Any, component_id: int) -> None:
+    items = connection.execute(
+        """
+        SELECT id
+        FROM campaign_component_items
+        WHERE component_id = ?
+        ORDER BY display_order ASC, id ASC;
+        """,
+        (component_id,),
+    ).fetchall()
+    for index, item in enumerate(items, start=1):
+        connection.execute(
+            """
+            UPDATE campaign_component_items
+            SET display_order = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?;
+            """,
+            (index, item["id"]),
+        )
 
 
 def apply_chat_command(
@@ -351,7 +771,7 @@ def apply_chat_command(
 ) -> dict[str, Any]:
     campaign = connection.execute(
         """
-        SELECT id, business_id, campaign_name, campaign_key, title, objective, status, start_date, end_date
+        SELECT id, business_id, campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date
         FROM campaigns
         WHERE id = ?;
         """,
@@ -388,7 +808,7 @@ def apply_chat_command(
         )
         updated = connection.execute(
             """
-            SELECT id, business_id, campaign_name, campaign_key, title, objective, status, start_date, end_date
+            SELECT id, business_id, campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date
             FROM campaigns
             WHERE id = ?;
             """,
@@ -527,28 +947,155 @@ def apply_chat_command(
             },
         }
 
+    if command.target == "business":
+        if command.field not in BUSINESS_FIELDS:
+            raise HTTPException(status_code=400, detail="Unsupported business field")
+
+        business = _load_business(connection, campaign["business_id"])
+        if business is None:
+            raise HTTPException(status_code=404, detail="Business not found")
+
+        value = command.value.strip()
+        if command.field in {"legal_name", "display_name", "timezone"}:
+            if value == "":
+                raise HTTPException(status_code=400, detail=f"{command.field} cannot be empty")
+            try:
+                connection.execute(
+                    f"UPDATE businesses SET {command.field} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;",
+                    (value, campaign["business_id"]),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise HTTPException(status_code=409, detail="Business update conflicts with existing data") from exc
+        elif command.field == "is_active":
+            connection.execute(
+                "UPDATE businesses SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;",
+                (1 if _parse_boolean_value(value, command.field) else 0, campaign["business_id"]),
+            )
+        elif command.field == "phone":
+            connection.execute(
+                "DELETE FROM business_contacts WHERE business_id = ? AND contact_type = 'phone';",
+                (campaign["business_id"],),
+            )
+            connection.execute(
+                """
+                INSERT INTO business_contacts (business_id, contact_type, contact_value, is_primary)
+                VALUES (?, 'phone', ?, 1);
+                """,
+                (campaign["business_id"], value),
+            )
+        elif command.field in {"address_line1", "address_line2", "city", "state", "postal_code", "country"}:
+            current_line1 = (business["address_line1"] or "").strip()
+            current_city = (business["city"] or "").strip()
+            current_state = (business["state"] or "").strip()
+            current_postal = (business["postal_code"] or "").strip()
+            current_line2 = (business["address_line2"] or "").strip()
+            current_country = (business["country"] or "US").strip() or "US"
+
+            next_line1 = value if command.field == "address_line1" else current_line1
+            next_line2 = value if command.field == "address_line2" else current_line2
+            next_city = value if command.field == "city" else current_city
+            next_state = value if command.field == "state" else current_state
+            next_postal = value if command.field == "postal_code" else current_postal
+            next_country = (value if command.field == "country" else current_country) or "US"
+
+            required = (next_line1, next_city, next_state, next_postal)
+            has_any = any((next_line1, next_line2, next_city, next_state, next_postal))
+            if has_any and not all(required):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Address requires address_line1, city, state, and postal_code",
+                )
+
+            connection.execute(
+                "DELETE FROM business_locations WHERE business_id = ?;",
+                (campaign["business_id"],),
+            )
+            if has_any:
+                connection.execute(
+                    """
+                    INSERT INTO business_locations (
+                        business_id, line1, line2, city, state, postal_code, country
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (
+                        campaign["business_id"],
+                        next_line1,
+                        next_line2 or None,
+                        next_city,
+                        next_state,
+                        next_postal,
+                        next_country,
+                    ),
+                )
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported business field")
+
+        updated_business = _load_business(connection, campaign["business_id"])
+        if updated_business is None:
+            raise HTTPException(status_code=500, detail="Business update failed")
+
+        return {
+            "target": "business",
+            "field": command.field,
+            "business": _business_payload(updated_business),
+        }
+
     if command.target == "component":
         if command.component_ref is None:
             raise HTTPException(status_code=400, detail="Component reference is required")
 
         value = command.value.strip()
-        if value == "":
+        if command.field != "delete" and value == "":
             raise HTTPException(status_code=400, detail=f"component {command.field} cannot be empty")
+
+        if command.component_ref == "__all__":
+            if command.field == "delete":
+                raise HTTPException(status_code=400, detail="Deleting all components is not supported in one command")
+            if command.field == "component_key":
+                raise HTTPException(status_code=400, detail="component_key cannot be set for all components at once")
+            if command.field not in {"component_kind", "display_title", "background_color", "subtitle", "description_text", "footnote_text"}:
+                raise HTTPException(status_code=400, detail="Unsupported component field")
+
+            connection.execute(
+                f"UPDATE campaign_components SET {command.field} = ?, updated_at = CURRENT_TIMESTAMP WHERE campaign_id = ?;",
+                (value, campaign_id),
+            )
+            count_row = connection.execute(
+                "SELECT COUNT(*) AS component_count FROM campaign_components WHERE campaign_id = ?;",
+                (campaign_id,),
+            ).fetchone()
+            return {
+                "target": "component",
+                "field": command.field,
+                "updated_count": int(count_row["component_count"]) if count_row is not None else 0,
+                "scope": "all_components",
+            }
 
         component = resolve_component(connection, campaign_id, command.component_ref)
         if component is None:
             raise HTTPException(status_code=404, detail="Component not found")
 
-        if command.field == "display_title":
-            connection.execute(
-                """
-                UPDATE campaign_components
-                SET display_title = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?;
-                """,
-                (value, component["id"]),
-            )
-        elif command.field == "component_key":
+        if command.field == "delete":
+            connection.execute("DELETE FROM campaign_components WHERE id = ?;", (component["id"],))
+            return {
+                "target": "component",
+                "field": "delete",
+                "deleted": True,
+                "component": {
+                    "id": component["id"],
+                    "campaign_id": component["campaign_id"],
+                    "component_key": component["component_key"],
+                    "component_kind": component["component_kind"],
+                    "display_title": component["display_title"],
+                    "background_color": component["background_color"],
+                    "footnote_text": component["footnote_text"],
+                    "subtitle": component["subtitle"],
+                    "description_text": component["description_text"],
+                    "display_order": component["display_order"],
+                },
+            }
+        if command.field == "component_key":
             normalized_key = _normalize_component_key(value)
             if normalized_key == "":
                 raise HTTPException(status_code=400, detail="component_key must contain letters or numbers")
@@ -563,11 +1110,16 @@ def apply_chat_command(
                 )
             except sqlite3.IntegrityError as exc:
                 raise HTTPException(status_code=409, detail="component_key already exists for this campaign") from exc
+        elif command.field in {"component_kind", "display_title", "background_color", "subtitle", "description_text", "footnote_text"}:
+            connection.execute(
+                f"UPDATE campaign_components SET {command.field} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;",
+                (value, component["id"]),
+            )
         else:
             raise HTTPException(status_code=400, detail="Unsupported component field")
         updated_component = connection.execute(
             """
-            SELECT id, campaign_id, component_key, component_kind, display_title, footnote_text, subtitle, description_text, display_order
+            SELECT id, campaign_id, component_key, component_kind, display_title, background_color, footnote_text, subtitle, description_text, display_order
             FROM campaign_components
             WHERE id = ?;
             """,
@@ -585,6 +1137,7 @@ def apply_chat_command(
                 "component_key": updated_component["component_key"],
                 "component_kind": updated_component["component_kind"],
                 "display_title": updated_component["display_title"],
+                "background_color": updated_component["background_color"],
                 "footnote_text": updated_component["footnote_text"],
                 "subtitle": updated_component["subtitle"],
                 "description_text": updated_component["description_text"],
@@ -595,7 +1148,7 @@ def apply_chat_command(
     if command.target == "component_item":
         if command.item_ref is None:
             raise HTTPException(status_code=400, detail="Item reference is required")
-        if command.field not in COMPONENT_ITEM_FIELDS:
+        if command.field not in {"clone", "delete"} and command.field not in COMPONENT_ITEM_FIELDS:
             raise HTTPException(status_code=400, detail="Unsupported component item field")
 
         component_ref = command.component_ref
@@ -608,7 +1161,7 @@ def apply_chat_command(
             }
 
         value = command.value.strip()
-        if value == "":
+        if command.field not in {"clone", "delete"} and value == "":
             raise HTTPException(status_code=400, detail=f"component item {command.field} cannot be empty")
 
         component = resolve_component(connection, campaign_id, component_ref)
@@ -617,7 +1170,7 @@ def apply_chat_command(
 
         items = connection.execute(
             """
-            SELECT id, component_id, item_name, item_kind, duration_label, item_value, description_text, terms_text, display_order
+            SELECT id, component_id, item_name, item_kind, duration_label, item_value, background_color, description_text, terms_text, display_order
             FROM campaign_component_items
             WHERE component_id = ?
             ORDER BY display_order ASC, id ASC;
@@ -627,34 +1180,141 @@ def apply_chat_command(
         if not items:
             raise HTTPException(status_code=404, detail="Component has no items")
 
+        if command.item_ref == "__all__":
+            if command.field in {"clone", "delete"}:
+                raise HTTPException(status_code=400, detail=f"Bulk '{command.field}' for all items is not supported")
+
+            connection.execute(
+                f"UPDATE campaign_component_items SET {command.field} = ?, updated_at = CURRENT_TIMESTAMP WHERE component_id = ?;",
+                (value, component["id"]),
+            )
+            count_row = connection.execute(
+                "SELECT COUNT(*) AS item_count FROM campaign_component_items WHERE component_id = ?;",
+                (component["id"],),
+            ).fetchone()
+            return {
+                "target": "component_item",
+                "field": command.field,
+                "deleted": False,
+                "updated_count": int(count_row["item_count"]) if count_row is not None else 0,
+                "scope": "all_items",
+                "component": {
+                    "id": component["id"],
+                    "campaign_id": component["campaign_id"],
+                    "component_key": component["component_key"],
+                    "component_kind": component["component_kind"],
+                    "display_title": component["display_title"],
+                    "background_color": component["background_color"],
+                    "display_order": component["display_order"],
+                },
+            }
+
         item = _find_component_item(items, command.item_ref)
         if item is None:
             raise HTTPException(status_code=404, detail="Component item not found")
 
-        connection.execute(
-            f"UPDATE campaign_component_items SET {command.field} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;",
-            (value, item["id"]),
-        )
-        updated_item = connection.execute(
-            """
-            SELECT id, component_id, item_name, item_kind, duration_label, item_value, description_text, terms_text, display_order
-            FROM campaign_component_items
-            WHERE id = ?;
-            """,
-            (item["id"],),
-        ).fetchone()
-        if updated_item is None:
-            raise HTTPException(status_code=500, detail="Component item update failed")
+        if command.field == "clone":
+            insert_before_ref = command.tertiary_item_ref
+            if insert_before_ref is None:
+                raise HTTPException(status_code=400, detail="A target item to insert before is required")
+            if value == "":
+                raise HTTPException(status_code=400, detail="Cloned item name cannot be empty")
+
+            insert_before_item = _find_component_item(items, insert_before_ref)
+            if insert_before_item is None:
+                raise HTTPException(status_code=404, detail="Target insertion item not found")
+
+            source_index = next(
+                (index for index, existing_item in enumerate(items) if existing_item["id"] == item["id"]),
+                None,
+            )
+            insert_before_index = next(
+                (index for index, existing_item in enumerate(items) if existing_item["id"] == insert_before_item["id"]),
+                None,
+            )
+            if source_index is None or insert_before_index is None:
+                raise HTTPException(status_code=404, detail="Component item not found")
+            if source_index >= insert_before_index:
+                raise HTTPException(status_code=400, detail="The source item must come before the target item")
+
+            insert_position = source_index + 1
+            connection.execute(
+                """
+                UPDATE campaign_component_items
+                SET display_order = display_order + 1, updated_at = CURRENT_TIMESTAMP
+                WHERE component_id = ? AND display_order > ?;
+                """,
+                (component["id"], item["display_order"]),
+            )
+            inserted_row = connection.execute(
+                """
+                INSERT INTO campaign_component_items (
+                    component_id, item_name, item_kind, duration_label, item_value, background_color, description_text, terms_text, display_order
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                RETURNING id, component_id, item_name, item_kind, duration_label, item_value, background_color, description_text, terms_text, display_order;
+                """,
+                (
+                    component["id"],
+                    value,
+                    item["item_kind"],
+                    item["duration_label"],
+                    item["item_value"],
+                    item["background_color"],
+                    item["description_text"],
+                    item["terms_text"],
+                    insert_position + 1,
+                ),
+            ).fetchone()
+            if inserted_row is None:
+                raise HTTPException(status_code=500, detail="Component item clone failed")
+            updated_item = inserted_row
+        elif command.field == "delete":
+            deleted_item = {
+                "id": item["id"],
+                "component_id": item["component_id"],
+                "item_name": item["item_name"],
+                "item_kind": item["item_kind"],
+                "duration_label": item["duration_label"],
+                "item_value": item["item_value"],
+                "background_color": item["background_color"],
+                "description_text": item["description_text"],
+                "terms_text": item["terms_text"],
+                "display_order": item["display_order"],
+            }
+            connection.execute(
+                "DELETE FROM campaign_component_items WHERE id = ?;",
+                (item["id"],),
+            )
+            _resequence_component_items(connection, component["id"])
+            updated_item = deleted_item
+        else:
+            connection.execute(
+                f"UPDATE campaign_component_items SET {command.field} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;",
+                (value, item["id"]),
+            )
+            updated_item = connection.execute(
+                """
+                SELECT id, component_id, item_name, item_kind, duration_label, item_value, background_color, description_text, terms_text, display_order
+                FROM campaign_component_items
+                WHERE id = ?;
+                """,
+                (item["id"],),
+            ).fetchone()
+            if updated_item is None:
+                raise HTTPException(status_code=500, detail="Component item update failed")
 
         return {
             "target": "component_item",
             "field": command.field,
+            "deleted": command.field == "delete",
             "component": {
                 "id": component["id"],
                 "campaign_id": component["campaign_id"],
                 "component_key": component["component_key"],
                 "component_kind": component["component_kind"],
                 "display_title": component["display_title"],
+                "background_color": component["background_color"],
                 "display_order": component["display_order"],
             },
             "item": {
@@ -664,6 +1324,7 @@ def apply_chat_command(
                 "item_kind": updated_item["item_kind"],
                 "duration_label": updated_item["duration_label"],
                 "item_value": updated_item["item_value"],
+                "background_color": updated_item["background_color"],
                 "description_text": updated_item["description_text"],
                 "terms_text": updated_item["terms_text"],
                 "display_order": updated_item["display_order"],

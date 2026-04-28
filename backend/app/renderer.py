@@ -47,12 +47,44 @@ _COLOR_CREAM = colors.HexColor("#FBF7F4")
 _COLOR_INK = colors.HexColor("#181818")
 _COLOR_WHITE = colors.white
 
+# Custom color name mapping for natural language colors not in CSS/ReportLab
+_CUSTOM_COLORS = {
+    "light purple": "#c8a2c8",
+    "lavender": "#e6d5ff",
+}
 
-def _hex(val: str | None, fallback: str = "#000000") -> colors.HexColor:
-    raw = (val or fallback).strip()
-    if not raw.startswith("#"):
-        raw = "#" + raw
-    return colors.HexColor(raw)
+
+def _hex(val: str | None, fallback: str = "#000000") -> colors.Color:
+    raw = (val or "").strip()
+    if raw:
+        # Check custom color names first (with normalization)
+        raw_normalized = raw.lower().replace(" ", "").replace("-", "").replace("_", "")
+        for custom_name, hex_val in _CUSTOM_COLORS.items():
+            if raw_normalized == custom_name.lower().replace(" ", "").replace("-", "").replace("_", ""):
+                try:
+                    return colors.HexColor(hex_val)
+                except (ValueError, TypeError):
+                    pass
+        
+        # Try standard CSS color names with various normalizations
+        candidates = [raw, raw.lower().replace(" ", ""), raw.lower().replace("-", ""), raw.lower().replace("_", "")]
+        for candidate in candidates:
+            try:
+                # Accept names like "lightgreen" and common natural variants like "light green".
+                return colors.toColor(candidate)
+            except (ValueError, TypeError):
+                continue
+        if not raw.startswith("#"):
+            raw = "#" + raw
+        try:
+            return colors.HexColor(raw)
+        except (ValueError, TypeError):
+            pass
+
+    try:
+        return colors.toColor(fallback)
+    except (ValueError, TypeError):
+        return colors.HexColor("#000000")
 
 
 def _palette(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -205,10 +237,28 @@ def _draw_offer_card(pdf: Any, x: float, y: float, w: float, h: float,
     _draw_centered(pdf, price, x + w / 2, y + 30, "Helvetica-Bold", 28, accent)
 
 
+def _draw_compact_offer_card(pdf: Any, x: float, y: float, w: float, h: float,
+                              title: str, duration: str, price: str,
+                              fill: Any, accent: Any, text_color: Any) -> None:
+    """Compact card for featured offers - fits 3 per row with reduced vertical space."""
+    _draw_rounded_panel(pdf, x, y, w, h, fill, accent, radius=12, stroke_w=1.5)
+    
+    # Title bar (smaller than standard card)
+    pdf.setFillColor(accent)
+    pdf.roundRect(x + 6, y + h - 22, w - 12, 14, 8, fill=1, stroke=0)
+    _draw_centered(pdf, title, x + w / 2, y + h - 16, "Helvetica-Bold", 11, _COLOR_WHITE)
+    
+    # Duration (slightly larger than standard)
+    _draw_centered(pdf, duration, x + w / 2, y + h - 35, "Helvetica", 12, text_color)
+    
+    # Price (same size as title, not giant)
+    _draw_centered(pdf, price, x + w / 2, y + 10, "Helvetica-Bold", 11, accent)
+
+
 def _draw_weekday_strip(pdf: Any, x: float, y: float, w: float,
                          title: str, detail: str, price: str,
-                         palette: dict) -> None:
-    _draw_rounded_panel(pdf, x, y, w, 26, palette["primary_light"], palette["secondary"],
+                         palette: dict, strip_fill: Any = None) -> None:
+    _draw_rounded_panel(pdf, x, y, w, 26, strip_fill or palette["primary_light"], palette["secondary"],
                         radius=10, stroke_w=1)
     pdf.setFillColor(palette["ink"])
     pdf.setFont("Helvetica-Bold", 10.5)
@@ -266,52 +316,87 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
     # ----- Featured offers panel (Mother's Day / similar) -----
     if featured:
         comp = featured[0]
-        _draw_rounded_panel(pdf, hx, _FEATURED_Y, panel_w, _FEATURED_H,
-                            palette["blush"], palette["accent"], radius=24, stroke_w=2)
-        _draw_centered(pdf, title_with_marker(comp), w / 2,
-                       _FEATURED_Y + _FEATURED_H - 34, "Helvetica-Bold", 23, palette["primary"])
-        subtitle = comp.get("subtitle") or ""
-        if subtitle:
-            _draw_wrapped_centered(pdf, subtitle, w / 2, _FEATURED_Y + _FEATURED_H - 62,
-                                   w - 140, "Times-Italic", 14, 17, _COLOR_INK)
-
         items = comp.get("items", [])
-        card_y = _FEATURED_Y + 42
-        card_h = 112.0
-        card_w = (panel_w - 28) / 2
+        num_items = len(items)
+        cols_per_row = min(3, max(1, num_items))
+        num_rows = math.ceil(num_items / cols_per_row) if num_items > 0 else 1
+        
+        featured_fill = _hex(comp.get("background_color"), _string_hex(palette["blush"]))
+        panel_top = _FEATURED_Y
+        panel_h = _FEATURED_H
+        _draw_rounded_panel(pdf, hx, panel_top, panel_w, panel_h,
+                            featured_fill, palette["accent"], radius=24, stroke_w=2)
+        
+        _draw_centered(pdf, title_with_marker(comp), w / 2,
+                       panel_top + panel_h - 34, "Helvetica-Bold", 21, palette["primary"])
+        
+        # Carve out a fixed inner content region for items between the subtitle and
+        # the footnote so cards can never encroach on either boundary.
+        subtitle = comp.get("subtitle") or ""
+        items_top_boundary = panel_top + panel_h - 74.0
+        if subtitle:
+            subtitle_bottom = _draw_wrapped_centered(
+                pdf,
+                subtitle,
+                w / 2,
+                panel_top + panel_h - 62,
+                w - 140,
+                "Times-Italic",
+                12,
+                14,
+                _COLOR_INK,
+            )
+            items_top_boundary = min(items_top_boundary, subtitle_bottom - 10.0)
 
-        if len(items) >= 2:
-            draw_cards = items[:2]
-            # Card 1
-            i0 = draw_cards[0]
-            _draw_offer_card(pdf, hx + 14, card_y, card_w, card_h,
-                             i0.get("item_name") or "", i0.get("duration_label") or "",
-                             i0.get("item_value") or "",
-                             palette["card_1_bg"], palette["accent"], _COLOR_INK)
-            # Card 2
-            i1 = draw_cards[1]
-            _draw_offer_card(pdf, hx + 14 + card_w + 14, card_y, card_w, card_h,
-                             i1.get("item_name") or "", i1.get("duration_label") or "",
-                             i1.get("item_value") or "",
-                             palette["white"], palette["primary"], _COLOR_INK)
-        elif len(items) == 1:
-            i0 = items[0]
-            _draw_offer_card(pdf, hx + 14, card_y, panel_w - 28, card_h,
-                             i0.get("item_name") or "", i0.get("duration_label") or "",
-                             i0.get("item_value") or "",
-                             palette["card_1_bg"], palette["accent"], _COLOR_INK)
+        footnote_y = panel_top + 12.0
+        items_bottom_boundary = footnote_y + 18.0
+        row_spacing = 8.0
+        available_h = max(48.0, items_top_boundary - items_bottom_boundary)
+        card_h = max(42.0, min(58.0, (available_h - row_spacing * max(0, num_rows - 1)) / num_rows))
+
+        # Keep the cards visually compact instead of stretching them to full width.
+        card_gap = 8.0
+        max_card_w = 132.0
+        available_w = panel_w - 40.0
+        card_w = min(max_card_w, (available_w - card_gap * max(0, cols_per_row - 1)) / cols_per_row)
+        grid_w = cols_per_row * card_w + card_gap * max(0, cols_per_row - 1)
+        grid_x = hx + (panel_w - grid_w) / 2.0
+        card_x_positions = [grid_x + idx * (card_w + card_gap) for idx in range(cols_per_row)]
+
+        first_row_top = items_top_boundary
+        card_y_start = first_row_top - card_h
+        
+        for row_idx in range(num_rows):
+            card_y = card_y_start - (row_idx * (card_h + row_spacing))
+            
+            for col_idx in range(cols_per_row):
+                item_idx = row_idx * cols_per_row + col_idx
+                if item_idx < num_items:
+                    item = items[item_idx]
+                    # Alternate colors: blush, white, blush (or use card_1_bg)
+                    if col_idx % 2 == 0:
+                        item_fill = _hex(item.get("background_color"), _string_hex(palette["card_1_bg"]))
+                        item_accent = palette["accent"]
+                    else:
+                        item_fill = _hex(item.get("background_color"), _string_hex(palette["white"]))
+                        item_accent = palette["primary"]
+                    
+                    _draw_compact_offer_card(pdf, card_x_positions[col_idx], card_y, card_w, card_h,
+                                            item.get("item_name") or "", item.get("duration_label") or "",
+                                            item.get("item_value") or "",
+                                            item_fill, item_accent, _COLOR_INK)
 
         comp_note = (comp.get("footnote_text") or "").strip()
         if comp_note:
-            _draw_centered(pdf, f"** {comp_note}", w / 2, _FEATURED_Y + 9,
-                           "Helvetica", 8.5, _COLOR_INK)
+            _draw_centered(pdf, f"** {comp_note}", w / 2, footnote_y,
+                           "Helvetica", 8, _COLOR_INK)
 
     # ----- Weekday specials panel -----
-    _draw_rounded_panel(pdf, hx, _WEEKDAY_Y, panel_w, _WEEKDAY_H,
-                        palette["primary"], palette["primary"], radius=24, stroke_w=2)
-
     if weekday:
         wd_comp = weekday[0]
+        weekday_fill = _hex(wd_comp.get("background_color"), _string_hex(palette["primary"]))
+        _draw_rounded_panel(pdf, hx, _WEEKDAY_Y, panel_w, _WEEKDAY_H,
+                            weekday_fill, palette["primary"], radius=24, stroke_w=2)
         _draw_centered(pdf, title_with_marker(wd_comp), w / 2,
                        _WEEKDAY_Y + _WEEKDAY_H - 34, "Helvetica-Bold", 22, palette["white"])
         wd_sub = wd_comp.get("subtitle") or ""
@@ -322,15 +407,33 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
         strips_x = hx + 18
         strips_w = w - (hx + 18) * 2
         wd_items = wd_comp.get("items", [])
-        # Preserve source order top-to-bottom to match the reference layout.
-        strip_top = _WEEKDAY_Y + 172
-        for idx, item in enumerate(wd_items):
-            sy = strip_top - (idx * 34)
+        strip_h = 26.0
+        strip_gap = 8.0
+        services_panel_y = _WEEKDAY_Y + 34
+        services_panel_h = 62.0
+        has_discount_panel = bool(discount)
+
+        # Carve out weekday item bounds so strips never collide with header/subtitle
+        # or the lower discount/footer region.
+        strips_top = _WEEKDAY_Y + _WEEKDAY_H - 86.0
+        if has_discount_panel:
+            strips_bottom = services_panel_y + services_panel_h + 10.0
+        else:
+            strips_bottom = _WEEKDAY_Y + 20.0
+
+        available_h = max(0.0, strips_top - strips_bottom)
+        max_rows = int((available_h + strip_gap) // (strip_h + strip_gap))
+
+        # Preserve source order top-to-bottom and render only what fits.
+        for idx, item in enumerate(wd_items[:max_rows]):
+            sy = strips_top - (idx * (strip_h + strip_gap))
+            strip_fill = _hex(item.get("background_color"), _string_hex(palette["primary_light"]))
             _draw_weekday_strip(pdf, strips_x, sy, strips_w,
                                 item.get("item_name") or "",
                                 item.get("duration_label", ""),
                                 item.get("item_value", ""),
-                                palette)
+                                palette,
+                                strip_fill=strip_fill)
 
     # ----- Discount strip (services panel) -----
     if discount:
@@ -429,7 +532,8 @@ def _draw_simple_flyer(pdf: Any, ctx: dict, palette: dict) -> None:
         if y < 120:
             break
         # Section title
-        pdf.setFillColor(palette["accent"])
+        section_fill = _hex(comp.get("background_color"), _string_hex(palette["accent"]))
+        pdf.setFillColor(section_fill)
         pdf.roundRect(_MARGIN, y - 6, w - _MARGIN * 2, 22, 8, fill=1, stroke=0)
         title = (comp.get("display_title") or "").upper()
         if (comp.get("footnote_text") or "").strip():
@@ -445,6 +549,13 @@ def _draw_simple_flyer(pdf: Any, ctx: dict, palette: dict) -> None:
             label = " – ".join(parts)
             value = item.get("item_value") or ""
             row = f"{label}: {value}" if label and value else label or value
+
+            item_fill_raw = item.get("background_color")
+            if item_fill_raw:
+                item_fill = _hex(item_fill_raw, _string_hex(palette["primary_light"]))
+                pdf.setFillColor(item_fill)
+                pdf.roundRect(_MARGIN + 8, y - 5, w - (_MARGIN + 8) * 2, 16, 6, fill=1, stroke=0)
+
             pdf.setFillColor(palette["ink"])
             pdf.setFont("Helvetica", 11)
             pdf.drawCentredString(w / 2, y, row)
@@ -490,6 +601,7 @@ def _fallback_components(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "component_key": "offers",
             "component_kind": "featured-offers",
             "display_title": "Offer Details",
+            "background_color": None,
             "subtitle": None,
             "description_text": None,
             "display_order": 0,
@@ -499,6 +611,7 @@ def _fallback_components(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "item_kind": offer.get("offer_type") or "service",
                     "duration_label": None,
                     "item_value": offer.get("offer_value"),
+                    "background_color": None,
                     "description_text": None,
                     "terms_text": offer.get("terms_text"),
                     "display_order": index,
@@ -570,7 +683,7 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
     ).fetchall()
     components = connection.execute(
         """
-        SELECT id, component_key, component_kind, display_title, footnote_text, subtitle, description_text, display_order
+        SELECT id, component_key, component_kind, display_title, background_color, footnote_text, subtitle, description_text, display_order
         FROM campaign_components
         WHERE campaign_id = ?
         ORDER BY display_order ASC, id ASC;
@@ -603,7 +716,7 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
     for component in components:
         items = connection.execute(
             """
-            SELECT item_name, item_kind, duration_label, item_value, description_text, terms_text, display_order
+            SELECT item_name, item_kind, duration_label, item_value, background_color, description_text, terms_text, display_order
             FROM campaign_component_items
             WHERE component_id = ?
             ORDER BY display_order ASC, id ASC;
@@ -615,6 +728,7 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
                 "component_key": component["component_key"],
                 "component_kind": component["component_kind"],
                 "display_title": component["display_title"],
+                "background_color": component["background_color"],
                 "footnote_text": component["footnote_text"],
                 "subtitle": component["subtitle"],
                 "description_text": component["description_text"],
@@ -654,7 +768,10 @@ def render_flyer(ctx: dict[str, Any], data_dir: Path | None = None) -> bytes:
     components = ctx.get("components", [])
 
     featured = [c for c in components if c.get("component_kind") == "featured-offers"]
-    weekday = [c for c in components if c.get("component_kind") == "weekday-specials"]
+    weekday = [
+        c for c in components
+        if c.get("component_kind") in {"weekday-specials", "other-offers", "secondary-offers"}
+    ]
     discount = [c for c in components if c.get("component_kind") == "discount-strip"]
     legal = [c for c in components if c.get("component_kind") == "legal-note"]
     use_rich = bool(featured or weekday)
@@ -691,7 +808,10 @@ def render_flyer_nup(ctx: dict[str, Any], images_per_page: int, data_dir: Path |
     components = ctx.get("components", [])
 
     featured = [c for c in components if c.get("component_kind") == "featured-offers"]
-    weekday = [c for c in components if c.get("component_kind") == "weekday-specials"]
+    weekday = [
+        c for c in components
+        if c.get("component_kind") in {"weekday-specials", "other-offers", "secondary-offers"}
+    ]
     discount = [c for c in components if c.get("component_kind") == "discount-strip"]
     legal = [c for c in components if c.get("component_kind") == "legal-note"]
     use_rich = bool(featured or weekday)
