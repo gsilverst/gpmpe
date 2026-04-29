@@ -390,12 +390,13 @@ def _draw_weekday_strip(pdf: Any, x: float, y: float, w: float,
     _draw_rounded_panel(pdf, x, y, w, 26, strip_fill or palette["primary_light"], palette["secondary"],
                         radius=10, stroke_w=1)
     pdf.setFillColor(palette["ink"])
-    pdf.setFont("Helvetica-Bold", 10.5)
+    # Standardized to 11pt for all fields in the strip
+    pdf.setFont("Helvetica-Bold", 11)
     pdf.drawString(x + 16, y + 8, title)
-    pdf.setFont("Helvetica", 9.5)
+    pdf.setFont("Helvetica", 11)
     pdf.drawString(x + 180, y + 8, detail)
-    pdf.setFont("Helvetica-Bold", 13)
-    pdf.drawRightString(x + w - 16, y + 7, price)
+    pdf.setFont("Helvetica-Bold", 11)
+    pdf.drawRightString(x + w - 16, y + 8, price)
 
 
 # ---------------------------------------------------------------------------
