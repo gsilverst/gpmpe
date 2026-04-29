@@ -111,9 +111,10 @@ Objective:
 Objective:
 - Create a comprehensive sample data directory (`data/`) under source control to demonstrate GPMPE capabilities with a fictitious company and multiple promotions.
 
-### Step 12: Repository Visibility Cutover (Private -> Public) (TODO)
+### Step 12: Repository Visibility Cutover (Private -> Public) (COMPLETED)
 Objective:
-- Change repository visibility to public only after explicit completion sign-off.
+- Change repository visibility to public.
+- Project is now open for public release and baseline usage.
 
 ## Phase 4: Enhancements, Analysis, and User Experience
 
