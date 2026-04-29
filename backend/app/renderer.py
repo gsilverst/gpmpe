@@ -64,7 +64,7 @@ _DEFAULT_RENDER_LAYOUT: dict[str, Any] = {
             "card_gap": 8.0,
             "row_gap": 8.0,
             "max_card_width": 132.0,
-            "min_card_height": 42.0,
+            "min_card_height": 46.0,
             "max_card_height": 58.0,
             "item_top_offset": 74.0,
             "subtitle_top_offset": 62.0,
@@ -357,16 +357,27 @@ def _draw_compact_offer_card(pdf: Any, x: float, y: float, w: float, h: float,
     """Compact card for featured offers - fits 3 per row with reduced vertical space."""
     _draw_rounded_panel(pdf, x, y, w, h, fill, accent, radius=12, stroke_w=1.5)
     
-    # Title bar (smaller than standard card)
+    # Title bar (slightly higher for more body room)
     pdf.setFillColor(accent)
-    pdf.roundRect(x + 6, y + h - 22, w - 12, 14, 8, fill=1, stroke=0)
-    _draw_centered(pdf, title, x + w / 2, y + h - 16, "Helvetica-Bold", 11, title_color or _COLOR_WHITE)
+    pdf.roundRect(x + 6, y + h - 19, w - 12, 14, 7, fill=1, stroke=0)
+    _draw_centered(pdf, title, x + w / 2, y + h - 13, "Helvetica-Bold", 10.5, title_color or _COLOR_WHITE)
     
-    # Duration (slightly larger than standard)
-    _draw_centered(pdf, duration, x + w / 2, y + h - 35, "Helvetica", 12, text_color)
-    
-    # Price (same size as title, not giant)
-    _draw_centered(pdf, price, x + w / 2, y + 10, "Helvetica-Bold", 11, price_color or accent)
+    # Body positioning (scaled to fit min height without overlap)
+    if h < 52:
+        # Tight constraints: position labels closer to bottom/center
+        duration_y = y + 16
+        price_y = y + 6
+        duration_size = 9
+        price_size = 10
+    else:
+        # Standard compact layout
+        duration_y = y + 20
+        price_y = y + 9
+        duration_size = 10
+        price_size = 11.5
+        
+    _draw_centered(pdf, duration, x + w / 2, duration_y, "Helvetica", duration_size, text_color)
+    _draw_centered(pdf, price, x + w / 2, price_y, "Helvetica-Bold", price_size, price_color or accent)
 
 
 def _draw_weekday_strip(pdf: Any, x: float, y: float, w: float,
@@ -479,7 +490,7 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
         items_bottom_boundary = footnote_y + 18.0
         row_spacing = float(_style(layout, "featured", "row_gap", fallback=8.0))
         available_h = max(48.0, items_top_boundary - items_bottom_boundary)
-        min_card_h = float(_style(layout, "featured", "min_card_height", fallback=42.0))
+        min_card_h = float(_style(layout, "featured", "min_card_height", fallback=46.0))
         max_card_h = float(_style(layout, "featured", "max_card_height", fallback=58.0))
         card_h = max(min_card_h, min(max_card_h, (available_h - row_spacing * max(0, num_rows - 1)) / num_rows))
 
