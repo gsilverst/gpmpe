@@ -354,28 +354,32 @@ def _draw_compact_offer_card(pdf: Any, x: float, y: float, w: float, h: float,
                               title: str, duration: str, price: str,
                               fill: Any, accent: Any, text_color: Any,
                               title_color: Any = None, price_color: Any = None) -> None:
-    """Compact card for featured offers - fits 3 per row with reduced vertical space."""
+    """Compact card for featured offers - fits 3 per row with symmetrical spacing."""
     _draw_rounded_panel(pdf, x, y, w, h, fill, accent, radius=12, stroke_w=1.5)
     
     # Title bar (slightly higher for more body room)
+    title_bar_h = 13
+    title_bar_bottom = h - 17
     pdf.setFillColor(accent)
-    pdf.roundRect(x + 6, y + h - 19, w - 12, 14, 7, fill=1, stroke=0)
-    _draw_centered(pdf, title, x + w / 2, y + h - 13, "Helvetica-Bold", 10.5, title_color or _COLOR_WHITE)
+    pdf.roundRect(x + 6, y + title_bar_bottom, w - 12, title_bar_h, 6.5, fill=1, stroke=0)
+    _draw_centered(pdf, title, x + w / 2, y + h - 12.5, "Helvetica-Bold", 10, title_color or _COLOR_WHITE)
     
-    # Body positioning (scaled to fit min height without overlap)
-    if h < 52:
-        # Tight constraints: position labels closer to bottom/center
-        duration_y = y + 16
-        price_y = y + 6
-        duration_size = 9
-        price_size = 10
-    else:
-        # Standard compact layout
-        duration_y = y + 20
-        price_y = y + 9
-        duration_size = 10
-        price_size = 11.5
-        
+    # Label positions are calculated to ensure vertical symmetry around the duration.
+    # Body space is between the card bottom (plus padding) and title bar bottom.
+    body_padding_bottom = 7
+    price_size = 11.5 if h >= 52 else 10.5
+    duration_size = 11 if h >= 52 else 9
+    
+    # Price sits at the bottom of the body
+    price_y = y + body_padding_bottom
+    # We estimate the visual top of the price text (cap height)
+    price_top = price_y + (price_size * 0.7)
+    
+    # The duration should be centered in the remaining space between price and title bar
+    available_gap = (y + title_bar_bottom) - price_top
+    # duration_y is the baseline. We adjust by half the cap height to center the glyphs.
+    duration_y = price_top + (available_gap / 2) - (duration_size * 0.35)
+    
     _draw_centered(pdf, duration, x + w / 2, duration_y, "Helvetica", duration_size, text_color)
     _draw_centered(pdf, price, x + w / 2, price_y, "Helvetica-Bold", price_size, price_color or accent)
 
