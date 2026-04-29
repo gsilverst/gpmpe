@@ -1358,3 +1358,25 @@ def test_chat_message_can_add_new_item_with_positioning(monkeypatch, tmp_path: P
         assert item["item_value"] == "$10"  # Cloned from Item 1
         items = connection.execute("SELECT item_name FROM campaign_component_items WHERE component_id = 1 ORDER BY display_order").fetchall()
     assert [row["item_name"] for row in items] == ["Item 1", "Item 1.5", "Item 1.6", "Item 2", "Item 3"]
+
+def test_chat_message_can_add_new_item_with_an_item_and_no_name(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_massage_component_items_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "add an item to the main-street-appreciation component after the Swedish Massage item",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["target"] == "component_item"
+    assert payload["result"]["field"] == "add"
+    assert payload["result"]["item"]["item_name"] == "New Item"
+    assert payload["result"]["item"]["display_order"] == 2

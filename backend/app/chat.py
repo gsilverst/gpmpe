@@ -259,7 +259,7 @@ COMPONENT_ITEM_CLONE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 COMPONENT_ITEM_ADD_PATTERN = re.compile(
-    r"^(?:add|create)\s+(?:a\s+)?(?:new\s+)?item"
+    r"^(?:add|create)\s+(?:an?\s+|the\s+)?(?:new\s+)?item"
     r"(?:\s+called\s+(?P<name>.+?))?"
     r"(?:\s+like\s+(?:the\s+)?(?P<source>.+?)\s+item)?"
     r"(?:\s+(?:to|in|into)\s+(?:the\s+)?(?P<component>.+?)\s+component)?"
@@ -1259,7 +1259,7 @@ def apply_chat_command(
                     """
                     UPDATE campaign_components
                     SET component_kind = ?, render_region = ?, render_mode = ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?;
+                    WHERE campaign_id = ?;
                     """,
                     (value, render_region, render_mode, component["id"]),
                 )
