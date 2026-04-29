@@ -154,3 +154,9 @@ Objective:
 ### Step 21: Externalize Renderer Layout Constants (TODO)
 Objective:
 - Based on the proposal from Step 17, refactor `renderer.py` and the database schema to support dynamic, data-driven overrides for visual layout properties.
+
+### Step 22: Detailed Requirements Documentation (TODO)
+Objective:
+- Write a comprehensive requirements document that captures the original intent and evolution of the project.
+- Document the functional, technical, and aesthetic requirements realized in the current system.
+- Output: `docs/REQUIREMENTS.md`.
