@@ -180,17 +180,17 @@ COMPONENT_ITEM_CHANGE_FIELD_PATTERN = re.compile(
     r"^(?:change|set|update)\s+(?:the\s+)?"
     r"(?P<field>" + _ITEM_FIELD_RE + r")"
     r"(?:\s+field)?"
-    r"\s+(?:of\s+)?(?:the\s+)?(?P<item>.+?)\s+item"
-    r"(?:\s+in\s+(?:the\s+)?(?P<component>.+?)\s+component)?"
+    r"\s+(?:of\s+)?(?:the\s+)?(?P<item>.+?)\s+items?"
+    r"(?:\s+in\s+(?:the\s+)?(?P<component>.+?)\s+components?)?"
     r"\s+to\s+(?P<value>.+)$",
     re.IGNORECASE,
 )
 COMPONENT_ITEM_CHANGE_FIELD_ITEM_FIRST_PATTERN = re.compile(
     r"^(?:change|set|update)\s+(?:the\s+)?"
-    r"(?P<item>.+?)\s+item\s+"
+    r"(?P<item>.+?)\s+items?\s+"
     r"(?P<field>" + _ITEM_FIELD_RE + r")"
     r"(?:\s+field)?"
-    r"(?:\s+in\s+(?:the\s+)?(?P<component>.+?)\s+component)?"
+    r"(?:\s+in\s+(?:the\s+)?(?P<component>.+?)\s+components?)?"
     r"\s+to\s+(?P<value>.+)$",
     re.IGNORECASE,
 )
@@ -200,7 +200,7 @@ COMPONENT_ITEM_CHANGE_ALL_PATTERN = re.compile(
     r"(?:\s+field)?"
     r"\s+to\s+(?P<value>.+?)"
     r"\s+for\s+all\s+items"
-    r"(?:\s+in\s+(?:the\s+)?(?P<component>.+?)\s+component)?"
+    r"(?:\s+in\s+(?:the\s+)?(?P<component>.+?)\s+components?)?"
     r"[.!?]?$",
     re.IGNORECASE,
 )
@@ -214,61 +214,61 @@ COMPONENT_CHANGE_ALL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 COMPONENT_SET_PATTERN = re.compile(
-    r"^(?:set|change|update)\s+component\s+(?P<component>.+?)\s+(?P<field>" + _COMPONENT_FIELD_RE + r")(?:\s+field)?\s+to\s+(?P<value>.+)$",
+    r"^(?:set|change|update)\s+components?\s+(?P<component>.+?)\s+(?P<field>" + _COMPONENT_FIELD_RE + r")(?:\s+field)?\s+to\s+(?P<value>.+)$",
     re.IGNORECASE,
 )
 COMPONENT_CHANGE_FIELD_PATTERN = re.compile(
     r"^(?:change|set|update)\s+(?:the\s+)?(?P<field>" + _COMPONENT_FIELD_RE + r")"
-    r"(?:\s+field)?\s+of\s+(?:the\s+)?(?P<component>.+?)\s+component\s+to\s+(?P<value>.+)$",
+    r"(?:\s+field)?\s+of\s+(?:the\s+)?(?P<component>.+?)\s+components?\s+to\s+(?P<value>.+)$",
     re.IGNORECASE,
 )
 COMPONENT_CHANGE_NAME_PATTERN = re.compile(
-    r"^change\s+the\s+name\s+of\s+(?:the\s+)?(.+?)\s+component\s+to\s+(.+)$",
+    r"^change\s+the\s+name\s+of\s+(?:the\s+)?(.+?)\s+components?\s+to\s+(.+)$",
     re.IGNORECASE,
 )
 COMPONENT_CHANGE_NAME_INCOMPLETE_PATTERN = re.compile(
-    r"^change\s+the\s+name\s+of\s+(?:the\s+)?(.+?)\s+component\s*[.!?]?$",
+    r"^change\s+the\s+name\s+of\s+(?:the\s+)?(.+?)\s+components?\s*[.!?]?$",
     re.IGNORECASE,
 )
 COMPONENT_CHANGE_KEY_FIELD_PATTERN = re.compile(
-    r"^change\s+(?:the\s+)?component[-_\s]?key\s+field\s+of\s+(?:the\s+)?(.+?)\s+component\s+to\s+(.+)$",
+    r"^change\s+(?:the\s+)?component[-_\s]?key\s+field\s+of\s+(?:the\s+)?(.+?)\s+components?\s+to\s+(.+)$",
     re.IGNORECASE,
 )
 COMPONENT_CHANGE_KEY_FIELD_INCOMPLETE_PATTERN = re.compile(
-    r"^change\s+(?:the\s+)?component[-_\s]?key\s+field\s+of\s+(?:the\s+)?(.+?)\s+component\s*[.!?]?$",
+    r"^change\s+(?:the\s+)?component[-_\s]?key\s+field\s+of\s+(?:the\s+)?(.+?)\s+components?\s*[.!?]?$",
     re.IGNORECASE,
 )
 COMPONENT_RENAME_PATTERN = re.compile(
-    r"^rename\s+(?:the\s+)?component\s+(.+?)\s+to\s+(.+)$",
+    r"^rename\s+(?:the\s+)?components?\s+(.+?)\s+to\s+(.+)$",
     re.IGNORECASE,
 )
 COMPONENT_DELETE_PATTERN = re.compile(
-    r"^delete\s+(?:the\s+)?(.+?)\s+component$",
+    r"^delete\s+(?:the\s+)?(.+?)\s+components?$",
     re.IGNORECASE,
 )
 COMPONENT_ITEM_DELETE_PATTERN = re.compile(
-    r"^delete\s+(?:the\s+)?(.+?)\s+item(?:\s+in\s+(?:the\s+)?(.+?)\s+component)?$",
+    r"^delete\s+(?:the\s+)?(.+?)\s+items?(?:\s+in\s+(?:the\s+)?(.+?)\s+components?)?$",
     re.IGNORECASE,
 )
 COMPONENT_ITEM_CLONE_PATTERN = re.compile(
-    r"^create\s+a\s+new\s+item\s+like\s+(?:the\s+)?(?P<source>.+?)\s+item"
+    r"^create\s+a\s+new\s+item\s+like\s+(?:the\s+)?(?P<source>.+?)\s+items?"
     r"(?:\s+called\s+(?P<name>.+?))?"
     r"\s+(?:and\s+add\s+it\s+)?between\s+(?:the\s+)?(?P<left>.+?)(?:\s+items?)?"
     r"\s+and\s+(?:the\s+)?(?P<right>.+?)\s+items?"
-    r"(?:\s+in\s+(?:the\s+)?(?P<component>.+?)\s+component)?$",
+    r"(?:\s+in\s+(?:the\s+)?(?P<component>.+?)\s+components?)?$",
     re.IGNORECASE,
 )
 COMPONENT_ITEM_ADD_PATTERN = re.compile(
-    r"^(?:add|create)\s+(?:an?\s+|the\s+)?(?:new\s+)?item"
+    r"^(?:add|create)\s+(?:an?\s+|the\s+)?(?:new\s+)?items?"
     r"(?:\s+called\s+(?P<name>.+?))?"
-    r"(?:\s+like\s+(?:the\s+)?(?P<source>.+?)\s+item)?"
-    r"(?:\s+(?:to|in|into)\s+(?:the\s+)?(?P<component>.+?)\s+component)?"
-    r"(?:\s+(?P<position>before|after)\s+(?:the\s+)?(?P<relative>.+?)\s+item)?"
-    r"(?:\s+(?:to|in|into)\s+(?:the\s+)?(?P<component2>.+?)\s+component)?$",
+    r"(?:\s+like\s+(?:the\s+)?(?P<source>.+?)\s+items?)?"
+    r"(?:\s+(?:to|in|into)\s+(?:the\s+)?(?P<component>.+?)\s+components?)?"
+    r"(?:\s+(?P<position>before|after)\s+(?:the\s+)?(?P<relative>.+?)\s+items?)?"
+    r"(?:\s+(?:to|in|into)\s+(?:the\s+)?(?P<component2>.+?)\s+components?)?$",
     re.IGNORECASE,
 )
 COMPONENT_CONTEXT_PATTERN = re.compile(
-    r"^(?:i\s+am\s+working\s+on|i'?m\s+working\s+on|set\s+(?:the\s+)?active\s+component\s+to|use)\s+(?:the\s+)?(.+?)\s+component[.!?]?$",
+    r"^(?:i\s+am\s+working\s+on|i'?m\s+working\s+on|set\s+(?:the\s+)?active\s+components?\s+to|use)\s+(?:the\s+)?(.+?)\s+components?[.!?]?$",
     re.IGNORECASE,
 )
 LIST_COMPONENTS_PATTERN = re.compile(
@@ -278,7 +278,7 @@ LIST_COMPONENTS_PATTERN = re.compile(
 )
 LIST_ITEMS_PATTERN = re.compile(
     r"^(?:what\s+are\s+(?:the\s+)?|list\s+(?:the\s+)?|show\s+(?:me\s+)?(?:the\s+)?)items?"
-    r"(?:\s+(?:of|in)\s+(?:the\s+)?(?:current|active|this)\s+component)?[.!?]?$",
+    r"(?:\s+(?:of|in)\s+(?:the\s+)?(?:current|active|this)\s+components?)?[.!?]?$",
     re.IGNORECASE,
 )
 
