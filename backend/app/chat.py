@@ -242,6 +242,12 @@ COMPONENT_RENAME_PATTERN = re.compile(
     r"^rename\s+(?:the\s+)?components?\s+(.+?)\s+to\s+(.+)$",
     re.IGNORECASE,
 )
+COMPONENT_FIELD_DELETE_PATTERN = re.compile(
+    r"^delete\s+(?:the\s+)?(?P<field>" + _COMPONENT_FIELD_RE + r")"
+    r"(?:\s+field)?"
+    r"\s+(?:for|of|in)\s+(?:the\s+)?(?P<component>.+?)\s+components?$",
+    re.IGNORECASE,
+)
 COMPONENT_DELETE_PATTERN = re.compile(
     r"^delete\s+(?:the\s+)?(.+?)\s+components?$",
     re.IGNORECASE,
@@ -572,6 +578,15 @@ def parse_chat_command(message: str) -> ParsedCommand:
             component_ref=component_ref,
             item_ref=item_ref,
         )
+
+    component_field_delete_match = COMPONENT_FIELD_DELETE_PATTERN.match(text)
+    if component_field_delete_match:
+        raw_field = component_field_delete_match.group("field").lower().strip()
+        canonical = _normalize_field(raw_field, _COMPONENT_FIELD_ALIASES)
+        if canonical is None:
+            raise HTTPException(status_code=400, detail=f"Unrecognised component field: '{raw_field}'")
+        component_ref = component_field_delete_match.group("component").strip().strip("\"'")
+        return ParsedCommand(target="component", field=canonical, value="", component_ref=component_ref)
 
     component_delete_match = COMPONENT_DELETE_PATTERN.match(text)
     if component_delete_match:
@@ -1176,7 +1191,9 @@ def apply_chat_command(
             raise HTTPException(status_code=400, detail="Component reference is required")
 
         value = command.value.strip()
-        if command.field != "delete" and value == "":
+        # Some fields are required and cannot be cleared.
+        required_fields = {"component_key", "display_title", "component_kind"}
+        if command.field in required_fields and value == "":
             raise HTTPException(status_code=400, detail=f"component {command.field} cannot be empty")
 
         if command.component_ref == "__all__":
