@@ -259,10 +259,12 @@ COMPONENT_ITEM_CLONE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 COMPONENT_ITEM_ADD_PATTERN = re.compile(
-    r"^(?:add|create)\s+(?:a\s+)?(?:new\s+)?item\s+called\s+(?P<name>.+?)"
+    r"^(?:add|create)\s+(?:a\s+)?(?:new\s+)?item"
+    r"(?:\s+called\s+(?P<name>.+?))?"
     r"(?:\s+like\s+(?:the\s+)?(?P<source>.+?)\s+item)?"
+    r"(?:\s+(?:to|in|into)\s+(?:the\s+)?(?P<component>.+?)\s+component)?"
     r"(?:\s+(?P<position>before|after)\s+(?:the\s+)?(?P<relative>.+?)\s+item)?"
-    r"(?:\s+(?:to|in)\s+(?:the\s+)?(?P<component>.+?)\s+component)?$",
+    r"(?:\s+(?:to|in|into)\s+(?:the\s+)?(?P<component2>.+?)\s+component)?$",
     re.IGNORECASE,
 )
 COMPONENT_CONTEXT_PATTERN = re.compile(
@@ -597,13 +599,14 @@ def parse_chat_command(message: str) -> ParsedCommand:
 
     component_item_add_match = COMPONENT_ITEM_ADD_PATTERN.match(text)
     if component_item_add_match:
-        name = component_item_add_match.group("name").strip().strip("\"'")
+        name = component_item_add_match.group("name")
+        name = name.strip().strip("\"'") if name else "New Item"
         source = component_item_add_match.group("source")
         source = source.strip().strip("\"'") if source else None
         position = component_item_add_match.group("position")
         relative = component_item_add_match.group("relative")
         relative = relative.strip().strip("\"'") if relative else None
-        component_ref = component_item_add_match.group("component")
+        component_ref = component_item_add_match.group("component") or component_item_add_match.group("component2")
         component_ref = component_ref.strip().strip("\"'") if component_ref else None
         return ParsedCommand(
             target="component_item",
