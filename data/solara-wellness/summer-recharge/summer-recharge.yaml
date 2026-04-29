@@ -1,0 +1,76 @@
+display_name: summer-recharge
+campaign_name: summer-recharge
+qualifier: 2026
+title: Summer Recharge Specials
+objective: Launch summer promotional pricing for seasonal spa packages.
+status: active
+start_date: '2026-06-01'
+end_date: '2026-08-31'
+footnote_text: Packages must be used within 90 days of purchase.
+template_binding:
+  template_name: flyer-standard
+  template_kind: flyer
+  size_spec: letter
+  layout:
+    headline_slot: top
+    primary_section: featured-offers
+    secondary_section: weekday-glow
+    footer_slot: bottom
+  default_values:
+    headline: SUMMER RECHARGE
+    subheadline: Hydrate and Renew at Solara Wellness
+    cta: Book your summer escape today
+    legal: Seasonal pricing valid through August 31, 2026.
+    accent: '#E9C46A'
+  override_values:
+    business_name: SOLARA WELLNESS
+    business_subtitle: Spa & Recovery Center
+    footer: 123 Sunshine Blvd, Miami FL • (555) 123-4567 • solarawellness.com
+    color_bg: '#F4F1DE'
+    color_blush: '#E9EDC9'
+    color_card_1_bg: '#FAEDCD'
+    color_primary_light: '#D4A373'
+    footer_font_size: 12
+components:
+- component_key: featured-offers
+  component_kind: featured-offers
+  render_region: featured
+  render_mode: offer-card-grid
+  style: {}
+  display_title: SEASONAL PACKAGES
+  background_color: '#E9EDC9'
+  header_accent_color: '#2A9D8F'
+  subtitle: All-inclusive seasonal treatments designed to restore your glow.
+  description_text: Premium summer recovery bundles.
+  display_order: 1
+  items:
+  - item_name: Sun Soother
+    item_kind: service
+    duration_label: 90 mins
+    item_value: $145
+    background_color: white
+    display_order: 1
+  - item_name: Ocean Breeze
+    item_kind: service
+    duration_label: 120 mins
+    item_value: $185
+    background_color: white
+    display_order: 2
+  - item_name: Coastal Glow
+    item_kind: service
+    duration_label: 60 mins
+    item_value: $95
+    background_color: white
+    display_order: 3
+- component_key: discount-strip
+  component_kind: discount-strip
+  render_region: discount
+  render_mode: discount-panel
+  style: {}
+  display_title: SUMMER SAVINGS
+  display_order: 2
+  items:
+  - item_name: 15% OFF ALL RETAIL
+    item_kind: promo-note
+    description_text: Mention 'SUMMER' at checkout to receive 15% off any skincare product.
+    display_order: 1

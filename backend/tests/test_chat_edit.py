@@ -1,4 +1,5 @@
 from pathlib import Path
+import sqlite3
 import subprocess
 
 from fastapi.testclient import TestClient
@@ -51,6 +52,26 @@ def _seed_campaign(client: TestClient) -> tuple[int, int]:
     ).json()["id"]
 
     return business_id, campaign_id
+
+
+def _seed_template_binding(client: TestClient, campaign_id: int, overrides: dict | None = None) -> int:
+    template_id = client.post(
+        "/templates",
+        json={
+            "template_name": f"flyer-{campaign_id}",
+            "template_kind": "flyer",
+            "size_spec": "letter",
+            "layout": {"version": 1},
+            "default_values": {"footer_font_size": 10},
+        },
+    ).json()["id"]
+
+    response = client.post(
+        f"/campaigns/{campaign_id}/template-bindings",
+        json={"template_id": template_id, "override_values": overrides or {}},
+    )
+    assert response.status_code == 201
+    return response.json()["id"]
 
 
 def _seed_component_for_campaign(campaign_id: int) -> None:
@@ -246,6 +267,40 @@ def test_chat_edit_persists_updates_to_yaml_on_mutation(monkeypatch, tmp_path: P
     assert business_payload["brand_theme"]["primary_color"] == "#334455"
     assert campaign_payload["campaign_name"] == "Summer"
     assert campaign_payload["title"] == "YAML Persisted Title"
+
+
+def test_chat_message_can_update_template_footer_font_size(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    binding_id = _seed_template_binding(client, campaign_id, {"footer": "example.com | 555-0100"})
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={"campaign_id": campaign_id, "message": "set footer font size to 14"},
+    )
+
+    assert response.status_code == 200
+    result = response.json()["result"]
+    assert result["target"] == "template_override"
+    assert result["field"] == "footer_font_size"
+    assert result["template_binding_id"] == binding_id
+    assert result["override_values"]["footer_font_size"] == 14
+
+    config = resolve_config()
+    with connect_database(config) as connection:
+        row = connection.execute(
+            "SELECT override_values_json FROM campaign_template_bindings WHERE id = ?;",
+            (binding_id,),
+        ).fetchone()
+    assert row is not None
+    assert yaml.safe_load(row["override_values_json"])["footer_font_size"] == 14
+
+    campaign_yaml = tmp_path / "yaml-data-test" / "Acme" / "Summer" / "Summer.yaml"
+    campaign_payload = yaml.safe_load(campaign_yaml.read_text(encoding="utf-8"))
+    assert campaign_payload["template_binding"]["override_values"]["footer_font_size"] == 14
 
 
 def test_chat_message_can_rename_component_by_natural_language(monkeypatch, tmp_path: Path) -> None:
@@ -467,6 +522,50 @@ def test_chat_message_can_update_component_background_color(monkeypatch, tmp_pat
     assert payload["result"]["field"] == "background_color"
     assert payload["result"]["component"]["component_key"] == "mothers-day-specials"
     assert payload["result"]["component"]["background_color"] == "light green"
+
+
+def test_chat_message_can_update_component_header_accent_color(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "set the header_accent_color of the mothers-day-specials component to black",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["target"] == "component"
+    assert payload["result"]["field"] == "header_accent_color"
+    assert payload["result"]["component"]["component_key"] == "mothers-day-specials"
+    assert payload["result"]["component"]["header_accent_color"] == "black"
+
+
+def test_chat_message_can_update_component_text_color_alias(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "set the text color of the mothers-day-specials component to black",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["field"] == "header_accent_color"
+    assert payload["result"]["component"]["header_accent_color"] == "black"
 
 
 def test_chat_message_can_update_component_item_background_color(monkeypatch, tmp_path: Path) -> None:
@@ -1198,3 +1297,64 @@ def test_save_can_commit_when_enabled_and_git_configured(monkeypatch, tmp_path: 
         text=True,
     ).stdout.strip()
     assert last_message == "Save from test"
+
+
+def test_chat_message_can_add_new_item_with_positioning(monkeypatch, tmp_path: Path):
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    
+    config = resolve_config()
+    with connect_database(config) as connection:
+        # Setup: one campaign with two items
+        connection.execute("INSERT INTO businesses (display_name, legal_name) VALUES ('Acme', 'Acme Corp');")
+        connection.execute("INSERT INTO campaigns (business_id, campaign_name, title) VALUES (1, 'spring', 'Spring Sale');")
+        connection.execute(
+            "INSERT INTO campaign_components (campaign_id, component_key, display_title, display_order) "
+            "VALUES (1, 'featured', 'Featured', 1);"
+        )
+        connection.execute(
+            "INSERT INTO campaign_component_items (component_id, item_name, item_kind, item_value, display_order) "
+            "VALUES (1, 'Item 1', 'service', '$10', 1);"
+        )
+        connection.execute(
+            "INSERT INTO campaign_component_items (component_id, item_name, item_kind, item_value, display_order) "
+            "VALUES (1, 'Item 2', 'service', '$20', 2);"
+        )
+        connection.commit()
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+
+    # 1. Add to end
+    resp = client.post(f"/chat/sessions/{session_id}/messages", json={
+        "message": "add a new item called Item 3 to the featured component",
+        "campaign_id": 1
+    })
+    assert resp.status_code == 200
+    
+    with connect_database(config) as connection:
+        items = connection.execute("SELECT item_name FROM campaign_component_items WHERE component_id = 1 ORDER BY display_order").fetchall()
+    assert [row["item_name"] for row in items] == ["Item 1", "Item 2", "Item 3"]
+
+    # 2. Add before relative
+    resp = client.post(f"/chat/sessions/{session_id}/messages", json={
+        "message": "add a new item called Item 1.5 before the Item 2 item in the featured component",
+        "campaign_id": 1
+    })
+    assert resp.status_code == 200
+    
+    with connect_database(config) as connection:
+        items = connection.execute("SELECT item_name FROM campaign_component_items WHERE component_id = 1 ORDER BY display_order").fetchall()
+    assert [row["item_name"] for row in items] == ["Item 1", "Item 1.5", "Item 2", "Item 3"]
+
+    # 3. Add like source (cloning) after relative
+    resp = client.post(f"/chat/sessions/{session_id}/messages", json={
+        "message": "add a new item called Item 1.6 like the Item 1 item after the Item 1.5 item",
+        "campaign_id": 1
+    })
+    assert resp.status_code == 200
+    
+    with connect_database(config) as connection:
+        item = connection.execute("SELECT item_name, item_value FROM campaign_component_items WHERE item_name = 'Item 1.6'").fetchone()
+        assert item["item_value"] == "$10"  # Cloned from Item 1
+        items = connection.execute("SELECT item_name FROM campaign_component_items WHERE component_id = 1 ORDER BY display_order").fetchall()
+    assert [row["item_name"] for row in items] == ["Item 1", "Item 1.5", "Item 1.6", "Item 2", "Item 3"]

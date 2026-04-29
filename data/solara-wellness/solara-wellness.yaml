@@ -1,0 +1,27 @@
+display_name: Solara Wellness
+legal_name: Solara Wellness & Spa, LLC
+status: active
+timezone: America/New_York
+contacts:
+- contact_type: phone
+  contact_value: (555) 123-4567
+  is_primary: true
+- contact_type: email
+  contact_value: hello@solarawellness.com
+  is_primary: false
+- contact_type: website
+  contact_value: www.solarawellness.com
+  is_primary: false
+locations:
+- line1: 123 Sunshine Blvd
+  line2: Suite 400
+  city: Miami
+  state: FL
+  postal_code: '33101'
+brand_theme:
+  name: default
+  primary_color: '#2A9D8F'
+  secondary_color: '#264653'
+  accent_color: '#E9C46A'
+  font_family: Helvetica
+  logo_path: assets/solara-logo.png

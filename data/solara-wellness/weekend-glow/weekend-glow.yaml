@@ -1,0 +1,75 @@
+display_name: weekend-glow
+campaign_name: weekend-glow
+qualifier: 2026
+title: Weekend Glow Events
+objective: Drive weekend traffic with focused rapid treatments.
+status: active
+start_date: '2026-05-01'
+end_date: '2026-12-31'
+footnote_text: Weekend Glow rates available Saturday and Sunday only.
+template_binding:
+  template_name: flyer-standard
+  template_kind: flyer
+  size_spec: letter
+  layout:
+    headline_slot: top
+    primary_section: null
+    secondary_section: weekend-offers
+    footer_slot: bottom
+  default_values:
+    headline: WEEKEND GLOW
+    subheadline: Quick-refresh treatments for busy schedules
+    cta: Walk-ins welcome all weekend
+    legal: Weekend rates apply to sessions booked on Sat/Sun.
+    accent: '#264653'
+  override_values:
+    business_name: SOLARA WELLNESS
+    business_subtitle: Spa & Recovery Center
+    footer: 123 Sunshine Blvd, Miami FL • (555) 123-4567 • solarawellness.com
+    color_bg: '#FDFCF0'
+    color_primary_light: '#E9C46A'
+    footer_font_size: 11
+components:
+- component_key: weekend-offers
+  component_kind: secondary-offers
+  render_region: secondary
+  render_mode: strip-list
+  style: {}
+  display_title: RAPID REFRESH MENU
+  background_color: '#2A9D8F'
+  header_accent_color: white
+  subtitle: Fast, effective, and perfect for your weekend recharge.
+  description_text: Weekend-only express services.
+  display_order: 1
+  items:
+  - item_name: Express Facial
+    item_kind: service
+    duration_label: 30 mins
+    item_value: $55
+    background_color: '#E9C46A'
+    display_order: 1
+  - item_name: Scalp Massage
+    item_kind: service
+    duration_label: 20 mins
+    item_value: $35
+    background_color: '#E9C46A'
+    display_order: 2
+  - item_name: Hand Hydration
+    item_kind: service
+    duration_label: 15 mins
+    item_value: $25
+    background_color: '#E9C46A'
+    display_order: 3
+  - item_name: Aromatherapy Boost
+    item_kind: service
+    duration_label: Add-on
+    item_value: $15
+    background_color: '#E9C46A'
+    display_order: 4
+- component_key: legal-note
+  component_kind: legal-note
+  render_region: legal
+  render_mode: legal-text
+  style: {}
+  description_text: Valid at Solara Wellness Miami location only.
+  display_order: 2

@@ -530,6 +530,7 @@ Implementation highlights:
 - Add `set_component_field` action support in `apply_chat_command` for updating `display_title`, `subtitle`, `description_text`, `footnote_text` on a component by `component_key`.
 - Extend regex component edit support to include `component_key` rename operations with safe key normalization and uniqueness enforcement per campaign.
 - Extend regex edit support to include component item field updates by ordinal selector or exact item name within a component.
+- Replace ad hoc field alias coverage with a shared field registry table used by the regex parser, LLM prompt, validation, documentation, and tests. For each editable field, the registry should list the canonical field name, target table/object, accepted full names, short names, natural-language aliases, allowed value rules, and YAML round-trip behavior. Add coverage proving every canonical editable field can be populated using the exact field name plus at least one human-friendly alias.
 - Maintain session-scoped active campaign and active component context in the chat store so follow-up commands can omit repeated names safely.
 - Keep the regex fast-path for clone commands (no LLM needed).
 - Add graceful degradation: if `OPENROUTER_API_KEY` is not set or the LLM call fails, fall back to the existing regex router and return a user-visible warning.
@@ -719,6 +720,31 @@ Phase gate:
 
 Check-in readiness for next step:
 - After Step 14a plan artifacts are approved and Step 14b implementation/tests are complete, perform a focused commit that includes schema changes, migrations, renderer refactor, tests, and DESIGN updates as one coherent unit before starting the next phase.
+
+---
+
+### Step 15: Sample Data Directory (Fictitious Company)
+Objective:
+- Create a comprehensive sample data directory (`data/`) under source control to demonstrate GPMPE capabilities with a fictitious company and multiple promotions.
+
+Implementation highlights:
+- Create a repository-managed `data/` directory.
+- Create `data/solara-wellness/` for a fictitious wellness and spa business.
+- Add `solara-wellness.yaml` with a complete business profile, brand theme, and contact/location data.
+- Add multiple promotion directories:
+  - `data/solara-wellness/summer-recharge/`: a featured-heavy campaign with multi-column offer cards.
+  - `data/solara-wellness/weekend-glow/`: a secondary-focused campaign using the strip-list render mode.
+- Populate each with representative YAML data including structured components, nested items, and renderer-externalized layout metadata.
+- Use only generic or procedurally generated placeholder assets (logos/flyers) that are safe for public source control.
+- Update `.config.example` to reflect `./data` as the recommended default for `DATA_DIR`.
+
+Testing highlights:
+- Verify startup sync correctly imports the fictitious business and both campaigns into a fresh database.
+- Confirm both sample promotions render correctly using the generalized renderer.
+- Verify YAML write-back preserves the structured data in the `data/` tree after chat edits.
+
+Phase gate:
+- Fictitious sample data is present in the repository and provides a "ready-to-run" experience for new users.
 
 ---
 

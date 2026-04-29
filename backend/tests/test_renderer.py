@@ -506,6 +506,99 @@ def test_render_flyer_uses_data_defined_component_region(monkeypatch) -> None:
     assert captured_titles == ["Region Routed Item"]
 
 
+def test_render_flyer_uses_secondary_text_color_for_footer(monkeypatch) -> None:
+    from app import renderer as renderer_module
+
+    centered: list[tuple[str, object, float]] = []
+    original_centered = renderer_module._draw_centered
+
+    def _capture_centered(pdf, text, x, y, font, size, color):
+        centered.append((text or "", color, size))
+        return original_centered(pdf, text, x, y, font, size, color)
+
+    monkeypatch.setattr(renderer_module, "_draw_centered", _capture_centered)
+
+    ctx = {
+        "campaign_id": 78,
+        "campaign_name": "footer-color",
+        "title": "Footer Color",
+        "objective": "Use secondary text color for footer",
+        "campaign_footnote_text": None,
+        "start_date": "2026-05-01",
+        "end_date": "2026-05-31",
+        "business_display_name": "ACME",
+        "business_legal_name": "ACME LLC",
+        "theme": {
+            "primary_color": "#3E1C5C",
+            "secondary_color": "#6E4A8E",
+            "accent_color": "#E0559A",
+        },
+        "location": None,
+        "contacts": [],
+        "offers": [],
+        "components": [
+            {
+                "component_key": "featured",
+                "component_kind": "featured-offers",
+                "display_title": "Featured",
+                "subtitle": None,
+                "description_text": None,
+                "display_order": 0,
+                "items": [
+                    {
+                        "item_name": "A",
+                        "item_kind": "service",
+                        "duration_label": "60 min",
+                        "item_value": "$10",
+                        "description_text": None,
+                        "terms_text": None,
+                        "display_order": 0,
+                    }
+                ],
+            },
+            {
+                "component_key": "other-services",
+                "component_kind": "other-offers",
+                "render_region": "secondary",
+                "render_mode": "strip-list",
+                "display_title": "Other Services",
+                "header_accent_color": "black",
+                "subtitle": "More savings",
+                "description_text": None,
+                "display_order": 1,
+                "items": [
+                    {
+                        "item_name": "Chair Massage",
+                        "item_kind": "service",
+                        "duration_label": "30 minutes",
+                        "item_value": "$40",
+                        "description_text": None,
+                        "terms_text": None,
+                        "display_order": 0,
+                    }
+                ],
+            },
+        ],
+        "effective_values": {
+            "business_name": "ACME",
+            "business_subtitle": "LLC",
+            "footer": "acme.example",
+            "footer_font_size": 12,
+            "legal": "Offer terms.",
+        },
+        "template_name": "flyer-standard",
+        "template": {"layout": {}},
+    }
+
+    pdf_bytes = render_flyer(ctx)
+
+    assert pdf_bytes.startswith(b"%PDF")
+    footer_rows = [(color, size) for text, color, size in centered if text == "acme.example"]
+    assert footer_rows
+    assert footer_rows[0][0].rgb() == colors.black.rgb()
+    assert footer_rows[0][1] == 12
+
+
 def test_render_flyer_supports_multi_component_context() -> None:
     ctx = {
         "campaign_id": 1,

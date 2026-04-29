@@ -340,31 +340,33 @@ def _draw_rounded_panel(pdf: Any, x: float, y: float, w: float, h: float,
 
 def _draw_offer_card(pdf: Any, x: float, y: float, w: float, h: float,
                       title: str, duration: str, price: str,
-                      fill: Any, accent: Any, text_color: Any) -> None:
+                      fill: Any, accent: Any, text_color: Any,
+                      title_color: Any = None, price_color: Any = None) -> None:
     _draw_rounded_panel(pdf, x, y, w, h, fill, accent, radius=16, stroke_w=2)
     pdf.setFillColor(accent)
     pdf.roundRect(x + 10, y + h - 36, w - 20, 24, 10, fill=1, stroke=0)
-    _draw_centered(pdf, title, x + w / 2, y + h - 28, "Helvetica-Bold", 14, _COLOR_WHITE)
+    _draw_centered(pdf, title, x + w / 2, y + h - 28, "Helvetica-Bold", 14, title_color or _COLOR_WHITE)
     _draw_centered(pdf, duration, x + w / 2, y + h - 58, "Helvetica", 11, text_color)
-    _draw_centered(pdf, price, x + w / 2, y + 30, "Helvetica-Bold", 28, accent)
+    _draw_centered(pdf, price, x + w / 2, y + 30, "Helvetica-Bold", 28, price_color or accent)
 
 
 def _draw_compact_offer_card(pdf: Any, x: float, y: float, w: float, h: float,
                               title: str, duration: str, price: str,
-                              fill: Any, accent: Any, text_color: Any) -> None:
+                              fill: Any, accent: Any, text_color: Any,
+                              title_color: Any = None, price_color: Any = None) -> None:
     """Compact card for featured offers - fits 3 per row with reduced vertical space."""
     _draw_rounded_panel(pdf, x, y, w, h, fill, accent, radius=12, stroke_w=1.5)
     
     # Title bar (smaller than standard card)
     pdf.setFillColor(accent)
     pdf.roundRect(x + 6, y + h - 22, w - 12, 14, 8, fill=1, stroke=0)
-    _draw_centered(pdf, title, x + w / 2, y + h - 16, "Helvetica-Bold", 11, _COLOR_WHITE)
+    _draw_centered(pdf, title, x + w / 2, y + h - 16, "Helvetica-Bold", 11, title_color or _COLOR_WHITE)
     
     # Duration (slightly larger than standard)
     _draw_centered(pdf, duration, x + w / 2, y + h - 35, "Helvetica", 12, text_color)
     
     # Price (same size as title, not giant)
-    _draw_centered(pdf, price, x + w / 2, y + 10, "Helvetica-Bold", 11, accent)
+    _draw_centered(pdf, price, x + w / 2, y + 10, "Helvetica-Bold", 11, price_color or accent)
 
 
 def _draw_weekday_strip(pdf: Any, x: float, y: float, w: float,
@@ -441,6 +443,7 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
         cols_per_row = min(max_columns, max(1, num_items))
         num_rows = math.ceil(num_items / cols_per_row) if num_items > 0 else 1
         
+        comp_style = comp.get("style") or {}
         featured_fill = _hex(comp.get("background_color"), _string_hex(palette["blush"]))
         featured_header_color = comp.get("header_accent_color")
         if not featured_header_color and items:
@@ -499,6 +502,11 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
                 item_idx = row_idx * cols_per_row + col_idx
                 if item_idx < num_items:
                     item = items[item_idx]
+                    item_style = item.get("style") or {}
+                    # Priority: item-style -> component-style -> derived/default
+                    item_title_color = _hex(item_style.get("title_color") or comp_style.get("item_title_color"), None)
+                    item_price_color = _hex(item_style.get("price_color") or comp_style.get("item_price_color"), None)
+                    
                     # Keep featured cards color-stable: item body can vary, but
                     # header accent stays consistent across all cards.
                     item_fill = _hex(item.get("background_color"), _string_hex(palette["card_1_bg"]))
@@ -507,7 +515,8 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
                     _draw_compact_offer_card(pdf, card_x_positions[col_idx], card_y, card_w, card_h,
                                             item.get("item_name") or "", item.get("duration_label") or "",
                                             item.get("item_value") or "",
-                                            item_fill, item_accent, _COLOR_INK)
+                                            item_fill, item_accent, _COLOR_INK,
+                                            title_color=item_title_color, price_color=item_price_color)
 
         comp_note = (comp.get("footnote_text") or "").strip()
         if comp_note:
@@ -515,10 +524,12 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
                            "Helvetica", 8, _COLOR_INK)
 
     # ----- Weekday specials panel -----
+    secondary_text_color = palette["white"]
     if weekday:
         wd_comp = weekday[0]
         weekday_fill = _hex(wd_comp.get("background_color"), _string_hex(palette["primary"]))
         wd_text_color = _hex(wd_comp.get("header_accent_color"), _string_hex(palette["white"]))
+        secondary_text_color = wd_text_color
         _draw_rounded_panel(pdf, hx, secondary_region["y"], panel_w, secondary_region["h"],
                             weekday_fill, wd_text_color, radius=24, stroke_w=2)
         _draw_centered(pdf, title_with_marker(wd_comp), w / 2,
@@ -598,8 +609,10 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
     # ----- Footer contact line (inside weekday panel, very bottom) -----
     footer_text = ev.get("footer") or ""
     if footer_text:
+        footer_text_color = _hex(ev.get("footer_text_color"), _string_hex(secondary_text_color))
+        footer_font_size = float(ev.get("footer_font_size") or 10)
         _draw_centered(pdf, footer_text, w / 2, secondary_region["y"] + 6,
-                       "Helvetica-Bold", 10, palette["white"])
+                       "Helvetica-Bold", footer_font_size, footer_text_color)
 
     # ----- Legal strip (below weekday panel) -----
     _draw_rounded_panel(pdf, legal_region["x"], legal_region["y"], legal_region["w"], legal_region["h"],

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+import json
 import re
 import sqlite3
 import uuid
@@ -19,6 +20,7 @@ COMPONENT_FIELDS = {
     "component_kind",
     "display_title",
     "background_color",
+    "header_accent_color",
     "subtitle",
     "description_text",
     "footnote_text",
@@ -32,6 +34,7 @@ COMPONENT_ITEM_FIELDS = {
     "description_text",
     "terms_text",
 }
+TEMPLATE_OVERRIDE_FIELDS = {"footer_font_size", "footer_text_color"}
 
 _COMPONENT_RENDER_DEFAULTS: dict[str, tuple[str, str]] = {
     "featured-offers": ("featured", "offer-card-grid"),
@@ -91,6 +94,7 @@ _COMPONENT_FIELD_ALIASES: dict[str, str] = {
     "component_kind": "component_kind", "kind": "component_kind", "type": "component_kind",
     "display_title": "display_title", "display title": "display_title", "title": "display_title",
     "background_color": "background_color", "background color": "background_color", "color of the background": "background_color", "color_of_the_background": "background_color", "bg color": "background_color", "bg": "background_color",
+    "header_accent_color": "header_accent_color", "header accent color": "header_accent_color", "header_accent": "header_accent_color", "header accent": "header_accent_color", "accent header color": "header_accent_color", "accent_header_color": "header_accent_color", "text color": "header_accent_color", "text_color": "header_accent_color", "title color": "header_accent_color", "title_color": "header_accent_color",
     "subtitle": "subtitle", "subheading": "subtitle",
     "description_text": "description_text", "description": "description_text", "desc": "description_text",
     "footnote_text": "footnote_text", "footnote": "footnote_text", "note": "footnote_text",
@@ -107,6 +111,19 @@ _BUSINESS_FIELD_ALIASES: dict[str, str] = {
     "state": "state", "province": "state",
     "postal_code": "postal_code", "postal code": "postal_code", "zip": "postal_code", "zip code": "postal_code",
     "country": "country",
+}
+_TEMPLATE_OVERRIDE_FIELD_ALIASES: dict[str, str] = {
+    "footer_font_size": "footer_font_size",
+    "footer font size": "footer_font_size",
+    "footer size": "footer_font_size",
+    "contact_font_size": "footer_font_size",
+    "contact font size": "footer_font_size",
+    "footer_text_color": "footer_text_color",
+    "footer text color": "footer_text_color",
+    "footer color": "footer_text_color",
+    "contact_text_color": "footer_text_color",
+    "contact text color": "footer_text_color",
+    "contact color": "footer_text_color",
 }
 
 
@@ -126,6 +143,7 @@ _BRAND_FIELD_RE = _aliases_regex(_BRAND_FIELD_ALIASES)
 _ITEM_FIELD_RE = _aliases_regex(_ITEM_FIELD_ALIASES)
 _COMPONENT_FIELD_RE = _aliases_regex(_COMPONENT_FIELD_ALIASES)
 _BUSINESS_FIELD_RE = _aliases_regex(_BUSINESS_FIELD_ALIASES)
+_TEMPLATE_OVERRIDE_FIELD_RE = _aliases_regex(_TEMPLATE_OVERRIDE_FIELD_ALIASES)
 
 # Matches: "clone <source> [and] rename [it] to <new_name> [for <business>]"
 # Also accepts more verbose natural-language phrasings ("cloning the X ... renaming it to Y").
@@ -150,6 +168,12 @@ BRAND_PATTERN = re.compile(
 )
 BUSINESS_PATTERN = re.compile(
     r"^(?:set|change|update)\s+(?:the\s+)?(?:business|business\s+profile|profile)\s+(?P<field>" + _BUSINESS_FIELD_RE + r")(?:\s+field)?\s+to\s+(?P<value>.+)$",
+    re.IGNORECASE,
+)
+TEMPLATE_OVERRIDE_PATTERN = re.compile(
+    r"^(?:set|change|update)\s+(?:the\s+)?(?:template\s+)?(?P<field>"
+    + _TEMPLATE_OVERRIDE_FIELD_RE
+    + r")(?:\s+field)?\s+to\s+(?P<value>.+)$",
     re.IGNORECASE,
 )
 COMPONENT_ITEM_CHANGE_FIELD_PATTERN = re.compile(
@@ -234,6 +258,13 @@ COMPONENT_ITEM_CLONE_PATTERN = re.compile(
     r"(?:\s+in\s+(?:the\s+)?(?P<component>.+?)\s+component)?$",
     re.IGNORECASE,
 )
+COMPONENT_ITEM_ADD_PATTERN = re.compile(
+    r"^(?:add|create)\s+(?:a\s+)?(?:new\s+)?item\s+called\s+(?P<name>.+?)"
+    r"(?:\s+like\s+(?:the\s+)?(?P<source>.+?)\s+item)?"
+    r"(?:\s+(?P<position>before|after)\s+(?:the\s+)?(?P<relative>.+?)\s+item)?"
+    r"(?:\s+(?:to|in)\s+(?:the\s+)?(?P<component>.+?)\s+component)?$",
+    re.IGNORECASE,
+)
 COMPONENT_CONTEXT_PATTERN = re.compile(
     r"^(?:i\s+am\s+working\s+on|i'?m\s+working\s+on|set\s+(?:the\s+)?active\s+component\s+to|use)\s+(?:the\s+)?(.+?)\s+component[.!?]?$",
     re.IGNORECASE,
@@ -252,7 +283,7 @@ LIST_ITEMS_PATTERN = re.compile(
 
 @dataclass(frozen=True)
 class ParsedCommand:
-    target: Literal["campaign", "offer", "brand", "business", "component", "component_item", "clarify"]
+    target: Literal["campaign", "offer", "brand", "business", "component", "component_item", "template_override", "clarify"]
     field: str
     value: str
     offer_id: int | None = None
@@ -359,6 +390,15 @@ def parse_query_command(message: str) -> ParsedQueryCommand | None:
 
 def parse_chat_command(message: str) -> ParsedCommand:
     text = message.strip()
+
+    template_override_match = TEMPLATE_OVERRIDE_PATTERN.match(text)
+    if template_override_match:
+        raw_field = template_override_match.group("field").lower()
+        canonical = _normalize_field(raw_field, _TEMPLATE_OVERRIDE_FIELD_ALIASES)
+        if canonical is None:
+            raise HTTPException(status_code=400, detail=f"Unrecognised template override field: '{raw_field}'")
+        value = template_override_match.group("value").strip()
+        return ParsedCommand(target="template_override", field=canonical, value=value)
 
     campaign_match = CAMPAIGN_PATTERN.match(text)
     if campaign_match:
@@ -555,6 +595,26 @@ def parse_chat_command(message: str) -> ParsedCommand:
             tertiary_item_ref=right_item_ref,
         )
 
+    component_item_add_match = COMPONENT_ITEM_ADD_PATTERN.match(text)
+    if component_item_add_match:
+        name = component_item_add_match.group("name").strip().strip("\"'")
+        source = component_item_add_match.group("source")
+        source = source.strip().strip("\"'") if source else None
+        position = component_item_add_match.group("position")
+        relative = component_item_add_match.group("relative")
+        relative = relative.strip().strip("\"'") if relative else None
+        component_ref = component_item_add_match.group("component")
+        component_ref = component_ref.strip().strip("\"'") if component_ref else None
+        return ParsedCommand(
+            target="component_item",
+            field="add",
+            value=name,
+            component_ref=component_ref,
+            item_ref=source,
+            secondary_item_ref=relative,
+            tertiary_item_ref=position,
+        )
+
     raise HTTPException(
         status_code=400,
         detail=(
@@ -563,6 +623,7 @@ def parse_chat_command(message: str) -> ParsedCommand:
             "'set offer <offer_id> <offer_field> to <value>', "
             "'set brand <brand_field> to <value>', "
             "'set business <business_field> to <value>', "
+            "'add a new item called <name> [like <source> item] [before/after <relative> item] [to <component> component]', "
             "'change the component-key field of <component> component to <new_component_key>', "
             "'change the item_value field of the first item in <component> component to <value>', "
             "'delete the second item', "
@@ -605,6 +666,23 @@ def _parse_boolean_value(value: str, field_name: str) -> bool:
     if normalized in {"false", "no", "0", "inactive", "disabled", "off"}:
         return False
     raise HTTPException(status_code=400, detail=f"Invalid {field_name}; expected true/false")
+
+
+def _coerce_template_override_value(field_name: str, value: str) -> str | int | float:
+    stripped = value.strip()
+    if stripped == "":
+        raise HTTPException(status_code=400, detail=f"{field_name} cannot be empty")
+
+    if field_name == "footer_font_size":
+        try:
+            font_size = float(stripped)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid footer_font_size; expected a number") from exc
+        if font_size <= 0:
+            raise HTTPException(status_code=400, detail="footer_font_size must be greater than zero")
+        return int(font_size) if font_size.is_integer() else font_size
+
+    return stripped
 
 
 def _business_payload(row: Any) -> dict[str, Any]:
@@ -702,7 +780,7 @@ def _normalize_item_ref(value: str) -> str:
 def resolve_component(connection: Any, campaign_id: int, component_ref: str) -> Any | None:
         return connection.execute(
                 """
-                SELECT id, campaign_id, component_key, component_kind, display_title, background_color, footnote_text, subtitle, description_text, display_order
+                SELECT id, campaign_id, component_key, component_kind, display_title, background_color, header_accent_color, footnote_text, subtitle, description_text, display_order
                 FROM campaign_components
                 WHERE campaign_id = ?
                     AND (LOWER(component_key) = LOWER(?) OR LOWER(display_title) = LOWER(?))
@@ -1050,6 +1128,46 @@ def apply_chat_command(
             "business": _business_payload(updated_business),
         }
 
+    if command.target == "template_override":
+        if command.field not in TEMPLATE_OVERRIDE_FIELDS:
+            raise HTTPException(status_code=400, detail="Unsupported template override field")
+
+        binding = connection.execute(
+            """
+            SELECT id, override_values_json
+            FROM campaign_template_bindings
+            WHERE campaign_id = ? AND is_active = 1
+            ORDER BY id DESC
+            LIMIT 1;
+            """,
+            (campaign_id,),
+        ).fetchone()
+        if binding is None:
+            raise HTTPException(status_code=404, detail="Active template binding not found")
+
+        try:
+            override_values = json.loads(binding["override_values_json"] or "{}")
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=500, detail="Template override values are not valid JSON") from exc
+        if not isinstance(override_values, dict):
+            raise HTTPException(status_code=500, detail="Template override values must be a JSON object")
+
+        override_values[command.field] = _coerce_template_override_value(command.field, command.value)
+        connection.execute(
+            """
+            UPDATE campaign_template_bindings
+            SET override_values_json = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?;
+            """,
+            (json.dumps(override_values, sort_keys=True), binding["id"]),
+        )
+        return {
+            "target": "template_override",
+            "field": command.field,
+            "template_binding_id": binding["id"],
+            "override_values": override_values,
+        }
+
     if command.target == "component":
         if command.component_ref is None:
             raise HTTPException(status_code=400, detail="Component reference is required")
@@ -1063,7 +1181,7 @@ def apply_chat_command(
                 raise HTTPException(status_code=400, detail="Deleting all components is not supported in one command")
             if command.field == "component_key":
                 raise HTTPException(status_code=400, detail="component_key cannot be set for all components at once")
-            if command.field not in {"component_kind", "display_title", "background_color", "subtitle", "description_text", "footnote_text"}:
+            if command.field not in COMPONENT_FIELDS:
                 raise HTTPException(status_code=400, detail="Unsupported component field")
 
             if command.field == "component_kind":
@@ -1109,6 +1227,7 @@ def apply_chat_command(
                     "component_kind": component["component_kind"],
                     "display_title": component["display_title"],
                     "background_color": component["background_color"],
+                    "header_accent_color": component["header_accent_color"],
                     "footnote_text": component["footnote_text"],
                     "subtitle": component["subtitle"],
                     "description_text": component["description_text"],
@@ -1130,7 +1249,7 @@ def apply_chat_command(
                 )
             except sqlite3.IntegrityError as exc:
                 raise HTTPException(status_code=409, detail="component_key already exists for this campaign") from exc
-        elif command.field in {"component_kind", "display_title", "background_color", "subtitle", "description_text", "footnote_text"}:
+        elif command.field in COMPONENT_FIELDS:
             if command.field == "component_kind":
                 render_region, render_mode = _COMPONENT_RENDER_DEFAULTS.get(value, (None, None))
                 connection.execute(
@@ -1150,7 +1269,7 @@ def apply_chat_command(
             raise HTTPException(status_code=400, detail="Unsupported component field")
         updated_component = connection.execute(
             """
-            SELECT id, campaign_id, component_key, component_kind, display_title, background_color, footnote_text, subtitle, description_text, display_order
+            SELECT id, campaign_id, component_key, component_kind, display_title, background_color, header_accent_color, footnote_text, subtitle, description_text, display_order
             FROM campaign_components
             WHERE id = ?;
             """,
@@ -1169,6 +1288,7 @@ def apply_chat_command(
                 "component_kind": updated_component["component_kind"],
                 "display_title": updated_component["display_title"],
                 "background_color": updated_component["background_color"],
+                "header_accent_color": updated_component["header_accent_color"],
                 "footnote_text": updated_component["footnote_text"],
                 "subtitle": updated_component["subtitle"],
                 "description_text": updated_component["description_text"],
@@ -1177,9 +1297,9 @@ def apply_chat_command(
         }
 
     if command.target == "component_item":
-        if command.item_ref is None:
+        if command.item_ref is None and command.field != "add":
             raise HTTPException(status_code=400, detail="Item reference is required")
-        if command.field not in {"clone", "delete"} and command.field not in COMPONENT_ITEM_FIELDS:
+        if command.field not in {"clone", "delete", "add"} and command.field not in COMPONENT_ITEM_FIELDS:
             raise HTTPException(status_code=400, detail="Unsupported component item field")
 
         component_ref = command.component_ref
@@ -1192,7 +1312,7 @@ def apply_chat_command(
             }
 
         value = command.value.strip()
-        if command.field not in {"clone", "delete"} and value == "":
+        if command.field not in {"clone", "delete", "add"} and value == "":
             raise HTTPException(status_code=400, detail=f"component item {command.field} cannot be empty")
 
         component = resolve_component(connection, campaign_id, component_ref)
@@ -1208,11 +1328,9 @@ def apply_chat_command(
             """,
             (component["id"],),
         ).fetchall()
-        if not items:
-            raise HTTPException(status_code=404, detail="Component has no items")
 
         if command.item_ref == "__all__":
-            if command.field in {"clone", "delete"}:
+            if command.field in {"clone", "delete", "add"}:
                 raise HTTPException(status_code=400, detail=f"Bulk '{command.field}' for all items is not supported")
 
             connection.execute(
@@ -1240,11 +1358,92 @@ def apply_chat_command(
                 },
             }
 
-        item = _find_component_item(items, command.item_ref)
-        if item is None:
-            raise HTTPException(status_code=404, detail="Component item not found")
+        item = None
+        if command.item_ref:
+            item = _find_component_item(items, command.item_ref)
+            if item is None:
+                raise HTTPException(status_code=404, detail="Component item not found")
 
-        if command.field == "clone":
+        if command.field == "add":
+            if value == "":
+                raise HTTPException(status_code=400, detail="Item name cannot be empty")
+            
+            # Default values
+            item_kind = "service"
+            duration_label = None
+            item_value = ""
+            background_color = None
+            description_text = None
+            terms_text = None
+
+            # If cloning (item_ref is source)
+            if item:
+                item_kind = item["item_kind"]
+                duration_label = item["duration_label"]
+                item_value = item["item_value"]
+                background_color = item["background_color"]
+                description_text = item["description_text"]
+                terms_text = item["terms_text"]
+
+            # Insertion position
+            insert_position = None
+            if command.secondary_item_ref and command.tertiary_item_ref:
+                relative_item = _find_component_item(items, command.secondary_item_ref)
+                if relative_item is None:
+                    raise HTTPException(status_code=404, detail="Relative positioning item not found")
+                
+                if command.tertiary_item_ref.lower() == "before":
+                    insert_position = relative_item["display_order"]
+                else:  # "after"
+                    insert_position = relative_item["display_order"] + 1
+            else:
+                # Add to end
+                max_order = connection.execute(
+                    "SELECT MAX(display_order) FROM campaign_component_items WHERE component_id = ?;",
+                    (component["id"],),
+                ).fetchone()[0] or 0
+                insert_position = max_order + 1
+
+            # Shift
+            connection.execute(
+                """
+                UPDATE campaign_component_items
+                SET display_order = display_order + 1, updated_at = CURRENT_TIMESTAMP
+                WHERE component_id = ? AND display_order >= ?;
+                """,
+                (component["id"], insert_position),
+            )
+            
+            # Insert
+            inserted_row = connection.execute(
+                """
+                INSERT INTO campaign_component_items (
+                    component_id, item_name, item_kind, duration_label, item_value, background_color, description_text, terms_text, display_order
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                RETURNING id, component_id, item_name, item_kind, duration_label, item_value, background_color, description_text, terms_text, display_order;
+                """,
+                (
+                    component["id"],
+                    value,
+                    item_kind,
+                    duration_label,
+                    item_value,
+                    background_color,
+                    description_text,
+                    terms_text,
+                    insert_position,
+                ),
+            ).fetchone()
+            
+            if inserted_row is None:
+                raise HTTPException(status_code=500, detail="Component item add failed")
+            
+            _resequence_component_items(connection, component["id"])
+            updated_item = inserted_row
+
+        elif command.field == "clone":
+            # (Keep existing clone logic for backward compatibility or refactor to use 'add')
             insert_before_ref = command.tertiary_item_ref
             if insert_before_ref is None:
                 raise HTTPException(status_code=400, detail="A target item to insert before is required")
@@ -1255,27 +1454,15 @@ def apply_chat_command(
             if insert_before_item is None:
                 raise HTTPException(status_code=404, detail="Target insertion item not found")
 
-            source_index = next(
-                (index for index, existing_item in enumerate(items) if existing_item["id"] == item["id"]),
-                None,
-            )
-            insert_before_index = next(
-                (index for index, existing_item in enumerate(items) if existing_item["id"] == insert_before_item["id"]),
-                None,
-            )
-            if source_index is None or insert_before_index is None:
-                raise HTTPException(status_code=404, detail="Component item not found")
-            if source_index >= insert_before_index:
-                raise HTTPException(status_code=400, detail="The source item must come before the target item")
-
-            insert_position = source_index + 1
+            # This is essentially 'add like X before Y'
+            insert_position = insert_before_item["display_order"]
             connection.execute(
                 """
                 UPDATE campaign_component_items
                 SET display_order = display_order + 1, updated_at = CURRENT_TIMESTAMP
-                WHERE component_id = ? AND display_order > ?;
+                WHERE component_id = ? AND display_order >= ?;
                 """,
-                (component["id"], item["display_order"]),
+                (component["id"], insert_position),
             )
             inserted_row = connection.execute(
                 """
@@ -1294,13 +1481,17 @@ def apply_chat_command(
                     item["background_color"],
                     item["description_text"],
                     item["terms_text"],
-                    insert_position + 1,
+                    insert_position,
                 ),
             ).fetchone()
             if inserted_row is None:
                 raise HTTPException(status_code=500, detail="Component item clone failed")
+            _resequence_component_items(connection, component["id"])
             updated_item = inserted_row
+
         elif command.field == "delete":
+            if item is None:
+                raise HTTPException(status_code=400, detail="Item reference is required for delete")
             deleted_item = {
                 "id": item["id"],
                 "component_id": item["component_id"],
@@ -1320,6 +1511,8 @@ def apply_chat_command(
             _resequence_component_items(connection, component["id"])
             updated_item = deleted_item
         else:
+            if item is None:
+                raise HTTPException(status_code=400, detail="Item reference is required for update")
             connection.execute(
                 f"UPDATE campaign_component_items SET {command.field} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;",
                 (value, item["id"]),
