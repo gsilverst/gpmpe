@@ -311,7 +311,19 @@ change the name of the weekday-specials component to other-services
 rename the component weekday-specials to other-services
 ```
 
-#### Component item clone
+#### Add a new item (with positioning)
+
+The `add item` command is highly flexible. You can specify a name (optional, defaults to "New Item"), clone an existing item, and position it before or after another item. All commands are **plural-aware**; you can use `item` or `items` and `component` or `components` interchangeably.
+
+```
+add a new item called "Deep Tissue" to featured-offers after "Swedish Massage"
+create an item like Swedish Massage before Hot Stone
+add an item Body Sculpting to main-street-appreciation
+```
+
+Supported syntax: `add/create [a/an/the] [new] item [called <name>] [like <source>] [to/in/into <component>] [before/after <relative>]`
+
+#### Component item clone (Legacy phrasing)
 
 ```
 clone the Swedish Massage item and add it between the Swedish Massage and the Deep Tissue items
