@@ -64,7 +64,7 @@ _DEFAULT_RENDER_LAYOUT: dict[str, Any] = {
             "card_gap": 8.0,
             "row_gap": 8.0,
             "max_card_width": 132.0,
-            "min_card_height": 46.0,
+            "min_card_height": 52.0,
             "max_card_height": 58.0,
             "item_top_offset": 74.0,
             "subtitle_top_offset": 62.0,
@@ -354,34 +354,30 @@ def _draw_compact_offer_card(pdf: Any, x: float, y: float, w: float, h: float,
                               title: str, duration: str, price: str,
                               fill: Any, accent: Any, text_color: Any,
                               title_color: Any = None, price_color: Any = None) -> None:
-    """Compact card for featured offers - fits 3 per row with symmetrical spacing."""
+    """Compact card for featured offers - fits 3 per row with symmetrical spacing and standardized fonts."""
     _draw_rounded_panel(pdf, x, y, w, h, fill, accent, radius=12, stroke_w=1.5)
     
-    # Title bar (slightly higher for more body room)
-    title_bar_h = 13
-    title_bar_bottom = h - 17
+    # Title bar (spans h-17 to h-4 relative to y)
     pdf.setFillColor(accent)
-    pdf.roundRect(x + 6, y + title_bar_bottom, w - 12, title_bar_h, 6.5, fill=1, stroke=0)
-    _draw_centered(pdf, title, x + w / 2, y + h - 12.5, "Helvetica-Bold", 10, title_color or _COLOR_WHITE)
+    pdf.roundRect(x + 6, y + h - 17, w - 12, 13, 6.5, fill=1, stroke=0)
     
-    # Label positions are calculated to ensure vertical symmetry around the duration.
-    # Body space is between the card bottom (plus padding) and title bar bottom.
-    body_padding_bottom = 7
-    price_size = 11.5 if h >= 52 else 10.5
-    duration_size = 11 if h >= 52 else 9
+    # Label positions are calculated to ensure vertical symmetry across all text elements.
+    # Standardized 11pt typography across all fields for consistency.
+    font_size = 11.0 if h >= 52 else 9.5
     
-    # Price sits at the bottom of the body
-    price_y = y + body_padding_bottom
-    # We estimate the visual top of the price text (cap height)
-    price_top = price_y + (price_size * 0.7)
+    # 1. Price sits at a consistent baseline
+    price_y = y + 7
+    # 2. Title is centered vertically within the title bar (baseline centered)
+    title_y = y + h - 14.35
     
-    # The duration should be centered in the remaining space between price and title bar
-    available_gap = (y + title_bar_bottom) - price_top
-    # duration_y is the baseline. We adjust by half the cap height to center the glyphs.
-    duration_y = price_top + (available_gap / 2) - (duration_size * 0.35)
+    # 3. Duration is centered in the whitespace between Price top and Title baseline
+    price_top = price_y + (font_size * 0.7)
+    available_gap = title_y - price_top
+    duration_y = price_top + (available_gap / 2) - (font_size * 0.35)
     
-    _draw_centered(pdf, duration, x + w / 2, duration_y, "Helvetica", duration_size, text_color)
-    _draw_centered(pdf, price, x + w / 2, price_y, "Helvetica-Bold", price_size, price_color or accent)
+    _draw_centered(pdf, title, x + w / 2, title_y, "Helvetica-Bold", font_size if h >= 52 else 10, title_color or _COLOR_WHITE)
+    _draw_centered(pdf, duration, x + w / 2, duration_y, "Helvetica", font_size, text_color)
+    _draw_centered(pdf, price, x + w / 2, price_y, "Helvetica-Bold", font_size, price_color or accent)
 
 
 def _draw_weekday_strip(pdf: Any, x: float, y: float, w: float,
@@ -390,7 +386,7 @@ def _draw_weekday_strip(pdf: Any, x: float, y: float, w: float,
     _draw_rounded_panel(pdf, x, y, w, 26, strip_fill or palette["primary_light"], palette["secondary"],
                         radius=10, stroke_w=1)
     pdf.setFillColor(palette["ink"])
-    # Standardized to 11pt for all fields in the strip
+    # All fields standardized to 11pt for consistent look
     pdf.setFont("Helvetica-Bold", 11)
     pdf.drawString(x + 16, y + 8, title)
     pdf.setFont("Helvetica", 11)
@@ -495,7 +491,7 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
         items_bottom_boundary = footnote_y + 18.0
         row_spacing = float(_style(layout, "featured", "row_gap", fallback=8.0))
         available_h = max(48.0, items_top_boundary - items_bottom_boundary)
-        min_card_h = float(_style(layout, "featured", "min_card_height", fallback=46.0))
+        min_card_h = float(_style(layout, "featured", "min_card_height", fallback=52.0))
         max_card_h = float(_style(layout, "featured", "max_card_height", fallback=58.0))
         card_h = max(min_card_h, min(max_card_h, (available_h - row_spacing * max(0, num_rows - 1)) / num_rows))
 
