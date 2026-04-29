@@ -35,6 +35,9 @@ Campaigns are the top-level containers for your promotions.
     *   `set the objective to Increase weekday bookings in September`
     *   `set the start date to 2026-09-01`
     *   `set the footnote to Valid only at our Main St location.`
+*   **Clearing Fields:**
+    *   `delete the campaign footnote`
+    *   `delete the campaign objective`
 
 ---
 

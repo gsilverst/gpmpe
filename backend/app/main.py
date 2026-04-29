@@ -229,6 +229,8 @@ class CampaignSaveRequest(BaseModel):
 
 class ArtifactRenderRequest(BaseModel):
     artifact_type: Literal["flyer", "poster"] = "flyer"
+    overwrite: bool = False
+    custom_name: str | None = Field(default=None, max_length=100)
 
 
 class StartupResolveRequest(BaseModel):
@@ -1881,25 +1883,33 @@ def create_app() -> FastAPI:
     def render_artifact(
         campaign_id: int,
         payload: ArtifactRenderRequest | None = None,
-    ) -> ArtifactResponse:
+    ) -> list[ArtifactResponse]:
         request = payload or ArtifactRenderRequest()
         config = resolve_config()
         with connect_database(config) as connection:
             _require_campaign(connection, campaign_id)
             try:
-                result = render_campaign_artifact(
+                results = render_campaign_artifact(
                     connection,
                     campaign_id,
                     config.output_dir,
                     artifact_type=request.artifact_type,
                     data_dir=config.data_dir,
                     images_per_page=config.images_per_page,
+                    overwrite=request.overwrite,
+                    custom_name=request.custom_name,
                 )
                 connection.commit()
             except ValueError as exc:
+                raise HTTPException(status_code=409, detail={"reason": "file_exists", "message": str(exc)}) from exc
+            except Exception as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
-        row = _get_artifact_row(config, result["id"])
-        return ArtifactResponse(**row)
+        
+        response_items = []
+        for res in results:
+            row = _get_artifact_row(config, res["id"])
+            response_items.append(ArtifactResponse(**row))
+        return response_items
 
     @app.get("/campaigns/{campaign_id}/artifacts")
     def list_artifacts(campaign_id: int) -> dict[str, Any]:

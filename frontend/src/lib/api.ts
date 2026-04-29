@@ -161,6 +161,13 @@ export function apiBaseUrl(): string {
   return "http://localhost:8000";
 }
 
+export class ApiError extends Error {
+  constructor(public status: number, message: string, public data?: any) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function fetchJson<T>(path: string, baseUrl = apiBaseUrl()): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, {
     method: "GET",
@@ -172,15 +179,18 @@ async function fetchJson<T>(path: string, baseUrl = apiBaseUrl()): Promise<T> {
 
   if (!response.ok) {
     let detail = "";
+    let errorData: any = null;
     try {
-      const errorPayload = (await response.json()) as { detail?: unknown };
-      if (typeof errorPayload.detail === "string") {
-        detail = ` - ${errorPayload.detail}`;
+      errorData = await response.json();
+      if (typeof errorData?.detail === "string") {
+        detail = ` - ${errorData.detail}`;
+      } else if (typeof errorData?.detail === "object") {
+        detail = ` - ${errorData.detail.message || JSON.stringify(errorData.detail)}`;
       }
     } catch {
       // Ignore JSON parse failures for non-JSON error responses.
     }
-    throw new Error(`Request failed: ${response.status}${detail}`);
+    throw new ApiError(response.status, `Request failed: ${response.status}${detail}`, errorData);
   }
 
   return (await response.json()) as T;
@@ -198,15 +208,18 @@ async function postJson<T>(path: string, body: unknown, baseUrl = apiBaseUrl()):
 
   if (!response.ok) {
     let detail = "";
+    let errorData: any = null;
     try {
-      const errorPayload = (await response.json()) as { detail?: unknown };
-      if (typeof errorPayload.detail === "string") {
-        detail = ` - ${errorPayload.detail}`;
+      errorData = await response.json();
+      if (typeof errorData?.detail === "string") {
+        detail = ` - ${errorData.detail}`;
+      } else if (typeof errorData?.detail === "object") {
+        detail = ` - ${errorData.detail.message || JSON.stringify(errorData.detail)}`;
       }
     } catch {
       // Ignore JSON parse failures for non-JSON error responses.
     }
-    throw new Error(`Request failed: ${response.status}${detail}`);
+    throw new ApiError(response.status, `Request failed: ${response.status}${detail}`, errorData);
   }
 
   return (await response.json()) as T;
@@ -224,15 +237,18 @@ async function patchJson<T>(path: string, body: unknown, baseUrl = apiBaseUrl())
 
   if (!response.ok) {
     let detail = "";
+    let errorData: any = null;
     try {
-      const errorPayload = (await response.json()) as { detail?: unknown };
-      if (typeof errorPayload.detail === "string") {
-        detail = ` - ${errorPayload.detail}`;
+      errorData = await response.json();
+      if (typeof errorData?.detail === "string") {
+        detail = ` - ${errorData.detail}`;
+      } else if (typeof errorData?.detail === "object") {
+        detail = ` - ${errorData.detail.message || JSON.stringify(errorData.detail)}`;
       }
     } catch {
       // Ignore JSON parse failures for non-JSON error responses.
     }
-    throw new Error(`Request failed: ${response.status}${detail}`);
+    throw new ApiError(response.status, `Request failed: ${response.status}${detail}`, errorData);
   }
 
   return (await response.json()) as T;
@@ -317,22 +333,40 @@ export type ArtifactItem = {
 export async function renderArtifact(
   campaignId: number,
   artifactType: "flyer" | "poster" = "flyer",
+  overwrite = false,
+  customName?: string,
   baseUrl = apiBaseUrl()
-): Promise<ArtifactItem> {
+): Promise<ArtifactItem[]> {
   const response = await fetch(`${baseUrl}/campaigns/${campaignId}/render`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
     },
-    body: JSON.stringify({ artifact_type: artifactType }),
+    body: JSON.stringify({
+      artifact_type: artifactType,
+      overwrite,
+      custom_name: customName || undefined,
+    }),
   });
 
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+    let detail = "";
+    let errorData: any = null;
+    try {
+      errorData = await response.json();
+      if (typeof errorData?.detail === "string") {
+        detail = ` - ${errorData.detail}`;
+      } else if (typeof errorData?.detail === "object") {
+        detail = ` - ${errorData.detail.message || JSON.stringify(errorData.detail)}`;
+      }
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, `Request failed: ${response.status}${detail}`, errorData);
   }
 
-  return (await response.json()) as ArtifactItem;
+  return (await response.json()) as ArtifactItem[];
 }
 
 export async function fetchArtifacts(

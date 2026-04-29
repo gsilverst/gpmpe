@@ -62,6 +62,12 @@ export default function HomePage() {
   } | null>(null);
   const [reconciliationReport, setReconciliationReport] =
     useState<StartupStatusReport | null>(null);
+  const [artifactConflict, setArtifactConflict] = useState<{
+    campaignId: number;
+    artifactType: "flyer" | "poster";
+    filename: string;
+  } | null>(null);
+  const [conflictNewName, setConflictNewName] = useState("");
   const [businessMode, setBusinessMode] = useState<"list" | "edit" | "create">("list");
   const [businessEditForm, setBusinessEditForm] = useState({
     legal_name: "",
@@ -103,12 +109,18 @@ export default function HomePage() {
     try {
       setRendering(true);
       setRenderStatus(null);
-      const artifact = await renderArtifact(pending.campaignId, "flyer");
+      const generated = await renderArtifact(pending.campaignId, "flyer");
       const items = await fetchArtifacts(pending.campaignId);
       setArtifacts(items);
-      setLatestCloneArtifact({ artifactId: artifact.id, campaignId: pending.campaignId });
+      if (generated.length > 0) {
+        setLatestCloneArtifact({ artifactId: generated[0].id, campaignId: pending.campaignId });
+        generated.forEach((artifact, index) => {
+          setTimeout(() => {
+            window.open(artifactDownloadUrl(artifact.id), "_blank", "noopener,noreferrer");
+          }, index * 500);
+        });
+      }
       setRenderStatus("Flyer generated successfully.");
-      window.open(artifactDownloadUrl(artifact.id), "_blank", "noopener,noreferrer");
       setChatStatus(
         `Campaign '${pending.campaignName}' opened. Continue editing it with the chatbot below.`
       );
@@ -730,7 +742,11 @@ export default function HomePage() {
     }
   }
 
-  async function handleGenerateArtifact(artifactType: "flyer" | "poster"): Promise<void> {
+  async function handleGenerateArtifact(
+    artifactType: "flyer" | "poster",
+    overwrite = false,
+    customName?: string
+  ): Promise<void> {
     if (selectedCampaignId == null) {
       setRenderStatus("Select a campaign before generating artifacts.");
       return;
@@ -739,18 +755,46 @@ export default function HomePage() {
     setRendering(true);
     setRenderStatus(null);
     try {
-      const artifact = await renderArtifact(selectedCampaignId, artifactType);
-      if (artifactType === "flyer") {
-        setPreviewArtifactId(artifact.id);
+      const generated = await renderArtifact(selectedCampaignId, artifactType, overwrite, customName);
+      
+      if (generated.length > 0) {
+        // Use the first one (primary) for the inline preview.
+        if (artifactType === "flyer") {
+          setPreviewArtifactId(generated[0].id);
+        }
+        // NOTE: We no longer trigger automatic browser downloads (window.location.href)
+        // to avoid auto-incrementing suffixes added by browsers.
+        // The files are written directly to the local 'output_dir'.
       }
+
       const items = await fetchArtifacts(selectedCampaignId);
       setArtifacts(items);
-      setRenderStatus(`${artifactType} generated successfully.`);
+      setRenderStatus(`${artifactType} generated successfully in the output directory.`);
+      setArtifactConflict(null);
     } catch (caught) {
+      if (caught instanceof Error && "status" in caught && (caught as any).status === 409) {
+        const err = caught as any;
+        if (err.data?.detail?.reason === "file_exists") {
+          const filename = err.data.detail.message;
+          setArtifactConflict({ campaignId: selectedCampaignId, artifactType, filename });
+          setConflictNewName(filename);
+          return;
+        }
+      }
       const message = caught instanceof Error ? caught.message : "Artifact generation failed";
       setRenderStatus(`Artifact generation failed: ${message}`);
     } finally {
       setRendering(false);
+    }
+  }
+
+  async function handleResolveConflict(action: "replace" | "rename"): Promise<void> {
+    if (!artifactConflict) return;
+    if (action === "replace") {
+      await handleGenerateArtifact(artifactConflict.artifactType, true);
+    } else {
+      if (!conflictNewName.trim()) return;
+      await handleGenerateArtifact(artifactConflict.artifactType, false, conflictNewName.trim());
     }
   }
 
@@ -1422,6 +1466,54 @@ export default function HomePage() {
                 }
               >
                 Use Most Recent (Recommended)
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {artifactConflict ? (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="conflict-title">
+          <div className="modal-card">
+            <h3 id="conflict-title">File Already Exists</h3>
+            <p>
+              The file <strong>{artifactConflict.filename}</strong> already exists in the output directory.
+              Would you like to replace it or save it with a different name?
+            </p>
+            <div className="grid-form">
+              <label className="stacked-label" htmlFor="conflict-new-name">
+                <span>New filename</span>
+                <input
+                  id="conflict-new-name"
+                  value={conflictNewName}
+                  onChange={(e) => setConflictNewName(e.target.value)}
+                  placeholder="Enter new filename"
+                />
+              </label>
+            </div>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => setArtifactConflict(null)}
+                disabled={rendering}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => void handleResolveConflict("replace")}
+                disabled={rendering}
+              >
+                {rendering ? "Replacing..." : "Replace Existing"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleResolveConflict("rename")}
+                disabled={rendering || !conflictNewName.trim() || conflictNewName === artifactConflict.filename}
+              >
+                {rendering ? "Saving..." : "Save with New Name"}
               </button>
             </div>
           </div>

@@ -29,24 +29,25 @@
   - Changing campaigns clears stale component context automatically.
 - Incomplete component-rename messages now return a successful clarification response (`target=clarify`) instead of a hard HTTP 400 failure.
 
-## Execution Checkpoint (April 28, 2026)
+## Execution Checkpoint (April 28, 2026 - Late Evening)
 
 Current phase status:
-- Completed: Step 13 (Design Documentation finalized).
-- Completed: Step 14 (Renderer Data Externalization and generalized architecture).
-- Completed: Step 15 (Fictitious 'Solara Wellness' Sample Data).
-- Completed: Natural Language 'Add Item' command with positioning/cloning.
-- Completed: Plural-aware chat commands (component/components, item/items).
-- Completed: Renderer layout tuning for compact cards to prevent text overlap.
+- Completed: Step 16 (Data and Command Gap Analysis).
+- Completed: Step 17 (Renderer Tunability and Visual Documentation).
+- Completed: Step 18 (User Guide: Chatbot Communication).
+- Completed: Step 13, 14, 15 (Design, Externalization, Sample Data).
 
 Known current baseline:
-- Backend tests currently green on latest validation run (`141 passed`, April 28, 2026).
-- Rich renderer now handles additional secondary component kinds and bounded layout regions for featured and secondary sections.
-- Renderer layout constants are now exposed through the default template-layout shape.
+- Gap report available at `docs/GAP_REPORT.md`.
+- Tunability proposal available at `docs/RENDERER_TUNABILITY.md`.
+- Chat User Guide available at `docs/USER_GUIDE_CHAT.md`.
+- Backend tests fully green (145 passed).
 
 Approved next steps (strict order):
 1. Step 12: Repository Visibility Cutover (Private -> Public).
-2. Continue visual refinement and template expansion as requested by users.
+2. Step 19: Campaign Builder GUI Enhancements (Add/Edit Item support).
+3. Step 20: Implement Missing Chat Commands (Parity work).
+4. Step 21: Externalize Renderer Layout Constants (Tunability work).
 
 Notable new/updated backend tests:
 - `test_chat_message_can_rename_component_by_natural_language`
@@ -113,3 +114,43 @@ Objective:
 ### Step 12: Repository Visibility Cutover (Private -> Public) (TODO)
 Objective:
 - Change repository visibility to public only after explicit completion sign-off.
+
+## Phase 4: Enhancements, Analysis, and User Experience
+
+### Step 16: Data and Command Gap Analysis (COMPLETED)
+Objective:
+- Identify any gaps between the data stored in the database/YAML files and the mutation capabilities of the chatbot interface.
+- Ensure the chatbot can handle *all* tasks related to building and modifying a campaign.
+- Output: A gap report and a prioritized list of new chat commands to implement (`docs/GAP_REPORT.md`).
+
+### Step 17: Renderer Tunability and Visual Documentation (COMPLETED)
+Objective:
+- Identify and document all visual aspects of the generated PDF that are currently hard-wired in `renderer.py` (e.g., specific padding, font choices, layout proportions).
+- Make a proposal on which of these features should be externalized as tunable fields in the YAML/database objects (e.g., via the `style_json` or `layout_json` fields).
+- Output: Tunability roadmap (`docs/RENDERER_TUNABILITY.md`).
+
+### Step 18: User Guide: Effective Chatbot Communication (COMPLETED)
+Objective:
+- Create a comprehensive User Guide that provides detailed guidance on how to effectively communicate with the chatbot.
+- Include examples for entering data, renaming components, adding items with specific positioning, and cloning campaigns.
+- Output: Comprehensive NL command reference (`docs/USER_GUIDE_CHAT.md`).
+
+### Step 18b: Dual PDF Generation & Strict Naming (COMPLETED)
+Objective:
+- Enforce strict `company-campaign.pdf` naming convention.
+- Support `IMAGES_PER_PAGE` config for secondary n-up artifact (`company-campaign-Np.pdf`).
+- Implement custom "Replace or Rename" modal to handle local file collisions without browser-injected suffixes.
+
+### Step 19: Campaign Builder GUI Enhancements (TODO)
+Objective:
+- Improve the "Campaign Builder" part of the application GUI to provide a full alternative to the chatbot.
+- At a minimum, add "Add Item" and "Edit Item" options for all components.
+- Ensure all relevant database fields are editable through the web forms.
+
+### Step 20: Implement Missing Chat Commands (TODO)
+Objective:
+- Based on the findings from Step 16, implement all missing natural-language commands required for 100% campaign-building parity via chat.
+
+### Step 21: Externalize Renderer Layout Constants (TODO)
+Objective:
+- Based on the proposal from Step 17, refactor `renderer.py` and the database schema to support dynamic, data-driven overrides for visual layout properties.

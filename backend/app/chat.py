@@ -158,6 +158,10 @@ CAMPAIGN_PATTERN = re.compile(
     r"^(?:set|change|update)\s+(?:the\s+)?(?P<field>" + _CAMPAIGN_FIELD_RE + r")(?:\s+field)?\s+to\s+(?P<value>.+)$",
     re.IGNORECASE,
 )
+CAMPAIGN_FIELD_DELETE_PATTERN = re.compile(
+    r"^delete\s+(?:the\s+)?(?:campaign\s+)?(?P<field>" + _CAMPAIGN_FIELD_RE + r")(?:\s+field)?$",
+    re.IGNORECASE,
+)
 OFFER_PATTERN = re.compile(
     r"^set\s+offer\s+(?P<offer_id>\d+)\s+(?P<field>" + _OFFER_FIELD_RE + r")(?:\s+field)?\s+to\s+(?P<value>.+)$",
     re.IGNORECASE,

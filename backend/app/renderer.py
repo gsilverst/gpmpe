@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import sqlite3
 from collections import deque
 from io import BytesIO
@@ -1041,6 +1042,15 @@ def _file_checksum(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _slug(text: str | None) -> str:
+    """Standard slugifier for filenames."""
+    if not text:
+        return "unnamed"
+    # Replace non-alphanumeric with hyphen, then collapse hyphens.
+    slug = re.sub(r"[^a-z0-9]+", "-", text.lower())
+    return slug.strip("-")
+
+
 def render_campaign_artifact(
     connection: sqlite3.Connection,
     campaign_id: int,
@@ -1048,26 +1058,48 @@ def render_campaign_artifact(
     artifact_type: str = "flyer",
     data_dir: Path | None = None,
     images_per_page: int | None = None,
-) -> dict[str, Any]:
+    overwrite: bool = False,
+    custom_name: str | None = None,
+) -> list[dict[str, Any]]:
+    """Generates and registers campaign artifacts (PDFs) with strict company-campaign naming."""
     ctx = _collect_render_context(connection, campaign_id)
 
     if artifact_type not in {"flyer", "poster"}:
         raise ValueError(f"Unsupported artifact_type '{artifact_type}'")
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    safe_name = ctx["campaign_name"].replace(" ", "-").lower()
-    filename = f"{safe_name}.pdf" if artifact_type == "flyer" else f"{safe_name}-{artifact_type}.pdf"
+    
+    # Naming convention: company-campaign.pdf
+    if custom_name:
+        # Enforce basic safety: no path traversal
+        clean_name = Path(custom_name).name
+        if clean_name.lower().endswith(".pdf"):
+            clean_name = clean_name[:-4]
+        base_name = _slug(clean_name)
+    else:
+        company_slug = _slug(ctx["business_display_name"])
+        campaign_slug = _slug(ctx["campaign_name"])
+        base_name = f"{company_slug}-{campaign_slug}"
+    
+    filename = f"{base_name}.pdf" if artifact_type == "flyer" else f"{base_name}-{artifact_type}.pdf"
     file_path = output_dir / filename
 
+    # Check for file existence before any rendering
+    if not overwrite and file_path.exists():
+        raise ValueError(filename)
+
+    # Check N-up filename if applicable
+    nup_file_path: Path | None = None
+    if artifact_type == "flyer" and images_per_page is not None:
+        nup_filename = f"{base_name}-{images_per_page}p.pdf"
+        nup_file_path = output_dir / nup_filename
+        if not overwrite and nup_file_path.exists():
+            raise ValueError(nup_filename)
+
+    # 1. Primary Render
     pdf_bytes = render_flyer(ctx, data_dir=data_dir)
     checksum = _file_checksum(pdf_bytes)
     file_path.write_bytes(pdf_bytes)
-
-    nup_file_path: Path | None = None
-    if artifact_type == "flyer" and images_per_page is not None:
-        nup_bytes = render_flyer_nup(ctx, images_per_page, data_dir=data_dir)
-        nup_file_path = output_dir / f"{safe_name}-{images_per_page}p.pdf"
-        nup_file_path.write_bytes(nup_bytes)
 
     template_snapshot = json.dumps(
         {
@@ -1077,6 +1109,7 @@ def render_campaign_artifact(
         }
     )
 
+    # Register Primary Artifact
     cursor = connection.execute(
         """
         INSERT INTO generated_artifacts
@@ -1085,14 +1118,41 @@ def render_campaign_artifact(
         """,
         (campaign_id, artifact_type, str(file_path), checksum, template_snapshot),
     )
-    artifact_id = int(cursor.lastrowid)
+    primary_id = int(cursor.lastrowid)
+    
+    results = [
+        {
+            "id": primary_id,
+            "campaign_id": campaign_id,
+            "artifact_type": artifact_type,
+            "file_path": str(file_path),
+            "checksum": checksum,
+            "status": "complete",
+        }
+    ]
 
-    return {
-        "id": artifact_id,
-        "campaign_id": campaign_id,
-        "artifact_type": artifact_type,
-        "file_path": str(file_path),
-        "nup_file_path": str(nup_file_path) if nup_file_path is not None else None,
-        "checksum": checksum,
-        "status": "complete",
-    }
+    # 2. Secondary Render (N-up) if requested
+    if artifact_type == "flyer" and images_per_page is not None and nup_file_path:
+        nup_bytes = render_flyer_nup(ctx, images_per_page, data_dir=data_dir)
+        nup_file_path.write_bytes(nup_bytes)
+        nup_checksum = _file_checksum(nup_bytes)
+        
+        # Register Secondary Artifact
+        cursor = connection.execute(
+            """
+            INSERT INTO generated_artifacts
+              (campaign_id, artifact_type, file_path, checksum, status, template_snapshot_json)
+            VALUES (?, ?, ?, ?, 'complete', ?);
+            """,
+            (campaign_id, artifact_type, str(nup_file_path), nup_checksum, template_snapshot),
+        )
+        results.append({
+            "id": int(cursor.lastrowid),
+            "campaign_id": campaign_id,
+            "artifact_type": artifact_type,
+            "file_path": str(nup_file_path),
+            "checksum": nup_checksum,
+            "status": "complete",
+        })
+
+    return results

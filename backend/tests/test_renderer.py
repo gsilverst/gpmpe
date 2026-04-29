@@ -84,10 +84,11 @@ def test_render_artifact_returns_201(monkeypatch, tmp_path: Path) -> None:
     response = client.post(f"/campaigns/{campaign_id}/render", json={"artifact_type": "flyer"})
     assert response.status_code == 201, response.text
     data = response.json()
-    assert data["campaign_id"] == campaign_id
-    assert data["artifact_type"] == "flyer"
-    assert data["status"] == "complete"
-    assert data["checksum"]
+    assert isinstance(data, list)
+    assert data[0]["campaign_id"] == campaign_id
+    assert data[0]["artifact_type"] == "flyer"
+    assert data[0]["status"] == "complete"
+    assert data[0]["checksum"]
 
 
 def test_render_creates_pdf_on_disk(monkeypatch, tmp_path: Path) -> None:
@@ -97,7 +98,7 @@ def test_render_creates_pdf_on_disk(monkeypatch, tmp_path: Path) -> None:
 
     response = client.post(f"/campaigns/{campaign_id}/render")
     assert response.status_code == 201
-    file_path = Path(response.json()["file_path"])
+    file_path = Path(response.json()[0]["file_path"])
     assert file_path.exists(), f"Expected PDF at {file_path}"
     # PDF magic bytes
     assert file_path.read_bytes().startswith(b"%PDF"), "Output is not a valid PDF"
@@ -111,8 +112,8 @@ def test_render_checksum_matches_file(monkeypatch, tmp_path: Path) -> None:
     response = client.post(f"/campaigns/{campaign_id}/render")
     assert response.status_code == 201
     data = response.json()
-    actual = hashlib.sha256(Path(data["file_path"]).read_bytes()).hexdigest()
-    assert actual == data["checksum"]
+    actual = hashlib.sha256(Path(data[0]["file_path"]).read_bytes()).hexdigest()
+    assert actual == data[0]["checksum"]
 
 
 def test_render_with_images_per_page_creates_additional_pdf(monkeypatch, tmp_path: Path) -> None:
@@ -128,7 +129,7 @@ def test_render_with_images_per_page_creates_additional_pdf(monkeypatch, tmp_pat
 
     config = resolve_config()
     with connect_database(config) as connection:
-        artifact = render_campaign_artifact(
+        artifacts = render_campaign_artifact(
             connection,
             campaign_id,
             config.output_dir,
@@ -137,14 +138,15 @@ def test_render_with_images_per_page_creates_additional_pdf(monkeypatch, tmp_pat
         )
         connection.commit()
 
-    primary_path = Path(artifact["file_path"])
-    nup_path = Path(str(artifact["nup_file_path"]))
+    assert len(artifacts) == 2
+    primary_path = Path(artifacts[0]["file_path"])
+    nup_path = Path(artifacts[1]["file_path"])
 
     assert primary_path.exists()
-    assert primary_path.name == "summer.pdf"
+    assert primary_path.name == "testco-summer.pdf"
     assert primary_path.read_bytes().startswith(b"%PDF")
     assert nup_path.exists()
-    assert nup_path.name == "summer-4p.pdf"
+    assert nup_path.name == "testco-summer-4p.pdf"
     assert nup_path.read_bytes().startswith(b"%PDF")
 
 
@@ -154,11 +156,12 @@ def test_list_artifacts_returns_rendered_items(monkeypatch, tmp_path: Path) -> N
     _, campaign_id = _seed_full_campaign(client)
 
     client.post(f"/campaigns/{campaign_id}/render")
-    client.post(f"/campaigns/{campaign_id}/render")
+    client.post(f"/campaigns/{campaign_id}/render", json={"overwrite": True})
 
     response = client.get(f"/campaigns/{campaign_id}/artifacts")
     assert response.status_code == 200
     items = response.json()["items"]
+    # 2 renders, each might have 1 artifact (default config has no images_per_page)
     assert len(items) == 2
     for item in items:
         assert item["status"] == "complete"
@@ -171,7 +174,7 @@ def test_download_artifact_returns_pdf_bytes(monkeypatch, tmp_path: Path) -> Non
     _, campaign_id = _seed_full_campaign(client)
 
     render_data = client.post(f"/campaigns/{campaign_id}/render").json()
-    artifact_id = render_data["id"]
+    artifact_id = render_data[0]["id"]
 
     dl = client.get(f"/artifacts/{artifact_id}/download")
     assert dl.status_code == 200
