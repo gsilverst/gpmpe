@@ -163,6 +163,30 @@ Objective:
 - Enabled component-level style overrides (e.g., `border_radius`) via `style_json`.
 - Verified 100% parity and visual consistency across all rendering modes.
 
+## Phase 5: AWS Migration
+
+### Step 23: Database Abstraction (SQLAlchemy) (COMPLETED)
+Objective:
+- Defined SQLAlchemy 2.0 models mirroring the SQLite schema.
+- Added SQLAlchemy, Alembic, and RDS drivers to dependencies.
+- Refactored `db.py` and `config.py` to support dynamic `DATABASE_URL`.
+- Implemented hybrid initialization using `Base.metadata.create_all` and legacy scripts.
+
+### Step 24: Storage & Filesystem Parity (Amazon EFS) (TODO)
+Objective:
+- Mount Amazon EFS to ECS/Fargate for persistent YAML and PDF storage.
+- Ensure all file operations remain dialect-neutral using `pathlib`.
+
+### Step 25: Version Control Sync Worker (TODO)
+Objective:
+- Implement a worker to pull YAML changes from Git to EFS on push.
+- Implement a write-back hook to commit EFS changes (from Chat/GUI) back to Git.
+
+### Step 26: CI/CD Dual Build Infrastructure (TODO)
+Objective:
+- Setup GitHub Actions to build Docker images and deploy to Amazon ECR/ECS.
+- Support a `RUN_MODE=aws|local` toggle for environment-specific behaviors.
+
 ### Step 22: Detailed Requirements Documentation (COMPLETED)
 Objective:
 - Write a comprehensive requirements document that captures the original intent and evolution of the project.

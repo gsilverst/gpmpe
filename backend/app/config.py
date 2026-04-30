@@ -10,6 +10,7 @@ class AppConfig:
     config_path: Path
     output_dir: Path
     database_path: Path
+    database_url: str
     data_dir: Path
     images_per_page: int | None
     using_test_paths: bool
@@ -118,6 +119,10 @@ def resolve_config(
 
     images_per_page = _parse_images_per_page(values.get("IMAGES_PER_PAGE"))
 
+    database_url = values.get("DATABASE_URL")
+    if not database_url:
+        database_url = f"sqlite:///{database_path}"
+
     commit_on_save = _parse_bool(values.get("COMMIT_ON_SAVE"), default=True)
     git_repo_value = values.get("GIT_REPO_PATH")
     git_repo_path = _resolve_path(git_repo_value, config_directory) if git_repo_value else None
@@ -128,6 +133,7 @@ def resolve_config(
         config_path=config_path,
         output_dir=output_dir,
         database_path=database_path,
+        database_url=database_url,
         data_dir=data_dir,
         images_per_page=images_per_page,
         using_test_paths=using_test_paths,
