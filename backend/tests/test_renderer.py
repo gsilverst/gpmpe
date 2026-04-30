@@ -446,9 +446,9 @@ def test_render_flyer_uses_data_defined_component_region(monkeypatch) -> None:
     captured_titles: list[str] = []
     original_draw_weekday_strip = renderer_module._draw_weekday_strip
 
-    def _capture_strip(pdf, x, y, w, title, detail, price, palette, strip_fill=None):
+    def _capture_strip(pdf, x, y, w, title, detail, price, palette, strip_fill=None, **kwargs):
         captured_titles.append(title)
-        return original_draw_weekday_strip(pdf, x, y, w, title, detail, price, palette, strip_fill=strip_fill)
+        return original_draw_weekday_strip(pdf, x, y, w, title, detail, price, palette, strip_fill=strip_fill, **kwargs)
 
     monkeypatch.setattr(renderer_module, "_draw_weekday_strip", _capture_strip)
 
@@ -676,9 +676,9 @@ def test_render_flyer_preserves_weekday_item_order(monkeypatch) -> None:
 
     original_draw_weekday_strip = renderer_module._draw_weekday_strip
 
-    def _capture_strip(pdf, x, y, w, title, detail, price, palette, strip_fill=None):
+    def _capture_strip(pdf, x, y, w, title, detail, price, palette, strip_fill=None, **kwargs):
         captured_titles.append(title)
-        return original_draw_weekday_strip(pdf, x, y, w, title, detail, price, palette, strip_fill=strip_fill)
+        return original_draw_weekday_strip(pdf, x, y, w, title, detail, price, palette, strip_fill=strip_fill, **kwargs)
 
     monkeypatch.setattr(renderer_module, "_draw_weekday_strip", _capture_strip)
 

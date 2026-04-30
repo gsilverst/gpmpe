@@ -156,9 +156,12 @@ Objective:
 - Enabled mutation for advanced fields: `render_region`, `render_mode`, `render_role`, `email`, `website`, `footer`, `legal`.
 - Implemented deep style overrides: `set <component> style <key> to <value>`.
 
-### Step 21: Externalize Renderer Layout Constants (TODO)
+### Step 21: Externalize Renderer Layout Constants (COMPLETED)
 Objective:
-- Based on the proposal from Step 17, refactor `renderer.py` and the database schema to support dynamic, data-driven overrides for visual layout properties.
+- Refactored `renderer.py` to move hard-coded visual constants into a data-driven `_DEFAULT_RENDER_LAYOUT`.
+- Implemented support for `typography` and `geometry` overrides via template-level `layout_json`.
+- Enabled component-level style overrides (e.g., `border_radius`) via `style_json`.
+- Verified 100% parity and visual consistency across all rendering modes.
 
 ### Step 22: Detailed Requirements Documentation (COMPLETED)
 Objective:

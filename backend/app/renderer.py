@@ -58,6 +58,23 @@ _DEFAULT_RENDER_LAYOUT: dict[str, Any] = {
         "discount-strip": {"render_region": "discount", "render_mode": "discount-panel"},
         "legal-note": {"render_region": "legal", "render_mode": "legal-text"},
     },
+    "typography": {
+        "business_name": {"font": "Helvetica-Bold", "size": 22.0},
+        "business_subtitle": {"font": "Times-Italic", "size": 16.0},
+        "section_title": {"font": "Helvetica-Bold", "size": 21.0},
+        "section_subtitle": {"font": "Times-Italic", "size": 12.0},
+        "item_name": {"font": "Helvetica-Bold", "size": 11.0},
+        "item_detail": {"font": "Helvetica", "size": 11.0},
+        "item_value": {"font": "Helvetica-Bold", "size": 11.0},
+        "footnote": {"font": "Helvetica", "size": 8.0},
+    },
+    "geometry": {
+        "section_gap": 14.0,
+        "panel_radius": 24.0,
+        "card_radius": 12.0,
+        "strip_radius": 10.0,
+        "stroke_width": 2.0,
+    },
     "styles": {
         "radius": {"panel": 24.0, "card": 12.0, "strip": 10.0},
         "featured": {
@@ -354,9 +371,10 @@ def _draw_offer_card(pdf: Any, x: float, y: float, w: float, h: float,
 def _draw_compact_offer_card(pdf: Any, x: float, y: float, w: float, h: float,
                               title: str, duration: str, price: str,
                               fill: Any, accent: Any, text_color: Any,
-                              title_color: Any = None, price_color: Any = None) -> None:
+                              title_color: Any = None, price_color: Any = None,
+                              radius: float = 12.0) -> None:
     """Compact card for featured offers - fits 3 per row with symmetrical spacing and standardized fonts."""
-    _draw_rounded_panel(pdf, x, y, w, h, fill, accent, radius=12, stroke_w=1.5)
+    _draw_rounded_panel(pdf, x, y, w, h, fill, accent, radius=radius, stroke_w=1.5)
     
     # Title bar (spans h-17 to h-4 relative to y)
     pdf.setFillColor(accent)
@@ -383,16 +401,26 @@ def _draw_compact_offer_card(pdf: Any, x: float, y: float, w: float, h: float,
 
 def _draw_weekday_strip(pdf: Any, x: float, y: float, w: float,
                          title: str, detail: str, price: str,
-                         palette: dict, strip_fill: Any = None) -> None:
+                         palette: dict, strip_fill: Any = None,
+                         radius: float = 10.0,
+                         typography: dict | None = None) -> None:
     _draw_rounded_panel(pdf, x, y, w, 26, strip_fill or palette["primary_light"], palette["secondary"],
-                        radius=10, stroke_w=1)
+                        radius=radius, stroke_w=1)
     pdf.setFillColor(palette["ink"])
-    # All fields standardized to 11pt for consistent look
-    pdf.setFont("Helvetica-Bold", 11)
+    
+    # Use typography overrides if provided
+    typo = typography or {}
+    name_style = typo.get("item_name", {})
+    detail_style = typo.get("item_detail", {})
+    value_style = typo.get("item_value", {})
+    
+    pdf.setFont(name_style.get("font", "Helvetica-Bold"), name_style.get("size", 11.0))
     pdf.drawString(x + 16, y + 8, title)
-    pdf.setFont("Helvetica", 11)
+    
+    pdf.setFont(detail_style.get("font", "Helvetica"), detail_style.get("size", 11.0))
     pdf.drawString(x + 180, y + 8, detail)
-    pdf.setFont("Helvetica-Bold", 11)
+    
+    pdf.setFont(value_style.get("font", "Helvetica-Bold"), value_style.get("size", 11.0))
     pdf.drawRightString(x + w - 16, y + 8, price)
 
 
@@ -405,6 +433,8 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
                       discount: list, legal: list) -> None:
     ev = ctx.get("effective_values", {})
     layout = _layout(ctx)
+    typography = layout.get("typography", {})
+    geometry = layout.get("geometry", {})
     header_region = _region(layout, "header")
     featured_region = _region(layout, "featured")
     secondary_region = _region(layout, "secondary")
@@ -421,8 +451,10 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
     # ----- Header panel -----
     hx = header_region["x"]
     panel_w = header_region["w"]
+    panel_radius = geometry.get("panel_radius", 24.0)
+    stroke_w = geometry.get("stroke_width", 2.0)
     _draw_rounded_panel(pdf, hx, header_region["y"], panel_w, header_region["h"],
-                        palette["primary"], palette["primary"], radius=24, stroke_w=2)
+                        palette["primary"], palette["primary"], radius=panel_radius, stroke_w=stroke_w)
 
     if logo_reader is not None:
         logo_w, logo_h = 58, 58
@@ -433,10 +465,16 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
 
     biz_name = ev.get("business_name") or ctx.get("business_display_name", "")
     biz_sub = ev.get("business_subtitle") or ctx.get("business_legal_name", "")
+    
+    biz_name_style = typography.get("business_name", {})
     _draw_centered(pdf, biz_name.upper(), w / 2, header_region["y"] + 28,
-                   "Helvetica-Bold", 22, palette["white"])
+                   biz_name_style.get("font", "Helvetica-Bold"), 
+                   biz_name_style.get("size", 22.0), palette["white"])
+    
+    biz_sub_style = typography.get("business_subtitle", {})
     _draw_centered(pdf, biz_sub, w / 2, header_region["y"] + 8,
-                   "Times-Italic", 16, palette["primary_light"])
+                   biz_sub_style.get("font", "Times-Italic"), 
+                   biz_sub_style.get("size", 16.0), palette["primary_light"])
 
     def title_with_marker(component: dict[str, Any] | None) -> str:
         if component is None:
@@ -465,24 +503,28 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
         panel_top = featured_region["y"]
         panel_h = featured_region["h"]
         _draw_rounded_panel(pdf, hx, panel_top, panel_w, panel_h,
-                            featured_fill, palette["accent"], radius=24, stroke_w=2)
+                            featured_fill, palette["accent"], radius=panel_radius, stroke_w=stroke_w)
         
+        section_title_style = typography.get("section_title", {})
         _draw_centered(pdf, title_with_marker(comp), w / 2,
-                       panel_top + panel_h - 34, "Helvetica-Bold", 21, palette["primary"])
+                       panel_top + panel_h - 34, 
+                       section_title_style.get("font", "Helvetica-Bold"), 
+                       section_title_style.get("size", 21.0), palette["primary"])
         
         # Carve out a fixed inner content region for items between the subtitle and
         # the footnote so cards can never encroach on either boundary.
         subtitle = comp.get("subtitle") or ""
         items_top_boundary = panel_top + panel_h - float(_style(layout, "featured", "item_top_offset", fallback=74.0))
         if subtitle:
+            section_subtitle_style = typography.get("section_subtitle", {})
             subtitle_bottom = _draw_wrapped_centered(
                 pdf,
                 subtitle,
                 w / 2,
                 panel_top + panel_h - float(_style(layout, "featured", "subtitle_top_offset", fallback=62.0)),
                 w - 140,
-                "Times-Italic",
-                12,
+                section_subtitle_style.get("font", "Times-Italic"),
+                section_subtitle_style.get("size", 12.0),
                 14,
                 _COLOR_INK,
             )
@@ -525,32 +567,46 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
                     item_fill = _hex(item.get("background_color"), _string_hex(palette["card_1_bg"]))
                     item_accent = featured_header_accent
                     
+                    # Resolve card radius from geometry or component style
+                    card_radius = item_style.get("border_radius") or comp_style.get("border_radius") or geometry.get("card_radius", 12.0)
+                    
                     _draw_compact_offer_card(pdf, card_x_positions[col_idx], card_y, card_w, card_h,
                                             item.get("item_name") or "", item.get("duration_label") or "",
                                             item.get("item_value") or "",
                                             item_fill, item_accent, _COLOR_INK,
-                                            title_color=item_title_color, price_color=item_price_color)
+                                            title_color=item_title_color, price_color=item_price_color,
+                                            radius=card_radius)
 
         comp_note = (comp.get("footnote_text") or "").strip()
         if comp_note:
+            footnote_style = typography.get("footnote", {})
             _draw_centered(pdf, f"** {comp_note}", w / 2, footnote_y,
-                           "Helvetica", 8, _COLOR_INK)
+                           footnote_style.get("font", "Helvetica"), 
+                           footnote_style.get("size", 8.0), _COLOR_INK)
 
     # ----- Weekday specials panel -----
     secondary_text_color = palette["white"]
     if weekday:
         wd_comp = weekday[0]
+        wd_comp_style = wd_comp.get("style") or {}
         weekday_fill = _hex(wd_comp.get("background_color"), _string_hex(palette["primary"]))
         wd_text_color = _hex(wd_comp.get("header_accent_color"), _string_hex(palette["white"]))
         secondary_text_color = wd_text_color
         _draw_rounded_panel(pdf, hx, secondary_region["y"], panel_w, secondary_region["h"],
-                            weekday_fill, wd_text_color, radius=24, stroke_w=2)
+                            weekday_fill, wd_text_color, radius=panel_radius, stroke_w=stroke_w)
+        
+        section_title_style = typography.get("section_title", {})
         _draw_centered(pdf, title_with_marker(wd_comp), w / 2,
-                       secondary_region["y"] + secondary_region["h"] - 34, "Helvetica-Bold", 22, wd_text_color)
+                       secondary_region["y"] + secondary_region["h"] - 34, 
+                       section_title_style.get("font", "Helvetica-Bold"), 
+                       section_title_style.get("size", 22.0), wd_text_color)
+        
         wd_sub = wd_comp.get("subtitle") or ""
         if wd_sub:
+            section_subtitle_style = typography.get("section_subtitle", {})
             _draw_centered(pdf, wd_sub, w / 2, secondary_region["y"] + secondary_region["h"] - 56,
-                           "Times-Italic", 14, wd_text_color)
+                           section_subtitle_style.get("font", "Times-Italic"), 
+                           section_subtitle_style.get("size", 14.0), wd_text_color)
 
         strips_x = hx + 18
         strips_w = w - (hx + 18) * 2
@@ -574,20 +630,26 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
         max_rows = int((available_h + strip_gap) // (strip_h + strip_gap))
 
         # Preserve source order top-to-bottom and render only what fits.
+        strip_radius = wd_comp_style.get("border_radius") or geometry.get("strip_radius", 10.0)
         for idx, item in enumerate(wd_items[:max_rows]):
             sy = strips_top - (idx * (strip_h + strip_gap))
+            item_style = item.get("style") or {}
             strip_fill = _hex(item.get("background_color"), _string_hex(palette["primary_light"]))
             _draw_weekday_strip(pdf, strips_x, sy, strips_w,
                                 item.get("item_name") or "",
                                 item.get("duration_label", ""),
                                 item.get("item_value", ""),
                                 palette,
-                                strip_fill=strip_fill)
+                                strip_fill=strip_fill,
+                                radius=item_style.get("border_radius") or strip_radius,
+                                typography=typography)
 
         wd_note = (wd_comp.get("footnote_text") or "").strip()
         if wd_note:
+            footnote_style = typography.get("footnote", {})
             _draw_centered(pdf, f"** {wd_note}", w / 2, secondary_region["y"] + 12,
-                           "Helvetica", 8, wd_text_color)
+                           footnote_style.get("font", "Helvetica"), 
+                           footnote_style.get("size", 8.0), wd_text_color)
 
     # ----- Discount strip (services panel) -----
     if discount:
