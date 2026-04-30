@@ -23,9 +23,16 @@ import {
   syncYamlData,
   updateCampaignForBusiness,
   updateBusiness,
+  createComponent,
+  updateComponent,
+  deleteComponent,
+  createComponentItem,
+  updateComponentItem,
+  deleteComponentItem,
   type ArtifactItem,
   type BusinessRecord,
   type CampaignComponent,
+  type CampaignComponentItem,
   type CampaignRecord,
   type ChatHistoryItem,
   type HealthResponse,
@@ -91,6 +98,106 @@ export default function HomePage() {
   const [campaignMode, setCampaignMode] = useState<"list" | "create" | "edit">("list");
   const [campaignComponents, setCampaignComponents] = useState<CampaignComponent[]>([]);
   const [activeComponentKey, setActiveComponentKey] = useState<string | null>(null);
+  const [editingItem, setEditingItem] = useState<{
+    componentId: number;
+    item: Partial<CampaignComponentItem>;
+  } | null>(null);
+  const [editingComponent, setEditingComponent] = useState<Partial<CampaignComponent> | null>(
+    null
+  );
+
+  async function handleEditComponent(component: CampaignComponent): Promise<void> {
+    setEditingComponent({ ...component });
+  }
+
+  async function handleSaveComponent(event: React.FormEvent): Promise<void> {
+    event.preventDefault();
+    if (editingComponent == null || selectedCampaignId == null) return;
+
+    try {
+      if (editingComponent.id) {
+        await updateComponent(selectedCampaignId, editingComponent.id, editingComponent);
+      } else {
+        await createComponent(selectedCampaignId, editingComponent);
+      }
+      setEditingComponent(null);
+      const updated = await fetchCampaignComponents(selectedCampaignId);
+      setCampaignComponents(updated);
+      await regenerateCampaignPreview(selectedCampaignId, "component updated");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Save component failed");
+    }
+  }
+
+  async function handleDeleteComponent(componentId: number): Promise<void> {
+    if (!window.confirm("Are you sure you want to delete this entire section and all its items?"))
+      return;
+    if (selectedCampaignId == null) return;
+
+    try {
+      await deleteComponent(selectedCampaignId, componentId);
+      const updated = await fetchCampaignComponents(selectedCampaignId);
+      setCampaignComponents(updated);
+      await regenerateCampaignPreview(selectedCampaignId, "component deleted");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Delete component failed");
+    }
+  }
+
+  async function handleAddItem(componentId: number): Promise<void> {
+    setEditingItem({
+      componentId,
+      item: {
+        item_name: "",
+        item_kind: "service",
+        duration_label: "",
+        item_value: "",
+        display_order: (campaignComponents.find((c) => c.id === componentId)?.items.length ?? 0),
+      },
+    });
+  }
+
+  async function handleEditItem(componentId: number, item: CampaignComponentItem): Promise<void> {
+    setEditingItem({ componentId, item: { ...item } });
+  }
+
+  async function handleSaveItem(event: React.FormEvent): Promise<void> {
+    event.preventDefault();
+    if (editingItem == null || selectedCampaignId == null) return;
+
+    try {
+      if (editingItem.item.id) {
+        await updateComponentItem(
+          selectedCampaignId,
+          editingItem.componentId,
+          editingItem.item.id,
+          editingItem.item
+        );
+      } else {
+        await createComponentItem(selectedCampaignId, editingItem.componentId, editingItem.item);
+      }
+      setEditingItem(null);
+      const updated = await fetchCampaignComponents(selectedCampaignId);
+      setCampaignComponents(updated);
+      await regenerateCampaignPreview(selectedCampaignId, "item updated");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Save item failed");
+    }
+  }
+
+  async function handleDeleteItem(componentId: number, itemId: number): Promise<void> {
+    if (!window.confirm("Are you sure you want to delete this item?")) return;
+    if (selectedCampaignId == null) return;
+
+    try {
+      await deleteComponentItem(selectedCampaignId, componentId, itemId);
+      const updated = await fetchCampaignComponents(selectedCampaignId);
+      setCampaignComponents(updated);
+      await regenerateCampaignPreview(selectedCampaignId, "item deleted");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Delete item failed");
+    }
+  }
 
   async function handleClonePreviewChoice(shouldView: boolean): Promise<void> {
     const pending = clonePreviewPrompt;
@@ -1231,26 +1338,103 @@ export default function HomePage() {
         ) : null}
 
         {campaignMode === "edit" && campaignComponents.length > 0 ? (
-          <div className="component-selector section-gap">
-            <label className="stacked-label" htmlFor="component-select">
-              <span>Active component</span>
-              <select
-                id="component-select"
-                value={activeComponentKey ?? ""}
-                onChange={(event) => handleActiveComponentChange(event.target.value)}
+          <div className="builder-components section-gap">
+            <div className="section-header-row">
+              <h3>Promotion Sections</h3>
+              <button
+                type="button"
+                className="small-button"
+                onClick={() =>
+                  setEditingComponent({
+                    component_key: "",
+                    display_title: "",
+                    component_kind: "featured-offers",
+                    display_order: campaignComponents.length,
+                  })
+                }
               >
-                {campaignComponents.map((c) => (
-                  <option key={c.component_key} value={c.component_key}>
-                    {c.display_title ? `${c.display_title} (${c.component_key})` : c.component_key}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {activeComponentKey ? (
-              <p className="component-hint">
-                Chat commands that reference items will use <strong>{activeComponentKey}</strong> by default.
-              </p>
-            ) : null}
+                + Add Section
+              </button>
+            </div>
+            <p className="component-hint">
+              Active component for chat: <strong>{activeComponentKey || "(none)"}</strong>
+            </p>
+            <ul className="component-builder-list">
+              {campaignComponents.map((component) => (
+                <li key={component.id} className="component-card">
+                  <div className="component-card-header">
+                    <button
+                      type="button"
+                      className={`component-title-button${activeComponentKey === component.component_key ? " active" : ""}`}
+                      onClick={() => handleActiveComponentChange(component.component_key)}
+                    >
+                      {component.display_title || component.component_key}
+                    </button>
+                    <div className="component-meta">
+                      <code>{component.component_kind}</code>
+                      <button
+                        type="button"
+                        className="ghost-button small"
+                        onClick={() => void handleEditComponent(component)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-button small danger"
+                        onClick={() => void handleDeleteComponent(component.id)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="item-list-container">
+                    <div className="item-list-header">
+                      <h4>Items</h4>
+                      <button
+                        type="button"
+                        className="small-button"
+                        onClick={() => void handleAddItem(component.id)}
+                      >
+                        + Add Item
+                      </button>
+                    </div>
+                    {component.items.length === 0 ? (
+                      <p className="empty-hint">No items in this section.</p>
+                    ) : (
+                      <ul className="builder-item-list">
+                        {component.items.map((item) => (
+                          <li key={item.id} className="builder-item">
+                            <div className="item-info">
+                              <strong>{item.item_name}</strong>
+                              {item.item_value && <span> — {item.item_value}</span>}
+                              {item.duration_label && <small> ({item.duration_label})</small>}
+                            </div>
+                            <div className="item-actions">
+                              <button
+                                type="button"
+                                className="ghost-button small"
+                                onClick={() => void handleEditItem(component.id, item)}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                className="ghost-button small danger"
+                                onClick={() => void handleDeleteItem(component.id, item.id)}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
           </div>
         ) : null}
 
@@ -1516,6 +1700,269 @@ export default function HomePage() {
                 {rendering ? "Saving..." : "Save with New Name"}
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {editingComponent ? (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="modal-card">
+            <h3>{editingComponent.id ? "Edit Section" : "Add Section"}</h3>
+            <form className="grid-form" onSubmit={handleSaveComponent}>
+              <label className="stacked-label">
+                <span>Display Title</span>
+                <input
+                  value={editingComponent.display_title || ""}
+                  onChange={(e) =>
+                    setEditingComponent({ ...editingComponent, display_title: e.target.value })
+                  }
+                  required
+                  placeholder="e.g. Featured Offers"
+                />
+              </label>
+              <label className="stacked-label">
+                <span>Component Key (Slug)</span>
+                <input
+                  value={editingComponent.component_key || ""}
+                  onChange={(e) =>
+                    setEditingComponent({ ...editingComponent, component_key: e.target.value })
+                  }
+                  required
+                  placeholder="e.g. featured-offers"
+                />
+              </label>
+              <label className="stacked-label">
+                <span>Kind</span>
+                <select
+                  value={editingComponent.component_kind || "featured-offers"}
+                  onChange={(e) =>
+                    setEditingComponent({ ...editingComponent, component_kind: e.target.value })
+                  }
+                >
+                  <option value="featured-offers">Featured Offers</option>
+                  <option value="weekday-specials">Weekday Specials</option>
+                  <option value="other-offers">Other Offers</option>
+                  <option value="secondary-offers">Secondary Offers</option>
+                  <option value="discount-strip">Discount Strip</option>
+                  <option value="legal-note">Legal Note</option>
+                </select>
+              </label>
+              <label className="stacked-label">
+                <span>Subtitle</span>
+                <input
+                  value={editingComponent.subtitle || ""}
+                  onChange={(e) =>
+                    setEditingComponent({ ...editingComponent, subtitle: e.target.value })
+                  }
+                  placeholder="e.g. Tuesday - Thursday"
+                />
+              </label>
+              <label className="stacked-label">
+                <span>Description</span>
+                <textarea
+                  value={editingComponent.description_text || ""}
+                  onChange={(e) =>
+                    setEditingComponent({ ...editingComponent, description_text: e.target.value })
+                  }
+                />
+              </label>
+              <label className="stacked-label">
+                <span>Footnote</span>
+                <input
+                  value={editingComponent.footnote_text || ""}
+                  onChange={(e) =>
+                    setEditingComponent({ ...editingComponent, footnote_text: e.target.value })
+                  }
+                />
+              </label>
+              <div className="grid-form-row">
+                <label className="stacked-label">
+                  <span>Background Color</span>
+                  <input
+                    type="color"
+                    value={editingComponent.background_color || "#ffffff"}
+                    onChange={(e) =>
+                      setEditingComponent({ ...editingComponent, background_color: e.target.value })
+                    }
+                  />
+                  <input
+                    type="text"
+                    value={editingComponent.background_color || ""}
+                    onChange={(e) =>
+                      setEditingComponent({ ...editingComponent, background_color: e.target.value })
+                    }
+                    placeholder="#HEX or name"
+                  />
+                </label>
+                <label className="stacked-label">
+                  <span>Accent Color</span>
+                  <input
+                    type="color"
+                    value={editingComponent.header_accent_color || "#000000"}
+                    onChange={(e) =>
+                      setEditingComponent({
+                        ...editingComponent,
+                        header_accent_color: e.target.value,
+                      })
+                    }
+                  />
+                  <input
+                    type="text"
+                    value={editingComponent.header_accent_color || ""}
+                    onChange={(e) =>
+                      setEditingComponent({
+                        ...editingComponent,
+                        header_accent_color: e.target.value,
+                      })
+                    }
+                    placeholder="#HEX or name"
+                  />
+                </label>
+              </div>
+              <div className="grid-form-row">
+                <label className="stacked-label">
+                  <span>Region</span>
+                  <input
+                    value={editingComponent.render_region || ""}
+                    onChange={(e) =>
+                      setEditingComponent({ ...editingComponent, render_region: e.target.value })
+                    }
+                    placeholder="e.g. featured, secondary"
+                  />
+                </label>
+                <label className="stacked-label">
+                  <span>Render Mode</span>
+                  <input
+                    value={editingComponent.render_mode || ""}
+                    onChange={(e) =>
+                      setEditingComponent({ ...editingComponent, render_mode: e.target.value })
+                    }
+                    placeholder="e.g. offer-card-grid"
+                  />
+                </label>
+              </div>
+              <label className="stacked-label">
+                <span>Display Order</span>
+                <input
+                  type="number"
+                  value={editingComponent.display_order || 0}
+                  onChange={(e) =>
+                    setEditingComponent({
+                      ...editingComponent,
+                      display_order: parseInt(e.target.value) || 0,
+                    })
+                  }
+                />
+              </label>
+
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => setEditingComponent(null)}
+                >
+                  Cancel
+                </button>
+                <button type="submit">
+                  {editingComponent.id ? "Save Changes" : "Create Section"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {editingItem ? (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="modal-card">
+            <h3>{editingItem.item.id ? "Edit Item" : "Add Item"}</h3>
+            <form className="grid-form" onSubmit={handleSaveItem}>
+              <label className="stacked-label">
+                <span>Item Name</span>
+                <input
+                  value={editingItem.item.item_name || ""}
+                  onChange={(e) => setEditingItem({ ...editingItem, item: { ...editingItem.item, item_name: e.target.value } })}
+                  required
+                  placeholder="e.g. Swedish Massage"
+                />
+              </label>
+              <label className="stacked-label">
+                <span>Value</span>
+                <input
+                  value={editingItem.item.item_value || ""}
+                  onChange={(e) => setEditingItem({ ...editingItem, item: { ...editingItem.item, item_value: e.target.value } })}
+                  placeholder="e.g. $65 or 20% Off"
+                />
+              </label>
+              <label className="stacked-label">
+                <span>Duration/Label</span>
+                <input
+                  value={editingItem.item.duration_label || ""}
+                  onChange={(e) => setEditingItem({ ...editingItem, item: { ...editingItem.item, duration_label: e.target.value } })}
+                  placeholder="e.g. 60 min"
+                />
+              </label>
+              <label className="stacked-label">
+                <span>Kind</span>
+                <select
+                  value={editingItem.item.item_kind || "service"}
+                  onChange={(e) => setEditingItem({ ...editingItem, item: { ...editingItem.item, item_kind: e.target.value } })}
+                >
+                  <option value="service">Service</option>
+                  <option value="discount">Discount</option>
+                  <option value="promo-note">Note</option>
+                </select>
+              </label>
+              <label className="stacked-label">
+                <span>Description</span>
+                <textarea
+                  value={editingItem.item.description_text || ""}
+                  onChange={(e) => setEditingItem({ ...editingItem, item: { ...editingItem.item, description_text: e.target.value } })}
+                  placeholder="Additional details (optional)"
+                />
+              </label>
+              <label className="stacked-label">
+                <span>Terms</span>
+                <input
+                  value={editingItem.item.terms_text || ""}
+                  onChange={(e) => setEditingItem({ ...editingItem, item: { ...editingItem.item, terms_text: e.target.value } })}
+                  placeholder="Specific terms for this item"
+                />
+              </label>
+              <div className="grid-form-row">
+                <label className="stacked-label">
+                  <span>Background Color</span>
+                  <input
+                    type="color"
+                    value={editingItem.item.background_color || "#ffffff"}
+                    onChange={(e) => setEditingItem({ ...editingItem, item: { ...editingItem.item, background_color: e.target.value } })}
+                  />
+                  <input
+                    type="text"
+                    value={editingItem.item.background_color || ""}
+                    onChange={(e) => setEditingItem({ ...editingItem, item: { ...editingItem.item, background_color: e.target.value } })}
+                    placeholder="#HEX or name"
+                  />
+                </label>
+                <label className="stacked-label">
+                  <span>Display Order</span>
+                  <input
+                    type="number"
+                    value={editingItem.item.display_order || 0}
+                    onChange={(e) => setEditingItem({ ...editingItem, item: { ...editingItem.item, display_order: parseInt(e.target.value) || 0 } })}
+                  />
+                </label>
+              </div>
+              
+              <div className="modal-actions">
+                <button type="button" className="ghost-button" onClick={() => setEditingItem(null)}>
+                  Cancel
+                </button>
+                <button type="submit">
+                  {editingItem.item.id ? "Save Changes" : "Create Item"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       ) : null}

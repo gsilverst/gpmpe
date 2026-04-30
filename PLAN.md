@@ -142,11 +142,12 @@ Objective:
 - Support `IMAGES_PER_PAGE` config for secondary n-up artifact (`company-campaign-Np.pdf`).
 - Implement custom "Replace or Rename" modal to handle local file collisions without browser-injected suffixes.
 
-### Step 19: Campaign Builder GUI Enhancements (TODO)
+### Step 19: Campaign Builder GUI Enhancements (COMPLETED)
 Objective:
 - Improve the "Campaign Builder" part of the application GUI to provide a full alternative to the chatbot.
-- At a minimum, add "Add Item" and "Edit Item" options for all components.
-- Ensure all relevant database fields are editable through the web forms.
+- Implemented card-based section list with integrated item management.
+- Added Add/Edit Section and Add/Edit Item modals covering all relevant schema fields.
+- Enabled immediate YAML write-back for all GUI-driven mutations.
 
 ### Step 20: Implement Missing Chat Commands (TODO)
 Objective:

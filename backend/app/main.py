@@ -223,6 +223,62 @@ class ChatMessageRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
 
 
+class ComponentCreate(BaseModel):
+    component_key: str = Field(min_length=1, max_length=100)
+    component_kind: str = Field(default="featured-offers", max_length=100)
+    display_title: str = Field(min_length=1, max_length=200)
+    render_region: str | None = Field(default=None, max_length=100)
+    render_mode: str | None = Field(default=None, max_length=100)
+    style: dict[str, Any] | None = None
+    background_color: str | None = Field(default=None, max_length=100)
+    header_accent_color: str | None = Field(default=None, max_length=100)
+    footnote_text: str | None = Field(default=None, max_length=2000)
+    subtitle: str | None = Field(default=None, max_length=1000)
+    description_text: str | None = Field(default=None, max_length=4000)
+    display_order: int = 0
+
+
+class ComponentUpdate(BaseModel):
+    component_key: str | None = Field(default=None, min_length=1, max_length=100)
+    component_kind: str | None = Field(default=None, max_length=100)
+    display_title: str | None = Field(default=None, min_length=1, max_length=200)
+    render_region: str | None = Field(default=None, max_length=100)
+    render_mode: str | None = Field(default=None, max_length=100)
+    style: dict[str, Any] | None = None
+    background_color: str | None = Field(default=None, max_length=100)
+    header_accent_color: str | None = Field(default=None, max_length=100)
+    footnote_text: str | None = Field(default=None, max_length=2000)
+    subtitle: str | None = Field(default=None, max_length=1000)
+    description_text: str | None = Field(default=None, max_length=4000)
+    display_order: int | None = None
+
+
+class ComponentItemCreate(BaseModel):
+    item_name: str = Field(min_length=1, max_length=200)
+    item_kind: str = Field(default="service", max_length=100)
+    render_role: str | None = Field(default=None, max_length=100)
+    style: dict[str, Any] | None = None
+    duration_label: str | None = Field(default=None, max_length=200)
+    item_value: str | None = Field(default=None, max_length=200)
+    background_color: str | None = Field(default=None, max_length=100)
+    description_text: str | None = Field(default=None, max_length=4000)
+    terms_text: str | None = Field(default=None, max_length=2000)
+    display_order: int = 0
+
+
+class ComponentItemUpdate(BaseModel):
+    item_name: str | None = Field(default=None, min_length=1, max_length=200)
+    item_kind: str | None = Field(default=None, max_length=100)
+    render_role: str | None = Field(default=None, max_length=100)
+    style: dict[str, Any] | None = None
+    duration_label: str | None = Field(default=None, max_length=200)
+    item_value: str | None = Field(default=None, max_length=200)
+    background_color: str | None = Field(default=None, max_length=100)
+    description_text: str | None = Field(default=None, max_length=4000)
+    terms_text: str | None = Field(default=None, max_length=2000)
+    display_order: int | None = None
+
+
 class CampaignSaveRequest(BaseModel):
     commit_message: str | None = Field(default=None, max_length=500)
 
@@ -272,6 +328,18 @@ def _require_template(connection: Any, template_id: int) -> None:
     row = connection.execute("SELECT id FROM template_definitions WHERE id = ?;", (template_id,)).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Template not found")
+
+
+def _require_component(connection: Any, component_id: int) -> None:
+    row = connection.execute("SELECT id FROM campaign_components WHERE id = ?;", (component_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Component not found")
+
+
+def _require_item(connection: Any, item_id: int) -> None:
+    row = connection.execute("SELECT id FROM campaign_component_items WHERE id = ?;", (item_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Component item not found")
 
 
 def _parse_iso_date(value: str | None, field_name: str) -> date | None:
@@ -1512,32 +1580,212 @@ def create_app() -> FastAPI:
             rows = connection.execute(
                 """
                 SELECT id, component_key, component_kind, render_region, render_mode, style_json, display_title, subtitle,
-                       description_text, footnote_text, display_order
+                       description_text, footnote_text, background_color, header_accent_color, display_order
                 FROM campaign_components
                 WHERE campaign_id = ?
                 ORDER BY display_order ASC, id ASC;
                 """,
                 (campaign_id,),
             ).fetchall()
+
+            items_tree: list[dict[str, Any]] = []
+            for r in rows:
+                item_rows = connection.execute(
+                    """
+                    SELECT id, item_name, item_kind, duration_label, item_value, background_color, render_role, style_json, description_text, terms_text, display_order
+                    FROM campaign_component_items
+                    WHERE component_id = ?
+                    ORDER BY display_order ASC, id ASC;
+                    """,
+                    (r["id"],),
+                ).fetchall()
+                items_tree.append(
+                    {
+                        "id": r["id"],
+                        "component_key": r["component_key"],
+                        "component_kind": r["component_kind"],
+                        "render_region": r["render_region"],
+                        "render_mode": r["render_mode"],
+                        "style": json.loads(r["style_json"] or "{}"),
+                        "display_title": r["display_title"],
+                        "subtitle": r["subtitle"],
+                        "description_text": r["description_text"],
+                        "footnote_text": r["footnote_text"],
+                        "background_color": r["background_color"],
+                        "header_accent_color": r["header_accent_color"],
+                        "display_order": r["display_order"],
+                        "items": [
+                            {
+                                "id": ir["id"],
+                                "item_name": ir["item_name"],
+                                "item_kind": ir["item_kind"],
+                                "duration_label": ir["duration_label"],
+                                "item_value": ir["item_value"],
+                                "background_color": ir["background_color"],
+                                "render_role": ir["render_role"],
+                                "style": json.loads(ir["style_json"] or "{}"),
+                                "description_text": ir["description_text"],
+                                "terms_text": ir["terms_text"],
+                                "display_order": ir["display_order"],
+                            }
+                            for ir in item_rows
+                        ],
+                    }
+                )
         return {
             "campaign_id": campaign_id,
-            "items": [
-                {
-                    "id": r["id"],
-                    "component_key": r["component_key"],
-                    "component_kind": r["component_kind"],
-                    "render_region": r["render_region"],
-                    "render_mode": r["render_mode"],
-                    "style": json.loads(r["style_json"] or "{}"),
-                    "display_title": r["display_title"],
-                    "subtitle": r["subtitle"],
-                    "description_text": r["description_text"],
-                    "footnote_text": r["footnote_text"],
-                    "display_order": r["display_order"],
-                }
-                for r in rows
-            ],
+            "items": items_tree,
         }
+
+    @app.post("/campaigns/{campaign_id}/components", status_code=201)
+    def create_component(campaign_id: int, payload: ComponentCreate) -> dict[str, Any]:
+        config = resolve_config()
+        with connect_database(config) as connection:
+            _require_campaign(connection, campaign_id)
+            try:
+                cursor = connection.execute(
+                    """
+                    INSERT INTO campaign_components (
+                      campaign_id, component_key, component_kind, render_region, render_mode,
+                      style_json, display_title, background_color, header_accent_color,
+                      footnote_text, subtitle, description_text, display_order
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (
+                        campaign_id,
+                        payload.component_key.strip(),
+                        payload.component_kind.strip(),
+                        payload.render_region,
+                        payload.render_mode,
+                        json.dumps(payload.style or {}),
+                        payload.display_title.strip(),
+                        payload.background_color,
+                        payload.header_accent_color,
+                        payload.footnote_text,
+                        payload.subtitle,
+                        payload.description_text,
+                        payload.display_order,
+                    ),
+                )
+                component_id = int(cursor.lastrowid)
+                _persist_campaign_yaml_or_raise(connection, config, campaign_id)
+                connection.commit()
+            except sqlite3.IntegrityError as exc:
+                raise HTTPException(status_code=409, detail="Component key already exists in this campaign") from exc
+
+        return {"id": component_id, "campaign_id": campaign_id, **payload.model_dump()}
+
+    @app.patch("/campaigns/{campaign_id}/components/{component_id}")
+    def update_component(campaign_id: int, component_id: int, payload: ComponentUpdate) -> dict[str, Any]:
+        updates = payload.model_dump(exclude_none=True)
+        if not updates:
+            raise HTTPException(status_code=400, detail="No component fields provided")
+
+        if "style" in updates:
+            updates["style_json"] = json.dumps(updates.pop("style"))
+
+        config = resolve_config()
+        with connect_database(config) as connection:
+            _require_campaign(connection, campaign_id)
+            _require_component(connection, component_id)
+
+            fields_sql = ", ".join([f"{field} = ?" for field in updates.keys()])
+            values = list(updates.values()) + [component_id, campaign_id]
+            try:
+                connection.execute(
+                    f"UPDATE campaign_components SET {fields_sql}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND campaign_id = ?;",
+                    values,
+                )
+                _persist_campaign_yaml_or_raise(connection, config, campaign_id)
+                connection.commit()
+            except sqlite3.IntegrityError as exc:
+                raise HTTPException(status_code=409, detail="Component update conflicts with existing data") from exc
+
+        return {"id": component_id, "campaign_id": campaign_id, "updates": list(updates.keys())}
+
+    @app.delete("/campaigns/{campaign_id}/components/{component_id}", status_code=204)
+    def delete_component(campaign_id: int, component_id: int) -> None:
+        config = resolve_config()
+        with connect_database(config) as connection:
+            _require_campaign(connection, campaign_id)
+            _require_component(connection, component_id)
+            connection.execute("DELETE FROM campaign_components WHERE id = ? AND campaign_id = ?;", (component_id, campaign_id))
+            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
+            connection.commit()
+
+    @app.post("/campaigns/{campaign_id}/components/{component_id}/items", status_code=201)
+    def create_component_item(campaign_id: int, component_id: int, payload: ComponentItemCreate) -> dict[str, Any]:
+        config = resolve_config()
+        with connect_database(config) as connection:
+            _require_campaign(connection, campaign_id)
+            _require_component(connection, component_id)
+
+            cursor = connection.execute(
+                """
+                INSERT INTO campaign_component_items (
+                  component_id, item_name, item_kind, render_role, style_json,
+                  duration_label, item_value, background_color, description_text,
+                  terms_text, display_order
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    component_id,
+                    payload.item_name.strip(),
+                    payload.item_kind.strip(),
+                    payload.render_role,
+                    json.dumps(payload.style or {}),
+                    payload.duration_label,
+                    payload.item_value,
+                    payload.background_color,
+                    payload.description_text,
+                    payload.terms_text,
+                    payload.display_order,
+                ),
+            )
+            item_id = int(cursor.lastrowid)
+            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
+            connection.commit()
+
+        return {"id": item_id, "component_id": component_id, **payload.model_dump()}
+
+    @app.patch("/campaigns/{campaign_id}/components/{component_id}/items/{item_id}")
+    def update_component_item(campaign_id: int, component_id: int, item_id: int, payload: ComponentItemUpdate) -> dict[str, Any]:
+        updates = payload.model_dump(exclude_none=True)
+        if not updates:
+            raise HTTPException(status_code=400, detail="No item fields provided")
+
+        if "style" in updates:
+            updates["style_json"] = json.dumps(updates.pop("style"))
+
+        config = resolve_config()
+        with connect_database(config) as connection:
+            _require_campaign(connection, campaign_id)
+            _require_component(connection, component_id)
+            _require_item(connection, item_id)
+
+            fields_sql = ", ".join([f"{field} = ?" for field in updates.keys()])
+            values = list(updates.values()) + [item_id, component_id]
+            connection.execute(
+                f"UPDATE campaign_component_items SET {fields_sql}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND component_id = ?;",
+                values,
+            )
+            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
+            connection.commit()
+
+        return {"id": item_id, "component_id": component_id, "updates": list(updates.keys())}
+
+    @app.delete("/campaigns/{campaign_id}/components/{component_id}/items/{item_id}", status_code=204)
+    def delete_component_item(campaign_id: int, component_id: int, item_id: int) -> None:
+        config = resolve_config()
+        with connect_database(config) as connection:
+            _require_campaign(connection, campaign_id)
+            _require_component(connection, component_id)
+            _require_item(connection, item_id)
+            connection.execute("DELETE FROM campaign_component_items WHERE id = ? AND component_id = ?;", (item_id, component_id))
+            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
+            connection.commit()
 
     @app.post("/chat/sessions", status_code=201)
     def create_chat_session() -> dict[str, str]:

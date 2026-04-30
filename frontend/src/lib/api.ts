@@ -550,10 +550,30 @@ export type CampaignComponent = {
   id: number;
   component_key: string;
   component_kind: string;
-  display_title: string | null;
+  display_title: string;
+  render_region: string | null;
+  render_mode: string | null;
+  style: Record<string, any>;
+  background_color: string | null;
+  header_accent_color: string | null;
   subtitle: string | null;
   description_text: string | null;
   footnote_text: string | null;
+  display_order: number;
+  items: CampaignComponentItem[];
+};
+
+export type CampaignComponentItem = {
+  id: number;
+  item_name: string;
+  item_kind: string;
+  render_role: string | null;
+  style: Record<string, any>;
+  duration_label: string | null;
+  item_value: string | null;
+  background_color: string | null;
+  description_text: string | null;
+  terms_text: string | null;
   display_order: number;
 };
 
@@ -566,4 +586,82 @@ export async function fetchCampaignComponents(
     baseUrl
   );
   return payload.items;
+}
+
+export async function createComponent(
+  campaignId: number,
+  payload: Partial<CampaignComponent>,
+  baseUrl = apiBaseUrl()
+): Promise<CampaignComponent> {
+  return postJson<CampaignComponent>(`/campaigns/${campaignId}/components`, payload, baseUrl);
+}
+
+export async function updateComponent(
+  campaignId: number,
+  componentId: number,
+  payload: Partial<CampaignComponent>,
+  baseUrl = apiBaseUrl()
+): Promise<{ id: number; updates: string[] }> {
+  return patchJson<{ id: number; updates: string[] }>(
+    `/campaigns/${campaignId}/components/${componentId}`,
+    payload,
+    baseUrl
+  );
+}
+
+export async function deleteComponent(
+  campaignId: number,
+  componentId: number,
+  baseUrl = apiBaseUrl()
+): Promise<void> {
+  const response = await fetch(`${baseUrl}/campaigns/${campaignId}/components/${componentId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw new Error(`Delete failed: ${response.status}`);
+  }
+}
+
+export async function createComponentItem(
+  campaignId: number,
+  componentId: number,
+  payload: Partial<CampaignComponentItem>,
+  baseUrl = apiBaseUrl()
+): Promise<CampaignComponentItem> {
+  return postJson<CampaignComponentItem>(
+    `/campaigns/${campaignId}/components/${componentId}/items`,
+    payload,
+    baseUrl
+  );
+}
+
+export async function updateComponentItem(
+  campaignId: number,
+  componentId: number,
+  itemId: number,
+  payload: Partial<CampaignComponentItem>,
+  baseUrl = apiBaseUrl()
+): Promise<{ id: number; updates: string[] }> {
+  return patchJson<{ id: number; updates: string[] }>(
+    `/campaigns/${campaignId}/components/${componentId}/items/${itemId}`,
+    payload,
+    baseUrl
+  );
+}
+
+export async function deleteComponentItem(
+  campaignId: number,
+  componentId: number,
+  itemId: number,
+  baseUrl = apiBaseUrl()
+): Promise<void> {
+  const response = await fetch(
+    `${baseUrl}/campaigns/${campaignId}/components/${componentId}/items/${itemId}`,
+    {
+      method: "DELETE",
+    }
+  );
+  if (!response.ok) {
+    throw new Error(`Delete failed: ${response.status}`);
+  }
 }
