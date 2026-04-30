@@ -31,7 +31,7 @@ from .chat import (
 from .config import resolve_config
 from .data_sync import clone_campaign_directory, compare_db_to_yaml, discover_data_directory, sync_data_directory
 from .db import connect_database, initialize_database
-from .git_store import GitStoreError, auto_commit_paths
+from .git_store import GitStoreError, auto_commit_paths, pull_latest_changes
 from .llm import translate_and_apply
 from .renderer import render_campaign_artifact
 from .yaml_store import (
@@ -2248,6 +2248,37 @@ def create_app() -> FastAPI:
 
         # Return inline PDF for iframe/browser preview.
         return FileResponse(path=str(file_path), media_type="application/pdf")
+
+    @app.post("/data/pull")
+    def pull_yaml_data() -> dict[str, Any]:
+        config = resolve_config()
+        if config.git_repo_path is None or not config.git_user_name or not config.git_user_email:
+            raise HTTPException(status_code=400, detail="Git configuration incomplete (GIT_REPO_PATH, GIT_USER_NAME, GIT_USER_EMAIL)")
+
+        try:
+            changed = pull_latest_changes(
+                config.git_repo_path,
+                user_name=config.git_user_name,
+                user_email=config.git_user_email,
+            )
+            
+            # If changes were pulled, we should probably trigger a sync to DB automatically
+            synced = None
+            if changed:
+                with connect_database(config) as connection:
+                    synced = sync_data_directory(connection, config.data_dir)
+                    connection.commit()
+            
+            return {
+                "changed": changed,
+                "synced": {
+                    "businesses": synced.businesses_synced,
+                    "campaigns": synced.campaigns_synced
+                } if synced else None,
+                "repo": str(config.git_repo_path)
+            }
+        except GitStoreError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @app.post("/data/sync")
     def sync_yaml_data() -> dict[str, Any]:

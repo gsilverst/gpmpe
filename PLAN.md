@@ -179,10 +179,12 @@ Objective:
 - Hardened the `Dockerfile` with required system dependencies and pre-created mount points.
 - Ensured the application is fully agnostic of directory locations, ready for EFS mounting.
 
-### Step 25: Version Control Sync Worker (TODO)
+### Step 25: Version Control Sync Worker (COMPLETED)
 Objective:
-- Implement a worker to pull YAML changes from Git to EFS on push.
-- Implement a write-back hook to commit EFS changes (from Chat/GUI) back to Git.
+- Implemented `pull_latest_changes` in `git_store.py` to bring repository updates into the local environment.
+- Added `/data/pull` API endpoint to automate the "Git Pull -> DB Sync" workflow.
+- Updated `auto_commit_paths` to perform an automatic `git push` after local edits (Chat/GUI).
+- Enabled bidirectional synchronization between the application and the authoritative YAML repository.
 
 ### Step 26: CI/CD Dual Build Infrastructure (TODO)
 Objective:

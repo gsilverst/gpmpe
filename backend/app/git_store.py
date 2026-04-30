@@ -40,4 +40,30 @@ def auto_commit_paths(repo_root: Path, paths: list[Path], message: str, *, user_
         return ""
 
     _run_git(repo_root, ["commit", "-m", message], user_name=user_name, user_email=user_email)
-    return _run_git(repo_root, ["rev-parse", "HEAD"], user_name=user_name, user_email=user_email)
+    commit_id = _run_git(repo_root, ["rev-parse", "HEAD"], user_name=user_name, user_email=user_email)
+    
+    # Try to push if origin is configured
+    try:
+        _run_git(repo_root, ["push", "origin", "HEAD"], user_name=user_name, user_email=user_email)
+    except GitStoreError:
+        # Pushing might fail in local dev without network/creds, log and continue
+        pass
+        
+    return commit_id
+
+
+def pull_latest_changes(repo_root: Path, *, user_name: str, user_email: str) -> bool:
+    """Pull changes from origin and return True if anything changed."""
+    if not (repo_root / ".git").exists():
+        return False
+    
+    before = _run_git(repo_root, ["rev-parse", "HEAD"], user_name=user_name, user_email=user_email)
+    
+    try:
+        _run_git(repo_root, ["pull", "--rebase", "origin", "HEAD"], user_name=user_name, user_email=user_email)
+    except GitStoreError as error:
+        # If rebase fails due to conflicts, we might need manual intervention or forced resolution
+        raise GitStoreError(f"Sync pull failed: {error}") from error
+        
+    after = _run_git(repo_root, ["rev-parse", "HEAD"], user_name=user_name, user_email=user_email)
+    return before != after
