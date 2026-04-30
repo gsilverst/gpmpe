@@ -34,7 +34,12 @@ from .db import connect_database, initialize_database
 from .git_store import GitStoreError, auto_commit_paths
 from .llm import translate_and_apply
 from .renderer import render_campaign_artifact
-from .yaml_store import campaign_yaml_paths_for_id, persist_yaml_state_for_campaign, write_all_to_data_dir
+from .yaml_store import (
+    campaign_yaml_paths_for_id,
+    delete_yaml_state_for_campaign,
+    persist_yaml_state_for_campaign,
+    write_all_to_data_dir,
+)
 
 
 # Module-level reconciliation state (single-process; reset on each lifespan startup).
@@ -1862,6 +1867,21 @@ def create_app() -> FastAPI:
 
         _sync_active_campaign_context(payload.campaign_id)
 
+        config = resolve_config()
+        with connect_database(config) as connection:
+            campaign_meta = connection.execute(
+                """
+                SELECT b.display_name AS business_display_name
+                FROM campaigns c
+                JOIN businesses b ON b.id = c.business_id
+                WHERE c.id = ?;
+                """,
+                (payload.campaign_id,),
+            ).fetchone()
+            if campaign_meta is None:
+                raise HTTPException(status_code=404, detail="Campaign not found")
+            business_display_name = campaign_meta["business_display_name"]
+
         context_cmd = parse_session_context_command(payload.message)
         if context_cmd is not None:
             config = resolve_config()
@@ -2030,9 +2050,22 @@ def create_app() -> FastAPI:
             # Regex-only path (no API key configured)
             with connect_database(config) as connection:
                 command = parse_chat_command(payload.message)
-                result = apply_chat_command(connection, payload.campaign_id, command, session_context=session_context)
+                result = apply_chat_command(
+                    connection, payload.campaign_id, command, session_context=session_context
+                )
                 if result.get("target") != "clarify":
-                    _persist_campaign_yaml_or_raise(connection, config, payload.campaign_id)
+                    if (
+                        result.get("target") == "campaign"
+                        and result.get("field") == "delete"
+                        and result.get("deleted")
+                    ):
+                        delete_yaml_state_for_campaign(
+                            config.data_dir,
+                            business_display_name,
+                            result.get("campaign_name"),
+                        )
+                    else:
+                        _persist_campaign_yaml_or_raise(connection, config, payload.campaign_id)
                 connection.commit()
 
         chat_store.append(session_id, "user", payload.message)

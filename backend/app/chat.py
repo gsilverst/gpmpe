@@ -24,6 +24,8 @@ COMPONENT_FIELDS = {
     "subtitle",
     "description_text",
     "footnote_text",
+    "render_region",
+    "render_mode",
 }
 COMPONENT_ITEM_FIELDS = {
     "item_name",
@@ -33,8 +35,9 @@ COMPONENT_ITEM_FIELDS = {
     "background_color",
     "description_text",
     "terms_text",
+    "render_role",
 }
-TEMPLATE_OVERRIDE_FIELDS = {"footer_font_size", "footer_text_color"}
+TEMPLATE_OVERRIDE_FIELDS = {"footer_font_size", "footer_text_color", "footer", "legal"}
 
 _COMPONENT_RENDER_DEFAULTS: dict[str, tuple[str, str]] = {
     "featured-offers": ("featured", "offer-card-grid"),
@@ -50,6 +53,8 @@ BUSINESS_FIELDS = {
     "timezone",
     "is_active",
     "phone",
+    "email",
+    "website",
     "address_line1",
     "address_line2",
     "city",
@@ -88,6 +93,7 @@ _ITEM_FIELD_ALIASES: dict[str, str] = {
     "background_color": "background_color", "background color": "background_color", "color of the background": "background_color", "color_of_the_background": "background_color", "bg color": "background_color", "bg": "background_color",
     "description_text": "description_text", "description": "description_text", "desc": "description_text",
     "terms_text": "terms_text", "terms": "terms_text",
+    "render_role": "render_role", "role": "render_role",
 }
 _COMPONENT_FIELD_ALIASES: dict[str, str] = {
     "component_key": "component_key", "key": "component_key", "name": "component_key",
@@ -98,6 +104,8 @@ _COMPONENT_FIELD_ALIASES: dict[str, str] = {
     "subtitle": "subtitle", "subheading": "subtitle",
     "description_text": "description_text", "description": "description_text", "desc": "description_text",
     "footnote_text": "footnote_text", "footnote": "footnote_text", "note": "footnote_text",
+    "render_region": "render_region", "region": "render_region",
+    "render_mode": "render_mode", "mode": "render_mode",
 }
 _BUSINESS_FIELD_ALIASES: dict[str, str] = {
     "legal_name": "legal_name", "legal name": "legal_name",
@@ -105,6 +113,8 @@ _BUSINESS_FIELD_ALIASES: dict[str, str] = {
     "timezone": "timezone", "time zone": "timezone",
     "is_active": "is_active", "active": "is_active", "enabled": "is_active",
     "phone": "phone", "phone number": "phone",
+    "email": "email", "email address": "email",
+    "website": "website", "web": "website", "site": "website", "url": "website",
     "address_line1": "address_line1", "address line 1": "address_line1", "street": "address_line1", "street address": "address_line1",
     "address_line2": "address_line2", "address line 2": "address_line2", "suite": "address_line2", "unit": "address_line2",
     "city": "city",
@@ -124,6 +134,8 @@ _TEMPLATE_OVERRIDE_FIELD_ALIASES: dict[str, str] = {
     "contact_text_color": "footer_text_color",
     "contact text color": "footer_text_color",
     "contact color": "footer_text_color",
+    "footer": "footer",
+    "legal": "legal",
 }
 
 
@@ -164,6 +176,14 @@ CAMPAIGN_FIELD_DELETE_PATTERN = re.compile(
 )
 OFFER_PATTERN = re.compile(
     r"^set\s+offer\s+(?P<offer_id>\d+)\s+(?P<field>" + _OFFER_FIELD_RE + r")(?:\s+field)?\s+to\s+(?P<value>.+)$",
+    re.IGNORECASE,
+)
+OFFER_ADD_PATTERN = re.compile(
+    r"^(?:add|create)\s+(?:an?\s+|the\s+)?(?:new\s+)?offer\s+(?:called|named)\s+(?P<offer_name>.+?)[.!?]?$",
+    re.IGNORECASE,
+)
+OFFER_DELETE_PATTERN = re.compile(
+    r"^(?:delete|remove)\s+(?:the\s+)?offer\s+(?P<offer_id>\d+)[.!?]?$",
     re.IGNORECASE,
 )
 BRAND_PATTERN = re.compile(
@@ -256,6 +276,18 @@ COMPONENT_DELETE_PATTERN = re.compile(
     r"^delete\s+(?:the\s+)?(.+?)\s+components?$",
     re.IGNORECASE,
 )
+CAMPAIGN_DELETE_PATTERN = re.compile(
+    r"^(?:delete|remove|destroy)\s+(?:the\s+)?campaign\s+(?P<campaign_name>.+?)[.!?]?$",
+    re.IGNORECASE,
+)
+COMPONENT_ADD_PATTERN = re.compile(
+    r"^(?:add|create|insert|new)\s+(?:a\s+)?(?:new\s+)?component\s+(?:called|named)\s+(?P<display_title>.+?)(?:\s+(?:of\s+)?type\s+(?P<component_kind>[^ ]+))?[.!?]?$",
+    re.IGNORECASE,
+)
+COMPONENT_STYLE_PATTERN = re.compile(
+    r"^(?:set|change|update)\s+(?:the\s+)?(?P<component>.+?)\s+style\s+(?P<key>[A-Za-z0-9_-]+)\s+to\s+(?P<value>.+?)[.!?]?$",
+    re.IGNORECASE,
+)
 COMPONENT_ITEM_DELETE_PATTERN = re.compile(
     r"^delete\s+(?:the\s+)?(.+?)\s+items?(?:\s+in\s+(?:the\s+)?(.+?)\s+components?)?$",
     re.IGNORECASE,
@@ -295,7 +327,16 @@ LIST_ITEMS_PATTERN = re.compile(
 
 @dataclass(frozen=True)
 class ParsedCommand:
-    target: Literal["campaign", "offer", "brand", "business", "component", "component_item", "template_override", "clarify"]
+    target: Literal[
+        "campaign",
+        "offer",
+        "brand",
+        "business",
+        "component",
+        "component_item",
+        "template_override",
+        "clarify",
+    ]
     field: str
     value: str
     offer_id: int | None = None
@@ -303,6 +344,7 @@ class ParsedCommand:
     item_ref: str | None = None
     secondary_item_ref: str | None = None
     tertiary_item_ref: str | None = None
+    style_key: str | None = None  # for style overrides
 
 
 @dataclass(frozen=True)
@@ -430,6 +472,41 @@ def parse_chat_command(message: str) -> ParsedCommand:
             raise HTTPException(status_code=400, detail=f"Unrecognised offer field: '{raw_field}'")
         value = offer_match.group("value").strip()
         return ParsedCommand(target="offer", field=canonical, value=value, offer_id=offer_id)
+
+    offer_add_match = OFFER_ADD_PATTERN.match(text)
+    if offer_add_match:
+        value = offer_add_match.group("offer_name").strip().strip("\"'")
+        return ParsedCommand(target="offer", field="add", value=value)
+
+    offer_delete_match = OFFER_DELETE_PATTERN.match(text)
+    if offer_delete_match:
+        offer_id = int(offer_delete_match.group("offer_id"))
+        return ParsedCommand(target="offer", field="delete", value="", offer_id=offer_id)
+
+    campaign_delete_match = CAMPAIGN_DELETE_PATTERN.match(text)
+    if campaign_delete_match:
+        value = campaign_delete_match.group("campaign_name").strip().strip("\"'")
+        return ParsedCommand(target="campaign", field="delete", value=value)
+
+    component_add_match = COMPONENT_ADD_PATTERN.match(text)
+    if component_add_match:
+        title = component_add_match.group("display_title").strip().strip("\"'")
+        kind = component_add_match.group("component_kind")
+        kind = kind.strip().strip("\"'") if kind else "featured-offers"
+        return ParsedCommand(target="component", field="add", value=title, component_ref=kind)
+
+    component_style_match = COMPONENT_STYLE_PATTERN.match(text)
+    if component_style_match:
+        component_ref = component_style_match.group("component").strip().strip("\"'")
+        key = component_style_match.group("key").strip()
+        value = component_style_match.group("value").strip()
+        return ParsedCommand(
+            target="component",
+            field="style_json",
+            value=value,
+            component_ref=component_ref,
+            style_key=key,
+        )
 
     brand_match = BRAND_PATTERN.match(text)
     if brand_match:
@@ -800,17 +877,17 @@ def _normalize_item_ref(value: str) -> str:
 
 
 def resolve_component(connection: Any, campaign_id: int, component_ref: str) -> Any | None:
-        return connection.execute(
-                """
-                SELECT id, campaign_id, component_key, component_kind, display_title, background_color, header_accent_color, footnote_text, subtitle, description_text, display_order
-                FROM campaign_components
-                WHERE campaign_id = ?
-                    AND (LOWER(component_key) = LOWER(?) OR LOWER(display_title) = LOWER(?))
-                ORDER BY id ASC
-                LIMIT 1;
-                """,
-                (campaign_id, component_ref, component_ref),
-        ).fetchone()
+    return connection.execute(
+        """
+        SELECT id, campaign_id, component_key, component_kind, display_title, background_color, header_accent_color, footnote_text, subtitle, description_text, display_order, style_json
+        FROM campaign_components
+        WHERE campaign_id = ?
+            AND (LOWER(component_key) = LOWER(?) OR LOWER(display_title) = LOWER(?))
+        ORDER BY id ASC
+        LIMIT 1;
+        """,
+        (campaign_id, component_ref, component_ref),
+    ).fetchone()
 
 
 def _resolve_item_selector_index(item_ref: str, item_count: int) -> int | None:
@@ -893,6 +970,32 @@ def apply_chat_command(
         return {"target": "clarify", "message": command.value}
 
     if command.target == "campaign":
+        if command.field == "delete":
+            # Delete by name from command.value or current campaign_id
+            if command.value and command.value.lower() != campaign["campaign_name"].lower():
+                # Verify name matches to prevent accidental deletion of wrong campaign
+                target = connection.execute(
+                    "SELECT id, campaign_name FROM campaigns WHERE business_id = ? AND campaign_name = ?;",
+                    (campaign["business_id"], command.value),
+                ).fetchone()
+                if target is None:
+                    raise HTTPException(status_code=404, detail=f"Campaign '{command.value}' not found")
+                connection.execute("DELETE FROM campaigns WHERE id = ?;", (target["id"],))
+                return {
+                    "target": "campaign",
+                    "field": "delete",
+                    "deleted": True,
+                    "campaign_name": target["campaign_name"],
+                }
+            else:
+                connection.execute("DELETE FROM campaigns WHERE id = ?;", (campaign_id,))
+                return {
+                    "target": "campaign",
+                    "field": "delete",
+                    "deleted": True,
+                    "campaign_name": campaign["campaign_name"],
+                }
+
         if command.field not in CAMPAIGN_FIELDS:
             raise HTTPException(status_code=400, detail="Unsupported campaign field")
 
@@ -929,8 +1032,31 @@ def apply_chat_command(
         return {"target": "campaign", "field": command.field, "campaign": _campaign_payload(updated)}
 
     if command.target == "offer":
+        if command.field == "add":
+            cursor = connection.execute(
+                """
+                INSERT INTO campaign_offers (campaign_id, offer_name, offer_type)
+                VALUES (?, ?, 'discount');
+                """,
+                (campaign_id, command.value),
+            )
+            return {
+                "target": "offer",
+                "field": "add",
+                "id": cursor.lastrowid,
+                "offer_name": command.value,
+            }
+
         if command.offer_id is None:
             raise HTTPException(status_code=400, detail="Offer id is required")
+
+        if command.field == "delete":
+            connection.execute(
+                "DELETE FROM campaign_offers WHERE id = ? AND campaign_id = ?;",
+                (command.offer_id, campaign_id),
+            )
+            return {"target": "offer", "field": "delete", "deleted": True, "id": command.offer_id}
+
         if command.field not in OFFER_FIELDS:
             raise HTTPException(status_code=400, detail="Unsupported offer field")
 
@@ -1191,8 +1317,65 @@ def apply_chat_command(
         }
 
     if command.target == "component":
+        if command.field == "add":
+            display_title = command.value
+            kind = command.component_ref or "featured-offers"
+            # Simple slugification
+            key = display_title.lower().replace(" ", "-")
+            # Enforce uniqueness of key for this campaign
+            base_key = key
+            counter = 1
+            while connection.execute(
+                "SELECT id FROM campaign_components WHERE campaign_id = ? AND component_key = ?",
+                (campaign_id, key),
+            ).fetchone():
+                key = f"{base_key}-{counter}"
+                counter += 1
+
+            cursor = connection.execute(
+                """
+                INSERT INTO campaign_components (campaign_id, component_key, display_title, component_kind)
+                VALUES (?, ?, ?, ?);
+                """,
+                (campaign_id, key, display_title, kind),
+            )
+            comp_id = cursor.lastrowid
+            return {
+                "target": "component",
+                "field": "add",
+                "id": comp_id,
+                "component_key": key,
+                "display_title": display_title,
+                "component_kind": kind,
+            }
+
         if command.component_ref is None:
             raise HTTPException(status_code=400, detail="Component reference is required")
+
+        if command.field == "style_json":
+            component = resolve_component(connection, campaign_id, command.component_ref)
+            if component is None:
+                raise HTTPException(status_code=404, detail="Component not found")
+            if not command.style_key:
+                raise HTTPException(status_code=400, detail="Style key is required for style override")
+
+            style = json.loads(component["style_json"] or "{}")
+            style[command.style_key] = command.value
+            connection.execute(
+                """
+                UPDATE campaign_components
+                SET style_json = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?;
+                """,
+                (json.dumps(style, sort_keys=True), component["id"]),
+            )
+            return {
+                "target": "component",
+                "field": "style_json",
+                "id": component["id"],
+                "style": style,
+                "component_key": component["component_key"],
+            }
 
         value = command.value.strip()
         # Some fields are required and cannot be cleared.

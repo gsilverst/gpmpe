@@ -1380,3 +1380,79 @@ def test_chat_message_can_add_new_item_with_an_item_and_no_name(monkeypatch, tmp
     assert payload["result"]["field"] == "add"
     assert payload["result"]["item"]["item_name"] == "New Item"
     assert payload["result"]["item"]["display_order"] == 2
+
+def test_chat_message_can_delete_campaign(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    
+    # Delete by name
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={"campaign_id": campaign_id, "message": "delete campaign Summer"},
+    )
+    assert response.status_code == 200
+    assert response.json()["result"]["target"] == "campaign"
+    assert response.json()["result"]["field"] == "delete"
+
+    # Verify campaign is gone
+    resp = client.get(f"/businesses/1/campaigns/{campaign_id}")
+    assert resp.status_code == 404
+
+def test_chat_message_can_add_component(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={"campaign_id": campaign_id, "message": "add new component called Weekend Specials of type weekday-specials"},
+    )
+    assert response.status_code == 200
+    assert response.json()["result"]["target"] == "component"
+    assert response.json()["result"]["field"] == "add"
+    assert response.json()["result"]["component_key"] == "weekend-specials"
+
+def test_chat_message_can_update_component_style(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={"campaign_id": campaign_id, "message": "set mothers-day-specials style border_radius to 20"},
+    )
+    assert response.status_code == 200
+    assert response.json()["result"]["target"] == "component"
+    assert response.json()["result"]["field"] == "style_json"
+    assert response.json()["result"]["style"]["border_radius"] == "20"
+
+def test_chat_message_can_manage_offers(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+    
+    # 1. Add Offer
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={"campaign_id": campaign_id, "message": "add new offer called early-bird"},
+    )
+    assert response.status_code == 200
+    offer_id = response.json()["result"]["id"]
+
+    # 2. Delete Offer
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={"campaign_id": campaign_id, "message": f"delete offer {offer_id}"},
+    )
+    assert response.status_code == 200
+    assert response.json()["result"]["deleted"] is True

@@ -149,9 +149,12 @@ Objective:
 - Added Add/Edit Section and Add/Edit Item modals covering all relevant schema fields.
 - Enabled immediate YAML write-back for all GUI-driven mutations.
 
-### Step 20: Implement Missing Chat Commands (TODO)
+### Step 20: Implement Missing Chat Commands (COMPLETED)
 Objective:
-- Based on the findings from Step 16, implement all missing natural-language commands required for 100% campaign-building parity via chat.
+- Based on the findings from Step 16, implemented all missing natural-language commands for 100% building parity.
+- Added structural commands: `add component <kind> named <title>`, `delete campaign <name>`, `add offer <name>`, `delete offer <id>`.
+- Enabled mutation for advanced fields: `render_region`, `render_mode`, `render_role`, `email`, `website`, `footer`, `legal`.
+- Implemented deep style overrides: `set <component> style <key> to <value>`.
 
 ### Step 21: Externalize Renderer Layout Constants (TODO)
 Objective:

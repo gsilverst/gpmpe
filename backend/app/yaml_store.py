@@ -301,6 +301,18 @@ def persist_yaml_state_for_campaign(connection: sqlite3.Connection, data_dir: Pa
     return business_file, campaign_file
 
 
+def delete_yaml_state_for_campaign(data_dir: Path, business_display_name: str, campaign_name: str) -> None:
+    """Remove the YAML directory for a specific campaign."""
+    import shutil
+
+    business_path_name = _filesystem_name(business_display_name)
+    campaign_path_name = _filesystem_name(campaign_name)
+
+    campaign_dir = data_dir / business_path_name / campaign_path_name
+    if campaign_dir.exists() and campaign_dir.is_dir():
+        shutil.rmtree(campaign_dir)
+
+
 def write_all_to_data_dir(connection: sqlite3.Connection, data_dir: Path) -> None:
     """Write all businesses and campaigns from the database to DATA_DIR YAML files.
 
