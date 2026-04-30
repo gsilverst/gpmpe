@@ -30,6 +30,20 @@ services:
       retries: 6
       start_period: 10s
 
+  git-sync-worker:
+    image: gpmpe:local
+    container_name: gpmpe-sync-worker
+    depends_on:
+      gpmpe:
+        condition: service_healthy
+    environment:
+      - GPMPE_API_URL=http://gpmpe:8000
+      - SYNC_INTERVAL_SECONDS=60
+    volumes:
+      - ./.config:/app/.config:ro
+      - gpmpe_data:/app/data
+    entrypoint: ["/app/backend/scripts/git_sync_worker.sh"]
+
 volumes:
   gpmpe_output:
   gpmpe_db:
