@@ -24,9 +24,14 @@ RUN pip install --no-cache-dir \
   "Pillow>=11.0,<12.0" \
   "PyYAML>=6.0.2,<7.0.0" \
   "reportlab>=4.0,<5.0" \
-  "uvicorn[standard]>=0.32.0,<1.0.0"
+  "uvicorn[standard]>=0.32.0,<1.0.0" \
+  "sqlalchemy>=2.0.0" \
+  "psycopg2-binary>=2.9.0" \
+  "mysql-connector-python>=8.0.0"
 
 COPY backend/ ./backend/
+RUN mkdir -p /app/backend/data /app/data /app/output
+
 COPY --from=frontend-build /app/frontend/out/ ./backend/app/static/
 
 EXPOSE 8000

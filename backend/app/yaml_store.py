@@ -284,19 +284,31 @@ def campaign_yaml_paths_for_id(connection: sqlite3.Connection, data_dir: Path, c
     return business_file, campaign_file
 
 
+def _atomic_write(path: Path, text: str) -> None:
+    """Write text to a file atomically by using a temporary file."""
+    import tempfile
+    import os
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_path = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".tmp-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(temp_path, path)
+    except Exception:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise
+
+
 def persist_yaml_state_for_campaign(connection: sqlite3.Connection, data_dir: Path, campaign_id: int) -> tuple[Path, Path]:
     business_file, campaign_file, business_id = _campaign_yaml_paths(connection, data_dir, campaign_id)
 
     business_payload = _business_payload(connection, business_id)
     _, campaign_payload = _campaign_payload(connection, campaign_id)
 
-    business_dir = business_file.parent
-    campaign_dir = campaign_file.parent
-    business_dir.mkdir(parents=True, exist_ok=True)
-    campaign_dir.mkdir(parents=True, exist_ok=True)
-
-    business_file.write_text(yaml.safe_dump(business_payload, sort_keys=False, allow_unicode=False), encoding="utf-8")
-    campaign_file.write_text(yaml.safe_dump(campaign_payload, sort_keys=False, allow_unicode=False), encoding="utf-8")
+    _atomic_write(business_file, yaml.safe_dump(business_payload, sort_keys=False, allow_unicode=False))
+    _atomic_write(campaign_file, yaml.safe_dump(campaign_payload, sort_keys=False, allow_unicode=False))
 
     return business_file, campaign_file
 
@@ -327,13 +339,9 @@ def write_all_to_data_dir(connection: sqlite3.Connection, data_dir: Path) -> Non
         business_id = int(business["id"])
         business_path_name = _filesystem_name(business["display_name"])
         business_dir = data_dir / business_path_name
-        business_dir.mkdir(parents=True, exist_ok=True)
         business_file = business_dir / f"{business_path_name}.yaml"
         payload = _business_payload(connection, business_id)
-        business_file.write_text(
-            yaml.safe_dump(payload, sort_keys=False, allow_unicode=False),
-            encoding="utf-8",
-        )
+        _atomic_write(business_file, yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
 
         campaigns = connection.execute(
             "SELECT id FROM campaigns WHERE business_id = ? ORDER BY id;",
@@ -343,8 +351,4 @@ def write_all_to_data_dir(connection: sqlite3.Connection, data_dir: Path) -> Non
             campaign_id = int(campaign["id"])
             _, camp_file, _ = _campaign_yaml_paths(connection, data_dir, campaign_id)
             _, camp_payload = _campaign_payload(connection, campaign_id)
-            camp_file.parent.mkdir(parents=True, exist_ok=True)
-            camp_file.write_text(
-                yaml.safe_dump(camp_payload, sort_keys=False, allow_unicode=False),
-                encoding="utf-8",
-            )
+            _atomic_write(camp_file, yaml.safe_dump(camp_payload, sort_keys=False, allow_unicode=False))

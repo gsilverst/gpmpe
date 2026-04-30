@@ -7,11 +7,15 @@ services:
     container_name: gpmpe
     ports:
       - "8000:8000"
+    environment:
+      - DATA_DIR=/app/data
+      - OUTPUT_DIR=/app/output
+      - DATABASE_PATH=/app/backend/data/gpmpe.db
     volumes:
       - ./.config:/app/.config:ro
-      - ./output:/app/output
-      - ./backend/data:/app/backend/data
-      - ./data:/app/data
+      - gpmpe_output:/app/output
+      - gpmpe_db:/app/backend/data
+      - gpmpe_data:/app/data
       - ./local:/app/local
     healthcheck:
       test:
@@ -25,3 +29,8 @@ services:
       timeout: 5s
       retries: 6
       start_period: 10s
+
+volumes:
+  gpmpe_output:
+  gpmpe_db:
+  gpmpe_data:

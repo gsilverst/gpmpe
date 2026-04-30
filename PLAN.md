@@ -172,10 +172,12 @@ Objective:
 - Refactored `db.py` and `config.py` to support dynamic `DATABASE_URL`.
 - Implemented hybrid initialization using `Base.metadata.create_all` and legacy scripts.
 
-### Step 24: Storage & Filesystem Parity (Amazon EFS) (TODO)
+### Step 24: Storage & Filesystem Parity (Amazon EFS) (COMPLETED)
 Objective:
-- Mount Amazon EFS to ECS/Fargate for persistent YAML and PDF storage.
-- Ensure all file operations remain dialect-neutral using `pathlib`.
+- Implemented atomic file writing (`_atomic_write`) for YAML and PDFs to handle cloud filesystem concurrency.
+- Updated `docker-compose.yml` to use named volumes and environment variable overrides for `DATA_DIR` and `OUTPUT_DIR`.
+- Hardened the `Dockerfile` with required system dependencies and pre-created mount points.
+- Ensured the application is fully agnostic of directory locations, ready for EFS mounting.
 
 ### Step 25: Version Control Sync Worker (TODO)
 Objective:

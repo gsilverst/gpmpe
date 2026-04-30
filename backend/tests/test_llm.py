@@ -33,6 +33,7 @@ def _make_config(tmp_path: Path) -> AppConfig:
     return AppConfig(
         config_path=tmp_path / ".config",
         database_path=db_path,
+        database_url=f"sqlite:///{db_path}",
         output_dir=tmp_path / "output",
         data_dir=tmp_path / "data",
         images_per_page=None,

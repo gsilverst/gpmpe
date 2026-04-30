@@ -62,6 +62,7 @@ def _make_db(tmp_path: Path):
     config = AppConfig(
         config_path=tmp_path / ".config",
         database_path=db_path,
+        database_url=f"sqlite:///{db_path}",
         output_dir=output_dir,
         data_dir=data_dir,
         images_per_page=None,

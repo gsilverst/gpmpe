@@ -1113,6 +1113,23 @@ def _slug(text: str | None) -> str:
     return slug.strip("-")
 
 
+def _atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Write bytes to a file atomically by using a temporary file."""
+    import tempfile
+    import os
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_path = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".tmp-")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(temp_path, path)
+    except Exception:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise
+
+
 def render_campaign_artifact(
     connection: sqlite3.Connection,
     campaign_id: int,
@@ -1161,7 +1178,7 @@ def render_campaign_artifact(
     # 1. Primary Render
     pdf_bytes = render_flyer(ctx, data_dir=data_dir)
     checksum = _file_checksum(pdf_bytes)
-    file_path.write_bytes(pdf_bytes)
+    _atomic_write_bytes(file_path, pdf_bytes)
 
     template_snapshot = json.dumps(
         {
@@ -1196,7 +1213,7 @@ def render_campaign_artifact(
     # 2. Secondary Render (N-up) if requested
     if artifact_type == "flyer" and images_per_page is not None and nup_file_path:
         nup_bytes = render_flyer_nup(ctx, images_per_page, data_dir=data_dir)
-        nup_file_path.write_bytes(nup_bytes)
+        _atomic_write_bytes(nup_file_path, nup_bytes)
         nup_checksum = _file_checksum(nup_bytes)
         
         # Register Secondary Artifact
