@@ -14,6 +14,7 @@ This document outlines the strategy for migrating the GPMPE platform to Amazon W
 | **Configuration** | `.config` file | AWS Secrets Manager / Parameter Store |
 | **Compute** | Local Process / Docker | AWS Fargate (ECS) or AWS Lambda |
 | **Data Sync** | Direct Manual Sync | Automated Git-to-EFS Worker |
+| **Authentication** | None (Single User) | Amazon Cognito (RBAC) |
 
 ---
 
@@ -50,7 +51,7 @@ Since YAML files in the repository are the authoritative source, we must synchro
 
 ---
 
-## 4. Phase 4: CI/CD and Dual Build
+## 6. Phase 4: CI/CD and Dual Build
 - **Task 4.1**: Update `Dockerfile` to be environment-aware.
 - **Task 4.2**: Implement a GitHub Action or AWS CodePipeline that:
     1. Runs the test suite using SQLite (Local mode).
@@ -60,7 +61,33 @@ Since YAML files in the repository are the authoritative source, we must synchro
 
 ---
 
-## 6. Phase 5: Verification & Parity
+## 7. Phase 5: User Authentication & Access Control
+To secure the application in AWS and support multi-user workflows, we will implement a role-based access control (RBAC) system.
+
+### 7.1 User Roles & Hierarchy
+- **Primary Admin**: The user associated with the AWS root login (or mapped identity) by default.
+    - **Permissions**: Can add/delete all user types (Admin and Regular). Full access to all business profiles and campaigns.
+- **Admin User**:
+    - **Permissions**: Can create/modify business profiles. Can add Regular users. Can grant Regular users access to specific business profiles.
+    - **Constraints**: Cannot add or modify other Admin users.
+- **Regular User**:
+    - **Permissions**: Can add and modify campaigns under business profiles they have been granted access to.
+    - **Constraints**: Cannot create or modify business profiles. Cannot manage users.
+
+### 7.2 Implementation Tasks
+- **Task 5.1: Identity Integration**:
+    - **AWS Mode**: Use **Amazon Cognito** for user identity management. Map Cognito groups to the application roles.
+    - **Local Mode**: Implement a lightweight JWT-based authentication system backed by the local database for development parity.
+- **Task 5.2: Backend Authorization**:
+    - Implement FastAPI dependencies to enforce role-based access on all sensitive endpoints (e.g., `POST /businesses`, `PATCH /businesses`).
+    - Add user-to-business mapping tables in the database to manage campaign access for Regular users.
+- **Task 5.3: Admin Management Portal**:
+    - Develop a web-based administrative dashboard within the frontend application.
+    - Features: User onboarding, role assignment, business profile permissions, and administrative audit logs.
+
+---
+
+## 8. Phase 6: Verification & Parity
 - **Parity Test**: Run the full backend test suite against an RDS instance in a staging VPC.
 - **Sync Test**: Verify that editing a campaign title via the AWS-hosted chatbot results in a new commit appearing in the GitHub repository.
 - **Local Fallback**: Confirm that developers can still run `start.sh` on their laptops with zero AWS dependencies.
