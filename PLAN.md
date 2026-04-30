@@ -156,8 +156,15 @@ Objective:
 Objective:
 - Based on the proposal from Step 17, refactor `renderer.py` and the database schema to support dynamic, data-driven overrides for visual layout properties.
 
-### Step 22: Detailed Requirements Documentation (TODO)
+### Step 22: Detailed Requirements Documentation (COMPLETED)
 Objective:
 - Write a comprehensive requirements document that captures the original intent and evolution of the project.
 - Document the functional, technical, and aesthetic requirements realized in the current system.
 - Output: `docs/REQUIREMENTS.md`.
+
+### Step 23: AWS Migration Strategy (COMPLETED)
+Objective:
+- Prepare a comprehensive plan for migrating to AWS while maintaining local parity.
+- Define the dual-build architecture using SQLAlchemy and Amazon EFS.
+- Detail the Git-to-Cloud synchronization mechanism for YAML version control.
+- Output: `docs/AWS_MIGRATION_PLAN.md`.
