@@ -12,24 +12,17 @@ WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV RUN_MODE=local
+ENV DATA_DIR=/app/data
+ENV OUTPUT_DIR=/app/output
+ENV DATABASE_PATH=/app/backend/data/gpmpe.db
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates \
+  && apt-get install -y --no-install-recommends ca-certificates git openssh-client \
   && rm -rf /var/lib/apt/lists/*
 
-# Backend dependencies
-RUN pip install --no-cache-dir \
-  "fastapi>=0.116.0,<1.0.0" \
-  "fpdf2>=2.8,<3.0" \
-  "Pillow>=11.0,<12.0" \
-  "PyYAML>=6.0.2,<7.0.0" \
-  "reportlab>=4.0,<5.0" \
-  "uvicorn[standard]>=0.32.0,<1.0.0" \
-  "sqlalchemy>=2.0.0" \
-  "psycopg2-binary>=2.9.0" \
-  "mysql-connector-python>=8.0.0"
-
 COPY backend/ ./backend/
+RUN pip install --no-cache-dir ./backend
 RUN mkdir -p /app/backend/data /app/data /app/output
 
 COPY --from=frontend-build /app/frontend/out/ ./backend/app/static/

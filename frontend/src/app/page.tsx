@@ -257,8 +257,10 @@ export default function HomePage() {
     setPreviewRendering(true);
     setPreviewStatus(reason ? `Updating preview (${reason})...` : "Updating preview...");
     try {
-      const artifact = await renderArtifact(campaignId, "flyer");
-      setPreviewArtifactId(artifact.id);
+      const generated = await renderArtifact(campaignId, "flyer");
+      if (generated.length > 0) {
+        setPreviewArtifactId(generated[0].id);
+      }
       const items = await fetchArtifacts(campaignId);
       setArtifacts(items);
       setPreviewStatus("Preview updated.");

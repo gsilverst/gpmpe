@@ -292,10 +292,13 @@ docker run --rm -p 8000:8000 \
 	-v "$PWD/.config:/app/.config:ro" \
 	-v "$PWD/data:/app/data" \
 	-v "$PWD/output:/app/output" \
+	-e RUN_MODE=local \
 	-e DATA_DIR=/app/data \
 	-e OUTPUT_DIR=/app/output \
 	gpmpe:local
 ```
+
+For AWS/ECS, override the same image with `RUN_MODE=aws`, `DATABASE_URL`, `DATA_DIR=/app/data`, and `OUTPUT_DIR=/app/output`, with `/app/data` and `/app/output` backed by EFS.
 
 Then open:
 

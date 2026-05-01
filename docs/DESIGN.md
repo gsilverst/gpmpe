@@ -438,6 +438,7 @@ Runtime configuration lives in a `.config` file at the repo root using `KEY=VALU
 
 | Key | Purpose | Default |
 |---|---|---|
+| `RUN_MODE` | Runtime mode: `local` or `aws` | `local` |
 | `DATABASE_PATH` | SQLite database path | `./backend/data/gpmpe.db` |
 | `DATA_DIR` | YAML data tree root | `./data` |
 | `OUTPUT_DIR` | PDF artifact output directory | `./output` |

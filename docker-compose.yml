@@ -8,6 +8,7 @@ services:
     ports:
       - "8000:8000"
     environment:
+      - RUN_MODE=local
       - DATA_DIR=/app/data
       - OUTPUT_DIR=/app/output
       - DATABASE_PATH=/app/backend/data/gpmpe.db

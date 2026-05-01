@@ -144,6 +144,12 @@ Since YAML files in the repository are the authoritative source, we must synchro
     2. Builds and pushes the Docker image to Amazon ECR.
     3. Deploys to ECS/Fargate.
 - **Task 4.3**: Environment variable toggle `RUN_MODE=local|aws` to control specific behaviors (e.g., whether to use local `.config` or AWS Secrets Manager).
+- **Current Status**:
+    - `RUN_MODE=local|aws` is parsed by application config, defaults to `local`, and can be supplied through environment variables.
+    - The Docker image has local defaults for `RUN_MODE`, `DATA_DIR`, `OUTPUT_DIR`, and `DATABASE_PATH`, while allowing AWS/ECS task definitions to override them with RDS/EFS settings.
+    - The runtime image includes Git/OpenSSH tooling required by the sync worker.
+    - GitHub Actions CI runs backend tests, builds the frontend export, and validates the Docker image build.
+    - ECR push and ECS deploy steps remain pending until AWS account identifiers, IAM roles, and deployment targets are available.
 
 ---
 

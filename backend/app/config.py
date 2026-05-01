@@ -22,6 +22,7 @@ class AppConfig:
     git_remote: str = "origin"
     git_branch: str = "HEAD"
     git_lock_timeout_seconds: float = 30.0
+    run_mode: str = "local"
     openrouter_api_key: str | None = None
 
 
@@ -34,6 +35,15 @@ def _parse_bool(value: str | None, *, default: bool = False) -> bool:
     if normalized in {"0", "false", "no", "off"}:
         return False
     raise ValueError(f"Invalid boolean value '{value}'")
+
+
+def _parse_run_mode(value: str | None) -> str:
+    if value is None or value.strip() == "":
+        return "local"
+    normalized = value.strip().lower()
+    if normalized not in {"local", "aws"}:
+        raise ValueError("RUN_MODE must be 'local' or 'aws'")
+    return normalized
 
 
 def parse_key_value_text(text: str) -> dict[str, str]:
@@ -115,6 +125,7 @@ def resolve_config(
     config_directory = config_path.parent.resolve()
 
     values = load_key_value_file(config_path)
+    run_mode = _parse_run_mode(_config_value(values, "RUN_MODE"))
 
     output_dir_value = _config_value(values, "OUTPUT_DIR")
     output_dir = _resolve_path(output_dir_value, config_directory) if output_dir_value else working_directory
@@ -161,6 +172,7 @@ def resolve_config(
     )
 
     return AppConfig(
+        run_mode=run_mode,
         config_path=config_path,
         output_dir=output_dir,
         database_path=database_path,
