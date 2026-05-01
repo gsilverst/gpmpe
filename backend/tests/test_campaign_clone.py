@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import shutil
+import os
 from pathlib import Path
 
 import pytest
@@ -170,6 +171,32 @@ def test_clone_syncs_to_db(tmp_path):
     assert row is not None
     assert row["campaign_name"] == "fathersday"
 
+    conn.close()
+
+
+def test_clone_writes_yaml_atomically(monkeypatch, tmp_path):
+    data_dir = _setup_data_dir(tmp_path)
+    conn = _make_db(tmp_path)
+    calls: list[tuple[str, str]] = []
+    original_replace = os.replace
+
+    def tracking_replace(src: str, dst: str) -> None:
+        calls.append((Path(src).name, Path(dst).name))
+        original_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", tracking_replace)
+
+    clone_campaign_directory(
+        conn,
+        data_dir,
+        source_campaign_name="mothersday",
+        new_campaign_name="fathersday",
+        business_name="acme",
+    )
+
+    assert calls
+    assert calls[-1][0].startswith("fathersday.yaml.tmp-")
+    assert calls[-1][1] == "fathersday.yaml"
     conn.close()
 
 

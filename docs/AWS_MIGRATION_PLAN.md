@@ -87,9 +87,15 @@ This refactor has been completed without changing API contracts. `backend/app/ma
 ## 5. Phase 2: Storage & Filesystem Parity (Amazon EFS)
 To satisfy the requirement of maintaining YAML files for version control without a traditional local filesystem in AWS, we will use **Amazon EFS**.
 
+- **Current Status**:
+    - `DATA_DIR`, `OUTPUT_DIR`, `DATABASE_PATH`, `DATABASE_URL`, test-path settings, Git settings, and OpenRouter settings can be supplied through environment variables, with `.config` still supported for local mode.
+    - Docker Compose already maps `/app/data`, `/app/output`, and `/app/backend/data` to named volumes; those same paths can be backed by EFS in AWS.
+    - YAML write-back and PDF rendering use atomic file replacement.
+    - Campaign clone YAML updates now also use atomic file replacement, so chat/GUI clone flows are safer on EFS-backed storage.
 - **Task 2.1**: Provision an Amazon EFS volume.
 - **Task 2.2**: Mount the EFS volume to the AWS Fargate tasks or Lambda functions at `/app/data` and `/app/output`.
-- **Task 2.3**: Ensure the application code uses configurable environment variables for `DATA_DIR` and `OUTPUT_DIR` (already partially implemented).
+- **Task 2.3**: Set `DATA_DIR=/app/data` and `OUTPUT_DIR=/app/output` in the AWS task/container environment.
+- **Task 2.4**: Validate EFS permissions by running data sync, campaign mutation, clone, and render smoke tests against the mounted paths.
 - **Outcome**: The codebase remains identical, using standard Python `pathlib` operations, while the underlying storage is a durable, networked cloud filesystem.
 
 ---

@@ -3,10 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 import json
+import os
 from pathlib import Path
 import re
 import shutil
 import sqlite3
+import tempfile
 from typing import Any
 
 import yaml
@@ -72,6 +74,19 @@ def _load_yaml_file(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"YAML file must contain an object at top level: {path}")
     return payload
+
+
+def _atomic_write_yaml(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_path = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".tmp-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            yaml.dump(payload, handle, allow_unicode=True, sort_keys=False)
+        os.replace(temp_path, path)
+    except Exception:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise
 
 
 def _required_string(payload: dict[str, Any], field_name: str, path: Path) -> str:
@@ -900,9 +915,7 @@ def clone_campaign_directory(
         # Generate a title from the slug (replace hyphens/underscores with spaces, title-case)
         payload["title"] = new_campaign_name.replace("-", " ").replace("_", " ").title()
 
-    with new_yaml.open("w", encoding="utf-8") as handle:
-        import yaml as _yaml
-        _yaml.dump(payload, handle, allow_unicode=True, sort_keys=False)
+    _atomic_write_yaml(new_yaml, payload)
 
     # Sync the new campaign into the DB
     record = CampaignYamlRecord(
@@ -982,8 +995,7 @@ def clone_campaign_directory_session(
     else:
         payload["title"] = new_campaign_name.replace("-", " ").replace("_", " ").title()
 
-    with new_yaml.open("w", encoding="utf-8") as handle:
-        yaml.dump(payload, handle, allow_unicode=True, sort_keys=False)
+    _atomic_write_yaml(new_yaml, payload)
 
     record = CampaignYamlRecord(
         directory_name=destination_directory,

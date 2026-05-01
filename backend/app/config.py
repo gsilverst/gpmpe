@@ -61,6 +61,13 @@ def _resolve_path(value: str, cwd: Path) -> Path:
     return (cwd / candidate).resolve()
 
 
+def _config_value(values: dict[str, str], key: str) -> str | None:
+    value = os.getenv(key)
+    if value is not None:
+        return value
+    return values.get(key)
+
+
 def _use_test_paths_flag(explicit: bool | None) -> bool:
     if explicit is not None:
         return explicit
@@ -93,17 +100,17 @@ def resolve_config(
 
     values = load_key_value_file(config_path)
 
-    output_dir_value = values.get("OUTPUT_DIR")
+    output_dir_value = _config_value(values, "OUTPUT_DIR")
     output_dir = _resolve_path(output_dir_value, config_directory) if output_dir_value else working_directory
 
-    database_value = values.get("DATABASE_PATH")
-    data_dir_value = values.get("DATA_DIR")
+    database_value = _config_value(values, "DATABASE_PATH")
+    data_dir_value = _config_value(values, "DATA_DIR")
     if data_dir_value is None:
         raise ValueError("DATA_DIR must be configured in .config")
 
     using_test_paths = _use_test_paths_flag(use_test_paths)
-    test_database_value = values.get("TEST_DATABASE_PATH")
-    test_data_dir_value = values.get("TEST_DATA_DIR")
+    test_database_value = _config_value(values, "TEST_DATABASE_PATH")
+    test_data_dir_value = _config_value(values, "TEST_DATA_DIR")
 
     if using_test_paths:
         if not test_database_value or not test_data_dir_value:
@@ -117,17 +124,17 @@ def resolve_config(
             database_path = (root / "backend" / "data" / "gpmpe.db").resolve()
         data_dir = _resolve_path(data_dir_value, config_directory)
 
-    images_per_page = _parse_images_per_page(values.get("IMAGES_PER_PAGE"))
+    images_per_page = _parse_images_per_page(_config_value(values, "IMAGES_PER_PAGE"))
 
-    database_url = values.get("DATABASE_URL")
+    database_url = _config_value(values, "DATABASE_URL")
     if not database_url:
         database_url = f"sqlite:///{database_path}"
 
-    commit_on_save = _parse_bool(values.get("COMMIT_ON_SAVE"), default=True)
-    git_repo_value = values.get("GIT_REPO_PATH")
+    commit_on_save = _parse_bool(_config_value(values, "COMMIT_ON_SAVE"), default=True)
+    git_repo_value = _config_value(values, "GIT_REPO_PATH")
     git_repo_path = _resolve_path(git_repo_value, config_directory) if git_repo_value else None
-    git_user_name = values.get("GIT_USER_NAME")
-    git_user_email = values.get("GIT_USER_EMAIL")
+    git_user_name = _config_value(values, "GIT_USER_NAME")
+    git_user_email = _config_value(values, "GIT_USER_EMAIL")
 
     return AppConfig(
         config_path=config_path,
@@ -141,5 +148,5 @@ def resolve_config(
         git_repo_path=git_repo_path,
         git_user_name=git_user_name,
         git_user_email=git_user_email,
-        openrouter_api_key=values.get("OPENROUTER_API_KEY") or os.getenv("OPENROUTER_API_KEY") or None,
+        openrouter_api_key=_config_value(values, "OPENROUTER_API_KEY") or None,
     )

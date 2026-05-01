@@ -285,13 +285,15 @@ docker build -t gpmpe:local .
 
 ### Run
 
-The container expects a `.config` file with at least `DATA_DIR` and a writable `OUTPUT_DIR`.
+The container can read storage paths from `.config` or from environment variables. Environment variables take precedence, which is the recommended pattern for Docker and AWS/EFS deployments.
 
 ```bash
 docker run --rm -p 8000:8000 \
 	-v "$PWD/.config:/app/.config:ro" \
 	-v "$PWD/data:/app/data" \
 	-v "$PWD/output:/app/output" \
+	-e DATA_DIR=/app/data \
+	-e OUTPUT_DIR=/app/output \
 	gpmpe:local
 ```
 

@@ -47,6 +47,45 @@ def test_resolve_config_loads_configured_data_dir(tmp_path: Path) -> None:
     assert config.git_user_email is None
 
 
+def test_resolve_config_environment_overrides_storage_paths(monkeypatch, tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    config_path = repo_root / ".config"
+    config_path.write_text(
+        "OUTPUT_DIR=./configured-output\n"
+        "DATABASE_PATH=./configured.db\n"
+        "DATA_DIR=./configured-data\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OUTPUT_DIR", "/mnt/efs/output")
+    monkeypatch.setenv("DATABASE_PATH", "/mnt/efs/db/gpmpe.db")
+    monkeypatch.setenv("DATA_DIR", "/mnt/efs/data")
+
+    config = resolve_config(repo_root=repo_root, cwd=tmp_path)
+
+    assert config.output_dir == Path("/mnt/efs/output")
+    assert config.database_path == Path("/mnt/efs/db/gpmpe.db")
+    assert config.data_dir == Path("/mnt/efs/data")
+    assert config.database_url == "sqlite:////mnt/efs/db/gpmpe.db"
+
+
+def test_resolve_config_environment_database_url_overrides_sqlite_path(monkeypatch, tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    config_path = repo_root / ".config"
+    config_path.write_text(
+        "DATABASE_URL=sqlite:///configured.db\n"
+        "DATABASE_PATH=./configured.db\n"
+        "DATA_DIR=./configured-data\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@example.com:5432/gpmpe")
+
+    config = resolve_config(repo_root=repo_root, cwd=tmp_path)
+
+    assert config.database_url == "postgresql://user:pass@example.com:5432/gpmpe"
+
+
 def test_resolve_config_reads_commit_on_save_and_git_settings(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir(parents=True, exist_ok=True)
