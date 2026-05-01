@@ -7,6 +7,9 @@ import sqlite3
 from typing import Any
 
 import yaml
+from sqlalchemy.orm import Session
+
+from .models import Business, Campaign, CampaignTemplateBinding
 
 
 SAFE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -279,8 +282,28 @@ def _campaign_yaml_paths(connection: sqlite3.Connection, data_dir: Path, campaig
     return business_file, campaign_file, int(campaign["business_id"])
 
 
+def _campaign_yaml_paths_for_session(db: Session, data_dir: Path, campaign_id: int) -> tuple[Path, Path, int]:
+    campaign = db.get(Campaign, campaign_id)
+    if campaign is None:
+        raise ValueError("Campaign not found")
+
+    business_path_name = _filesystem_name(campaign.business.display_name)
+    campaign_path_name = _filesystem_name(campaign.campaign_name)
+
+    business_dir = data_dir / business_path_name
+    campaign_dir = business_dir / campaign_path_name
+    business_file = business_dir / f"{business_path_name}.yaml"
+    campaign_file = campaign_dir / f"{campaign_path_name}.yaml"
+    return business_file, campaign_file, int(campaign.business_id)
+
+
 def campaign_yaml_paths_for_id(connection: sqlite3.Connection, data_dir: Path, campaign_id: int) -> tuple[Path, Path]:
     business_file, campaign_file, _ = _campaign_yaml_paths(connection, data_dir, campaign_id)
+    return business_file, campaign_file
+
+
+def campaign_yaml_paths_for_id_session(db: Session, data_dir: Path, campaign_id: int) -> tuple[Path, Path]:
+    business_file, campaign_file, _ = _campaign_yaml_paths_for_session(db, data_dir, campaign_id)
     return business_file, campaign_file
 
 
@@ -306,6 +329,175 @@ def persist_yaml_state_for_campaign(connection: sqlite3.Connection, data_dir: Pa
 
     business_payload = _business_payload(connection, business_id)
     _, campaign_payload = _campaign_payload(connection, campaign_id)
+
+    _atomic_write(business_file, yaml.safe_dump(business_payload, sort_keys=False, allow_unicode=False))
+    _atomic_write(campaign_file, yaml.safe_dump(campaign_payload, sort_keys=False, allow_unicode=False))
+
+    return business_file, campaign_file
+
+
+def _business_payload_from_session(db: Session, business_id: int) -> dict[str, Any]:
+    business = db.get(Business, business_id)
+    if business is None:
+        raise ValueError("Business not found")
+
+    contacts = sorted(business.contacts, key=lambda row: (not bool(row.is_primary), row.id))
+    locations = sorted(business.locations, key=lambda row: row.id)
+    theme = next((row for row in business.brand_themes if row.name == "default"), None)
+
+    return {
+        "display_name": business.display_name,
+        "legal_name": business.legal_name,
+        "timezone": business.timezone,
+        "is_active": bool(business.is_active),
+        "contacts": [
+            {
+                "contact_type": row.contact_type,
+                "contact_value": row.contact_value,
+                "is_primary": bool(row.is_primary),
+            }
+            for row in contacts
+        ],
+        "locations": [
+            {
+                "label": row.label,
+                "line1": row.line1,
+                "line2": row.line2,
+                "city": row.city,
+                "state": row.state,
+                "postal_code": row.postal_code,
+                "country": row.country,
+                "hours": json.loads(row.hours_json or "{}"),
+            }
+            for row in locations
+        ],
+        "brand_theme": {
+            "name": theme.name,
+            "primary_color": theme.primary_color,
+            "secondary_color": theme.secondary_color,
+            "accent_color": theme.accent_color,
+            "font_family": theme.font_family,
+            "logo_path": theme.logo_path,
+        }
+        if theme is not None
+        else {},
+    }
+
+
+def _component_payloads_from_session(campaign: Campaign) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    components = sorted(campaign.components, key=lambda row: (row.display_order, row.id))
+    for component in components:
+        items = sorted(component.items, key=lambda row: (row.display_order, row.id))
+        payloads.append(
+            {
+                "component_key": component.component_key,
+                "component_kind": component.component_kind,
+                "render_region": component.render_region,
+                "render_mode": component.render_mode,
+                "style": json.loads(component.style_json or "{}"),
+                "display_title": component.display_title,
+                "background_color": component.background_color,
+                "header_accent_color": component.header_accent_color,
+                "footnote_text": component.footnote_text,
+                "subtitle": component.subtitle,
+                "description_text": component.description_text,
+                "display_order": component.display_order,
+                "items": [
+                    {
+                        "item_name": item.item_name,
+                        "item_kind": item.item_kind,
+                        "duration_label": item.duration_label,
+                        "item_value": item.item_value,
+                        "background_color": item.background_color,
+                        "render_role": item.render_role,
+                        "style": json.loads(item.style_json or "{}"),
+                        "description_text": item.description_text,
+                        "terms_text": item.terms_text,
+                        "display_order": item.display_order,
+                    }
+                    for item in items
+                ],
+            }
+        )
+    return payloads
+
+
+def _campaign_payload_from_session(db: Session, campaign_id: int) -> tuple[str, dict[str, Any]]:
+    campaign = db.get(Campaign, campaign_id)
+    if campaign is None:
+        raise ValueError("Campaign not found")
+
+    details = json.loads(campaign.details_json or "{}")
+    campaign_display_name = details.get("display_name") or campaign.campaign_name
+    binding = (
+        db.query(CampaignTemplateBinding)
+        .filter(
+            CampaignTemplateBinding.campaign_id == campaign_id,
+            CampaignTemplateBinding.is_active == True,
+        )
+        .order_by(CampaignTemplateBinding.id.desc())
+        .first()
+    )
+    components = _component_payloads_from_session(campaign)
+    assets = sorted(campaign.assets, key=lambda row: row.id)
+    offers = sorted(campaign.offers, key=lambda row: row.id)
+
+    payload: dict[str, Any] = {
+        "display_name": campaign_display_name,
+        "campaign_name": campaign.campaign_name,
+        "qualifier": campaign.campaign_key or None,
+        "title": campaign.title,
+        "objective": campaign.objective,
+        "footnote_text": campaign.footnote_text,
+        "status": campaign.status,
+        "start_date": campaign.start_date,
+        "end_date": campaign.end_date,
+        "assets": [
+            {
+                "asset_type": row.asset_type,
+                "source_type": row.source_type,
+                "mime_type": row.mime_type,
+                "source_path": row.source_path,
+                "width": row.width,
+                "height": row.height,
+                "metadata": json.loads(row.metadata_json or "{}"),
+            }
+            for row in assets
+        ],
+        "template_binding": {
+            "template_name": binding.template.template_name,
+            "template_kind": binding.template.template_kind,
+            "size_spec": binding.template.size_spec,
+            "layout": json.loads(binding.template.layout_json or "{}"),
+            "default_values": json.loads(binding.template.default_values_json or "{}"),
+            "override_values": json.loads(binding.override_values_json or "{}"),
+        }
+        if binding is not None
+        else {},
+    }
+    if components:
+        payload["components"] = components
+    else:
+        payload["offers"] = [
+            {
+                "offer_name": row.offer_name,
+                "offer_type": row.offer_type,
+                "offer_value": row.offer_value,
+                "start_date": row.start_date,
+                "end_date": row.end_date,
+                "terms_text": row.terms_text,
+            }
+            for row in offers
+        ]
+    return campaign.business.display_name, payload
+
+
+def persist_yaml_state_for_campaign_session(db: Session, data_dir: Path, campaign_id: int) -> tuple[Path, Path]:
+    business_file, campaign_file, business_id = _campaign_yaml_paths_for_session(db, data_dir, campaign_id)
+
+    business_payload = _business_payload_from_session(db, business_id)
+    _, campaign_payload = _campaign_payload_from_session(db, campaign_id)
 
     _atomic_write(business_file, yaml.safe_dump(business_payload, sort_keys=False, allow_unicode=False))
     _atomic_write(campaign_file, yaml.safe_dump(campaign_payload, sort_keys=False, allow_unicode=False))
@@ -351,4 +543,27 @@ def write_all_to_data_dir(connection: sqlite3.Connection, data_dir: Path) -> Non
             campaign_id = int(campaign["id"])
             _, camp_file, _ = _campaign_yaml_paths(connection, data_dir, campaign_id)
             _, camp_payload = _campaign_payload(connection, campaign_id)
+            _atomic_write(camp_file, yaml.safe_dump(camp_payload, sort_keys=False, allow_unicode=False))
+
+
+def write_all_to_data_dir_session(db: Session, data_dir: Path) -> None:
+    """Write all businesses and campaigns from a SQLAlchemy session to DATA_DIR YAML files."""
+    businesses = db.query(Business).order_by(Business.id.asc()).all()
+
+    for business in businesses:
+        business_path_name = _filesystem_name(business.display_name)
+        business_dir = data_dir / business_path_name
+        business_file = business_dir / f"{business_path_name}.yaml"
+        payload = _business_payload_from_session(db, business.id)
+        _atomic_write(business_file, yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+
+        campaigns = (
+            db.query(Campaign)
+            .filter(Campaign.business_id == business.id)
+            .order_by(Campaign.id.asc())
+            .all()
+        )
+        for campaign in campaigns:
+            _, camp_file, _ = _campaign_yaml_paths_for_session(db, data_dir, campaign.id)
+            _, camp_payload = _campaign_payload_from_session(db, campaign.id)
             _atomic_write(camp_file, yaml.safe_dump(camp_payload, sort_keys=False, allow_unicode=False))

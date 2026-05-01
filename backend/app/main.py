@@ -5,16 +5,17 @@ from datetime import date
 import json
 import logging
 from pathlib import Path
-import sqlite3
 from typing import Literal
 from typing import Any
 from urllib.parse import urlparse
 import uuid
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator, model_validator
+from sqlalchemy import func
+from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .chat import (
@@ -26,19 +27,42 @@ from .chat import (
     parse_clone_command,
     parse_query_command,
     parse_session_context_command,
-    resolve_component,
 )
 from .config import resolve_config
-from .data_sync import clone_campaign_directory, compare_db_to_yaml, discover_data_directory, sync_data_directory
-from .db import connect_database, initialize_database
+from .data_sync import (
+    clone_campaign_directory,
+    compare_db_to_yaml,
+    discover_data_directory,
+    sync_data_directory,
+)
+from .db import (
+    connect_database,
+    get_engine,
+    get_session_factory,
+    initialize_database,
+    is_sqlite_database_url,
+)
 from .git_store import GitStoreError, auto_commit_paths, pull_latest_changes
 from .llm import translate_and_apply
-from .renderer import render_campaign_artifact
+from .models import (
+    Business,
+    Campaign,
+    CampaignAsset,
+    CampaignComponent,
+    CampaignComponentItem,
+    CampaignOffer,
+    CampaignTemplateBinding,
+    GeneratedArtifact,
+    TemplateDefinition,
+)
+from .renderer import render_campaign_artifact_session
 from .yaml_store import (
-    campaign_yaml_paths_for_id,
+    campaign_yaml_paths_for_id_session,
     delete_yaml_state_for_campaign,
     persist_yaml_state_for_campaign,
+    persist_yaml_state_for_campaign_session,
     write_all_to_data_dir,
+    write_all_to_data_dir_session,
 )
 
 
@@ -56,37 +80,63 @@ async def lifespan(_: FastAPI):
     config.data_dir.mkdir(parents=True, exist_ok=True)
     initialize_database(config)
 
-    with connect_database(config) as connection:
-        yaml_records = discover_data_directory(config.data_dir)
-        db_count = int(
-            connection.execute("SELECT COUNT(*) FROM businesses;").fetchone()[0]
-        )
+    yaml_records = discover_data_directory(config.data_dir)
+    if not is_sqlite_database_url(config.database_url):
+        engine = get_engine(config)
+        session_factory = get_session_factory(engine)
+        with session_factory() as db:
+            db_count = db.query(Business).count()
 
-        if not yaml_records and db_count == 0:
-            # Fresh install — nothing to reconcile.
-            pass
-        elif not yaml_records and db_count > 0:
-            # DB has data but DATA_DIR is empty → write DB state to DATA_DIR.
-            write_all_to_data_dir(connection, config.data_dir)
-            connection.commit()
-        elif yaml_records and db_count == 0:
-            # DATA_DIR has data but DB is empty → sync YAML → DB silently.
-            sync_data_directory(connection, config.data_dir)
-            connection.commit()
-        else:
-            # Both sides have data → compare and flag for reconciliation if different.
-            report = compare_db_to_yaml(connection, config.data_dir)
-            if not report.in_sync:
-                _reconciliation = {
-                    "needed": True,
-                    "report": {
-                        "yaml_only": report.yaml_only,
-                        "db_only": report.db_only,
-                        "content_differs": report.content_differs,
-                        "db_latest_updated_at": report.db_latest_updated_at,
-                        "yaml_latest_mtime": report.yaml_latest_mtime,
-                    },
-                }
+        if not yaml_records and db_count > 0:
+            with session_factory() as db:
+                write_all_to_data_dir_session(db, config.data_dir)
+        elif yaml_records:
+            _reconciliation = {
+                "needed": True,
+                "report": {
+                    "mode": "rds",
+                    "message": (
+                        "YAML reconciliation is pending SQLAlchemy migration. "
+                        "Legacy sync currently runs only in SQLite/local mode."
+                    ),
+                    "yaml_only": [record.directory_name for record in yaml_records],
+                    "db_only": [],
+                    "content_differs": [],
+                    "db_latest_updated_at": None,
+                    "yaml_latest_mtime": None,
+                },
+            }
+    else:
+        with connect_database(config) as connection:
+            db_count = int(
+                connection.execute("SELECT COUNT(*) FROM businesses;").fetchone()[0]
+            )
+
+            if not yaml_records and db_count == 0:
+                # Fresh install — nothing to reconcile.
+                pass
+            elif not yaml_records and db_count > 0:
+                # DB has data but DATA_DIR is empty → write DB state to DATA_DIR.
+                write_all_to_data_dir(connection, config.data_dir)
+                connection.commit()
+            elif yaml_records and db_count == 0:
+                # DATA_DIR has data but DB is empty → sync YAML → DB silently.
+                sync_data_directory(connection, config.data_dir)
+                connection.commit()
+            else:
+                # Both sides have data → compare and flag for reconciliation if different.
+                report = compare_db_to_yaml(connection, config.data_dir)
+                if not report.in_sync:
+                    _reconciliation = {
+                        "needed": True,
+                        "report": {
+                            "yaml_only": report.yaml_only,
+                            "db_only": report.db_only,
+                            "content_differs": report.content_differs,
+                            "db_latest_updated_at": report.db_latest_updated_at,
+                            "yaml_latest_mtime": report.yaml_latest_mtime,
+                        },
+                    }
 
     yield
 
@@ -317,34 +367,90 @@ ALLOWED_ASSET_MIME_TYPES = {
 }
 
 
-def _require_business(connection: Any, business_id: int) -> None:
-    row = connection.execute("SELECT id FROM businesses WHERE id = ?;", (business_id,)).fetchone()
-    if row is None:
+def get_db_session():
+    config = resolve_config()
+    initialize_database(config)
+    engine = get_engine(config)
+    session_factory = get_session_factory(engine)
+    db = session_factory()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def _require_legacy_sqlite_mode(config: Any, feature: str) -> None:
+    if not is_sqlite_database_url(config.database_url):
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                f"{feature} still depends on the legacy SQLite/YAML sync path "
+                "and is not available in RDS mode yet."
+            ),
+        )
+
+
+def _require_business(db: Session, business_id: int) -> Business:
+    business = db.get(Business, business_id)
+    if business is None:
         raise HTTPException(status_code=404, detail="Business not found")
+    return business
 
 
-def _require_campaign(connection: Any, campaign_id: int) -> None:
-    row = connection.execute("SELECT id FROM campaigns WHERE id = ?;", (campaign_id,)).fetchone()
-    if row is None:
+def _require_campaign(db: Session, campaign_id: int) -> Campaign:
+    campaign = db.get(Campaign, campaign_id)
+    if campaign is None:
         raise HTTPException(status_code=404, detail="Campaign not found")
+    return campaign
 
 
-def _require_template(connection: Any, template_id: int) -> None:
-    row = connection.execute("SELECT id FROM template_definitions WHERE id = ?;", (template_id,)).fetchone()
-    if row is None:
+def _require_template(db: Session, template_id: int) -> TemplateDefinition:
+    template = db.get(TemplateDefinition, template_id)
+    if template is None:
         raise HTTPException(status_code=404, detail="Template not found")
+    return template
 
 
-def _require_component(connection: Any, component_id: int) -> None:
-    row = connection.execute("SELECT id FROM campaign_components WHERE id = ?;", (component_id,)).fetchone()
-    if row is None:
+def _require_component(db: Session, component_id: int) -> CampaignComponent:
+    component = db.get(CampaignComponent, component_id)
+    if component is None:
         raise HTTPException(status_code=404, detail="Component not found")
+    return component
 
 
-def _require_item(connection: Any, item_id: int) -> None:
-    row = connection.execute("SELECT id FROM campaign_component_items WHERE id = ?;", (item_id,)).fetchone()
-    if row is None:
+def _require_item(db: Session, item_id: int) -> CampaignComponentItem:
+    item = db.get(CampaignComponentItem, item_id)
+    if item is None:
         raise HTTPException(status_code=404, detail="Component item not found")
+    return item
+
+
+def _business_to_response(business: Business) -> BusinessResponse:
+    from .models import BusinessContact, BusinessLocation
+
+    # Get primary phone
+    phone = next((c.contact_value for c in business.contacts if c.contact_type == 'phone' and c.is_primary), None)
+    if phone is None:
+        # Fallback to first phone contact if no primary set
+        phone = next((c.contact_value for c in business.contacts if c.contact_type == 'phone'), None)
+
+    # Get first location
+    location = business.locations[0] if business.locations else None
+
+    return BusinessResponse(
+        id=business.id,
+        legal_name=business.legal_name,
+        display_name=business.display_name,
+        timezone=business.timezone,
+        is_active=business.is_active,
+        phone=phone,
+        address_line1=location.line1 if location else None,
+        address_line2=location.line2 if location else None,
+        city=location.city if location else None,
+        state=location.state if location else None,
+        postal_code=location.postal_code if location else None,
+        country=location.country if location else None,
+    )
 
 
 def _parse_iso_date(value: str | None, field_name: str) -> date | None:
@@ -389,220 +495,180 @@ def _persist_campaign_yaml_or_raise(connection: Any, config: Any, campaign_id: i
         raise HTTPException(status_code=409, detail=str(error)) from error
 
 
-def _business_snapshot(connection: Any, display_name: str) -> dict[str, Any]:
-    business = connection.execute(
-        """
-        SELECT id, legal_name, display_name, timezone, is_active
-        FROM businesses
-        WHERE display_name = ?;
-        """,
-        (display_name,),
-    ).fetchone()
+def _persist_campaign_yaml_session_or_raise(db: Session, config: Any, campaign_id: int) -> tuple[Path, Path]:
+    try:
+        return persist_yaml_state_for_campaign_session(db, config.data_dir, campaign_id)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+def _campaign_yaml_paths_for_session_or_raise(db: Session, config: Any, campaign_id: int) -> tuple[Path, Path]:
+    try:
+        return campaign_yaml_paths_for_id_session(db, config.data_dir, campaign_id)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+def _resolve_component_session(db: Session, campaign_id: int, component_ref: str) -> CampaignComponent | None:
+    normalized = component_ref.lower()
+    return (
+        db.query(CampaignComponent)
+        .filter(
+            CampaignComponent.campaign_id == campaign_id,
+            (
+                func.lower(CampaignComponent.component_key) == normalized
+            ) | (
+                func.lower(CampaignComponent.display_title) == normalized
+            ),
+        )
+        .order_by(CampaignComponent.id.asc())
+        .first()
+    )
+
+
+def _business_snapshot(db: Session, display_name: str) -> dict[str, Any]:
+    business = db.query(Business).filter(Business.display_name == display_name).first()
     if business is None:
         raise HTTPException(status_code=404, detail="Business not found")
 
-    contacts = connection.execute(
-        """
-        SELECT contact_type, contact_value, is_primary
-        FROM business_contacts
-        WHERE business_id = ?
-        ORDER BY is_primary DESC, id ASC;
-        """,
-        (business["id"],),
-    ).fetchall()
-    locations = connection.execute(
-        """
-        SELECT label, line1, line2, city, state, postal_code, country, hours_json
-        FROM business_locations
-        WHERE business_id = ?
-        ORDER BY id ASC;
-        """,
-        (business["id"],),
-    ).fetchall()
-    theme = connection.execute(
-        """
-        SELECT name, primary_color, secondary_color, accent_color, font_family, logo_path
-        FROM brand_themes
-        WHERE business_id = ? AND name = 'default';
-        """,
-        (business["id"],),
-    ).fetchone()
+    theme = next((t for t in business.brand_themes if t.name == "default"), None)
 
     return {
-        "display_name": business["display_name"],
-        "legal_name": business["legal_name"],
-        "timezone": business["timezone"],
-        "is_active": bool(business["is_active"]),
+        "display_name": business.display_name,
+        "legal_name": business.legal_name,
+        "timezone": business.timezone,
+        "is_active": business.is_active,
         "contacts": [
             {
-                "contact_type": row["contact_type"],
-                "contact_value": row["contact_value"],
-                "is_primary": bool(row["is_primary"]),
+                "contact_type": c.contact_type,
+                "contact_value": c.contact_value,
+                "is_primary": c.is_primary,
             }
-            for row in contacts
+            for c in business.contacts
         ],
         "locations": [
             {
-                "label": row["label"],
-                "line1": row["line1"],
-                "line2": row["line2"],
-                "city": row["city"],
-                "state": row["state"],
-                "postal_code": row["postal_code"],
-                "country": row["country"],
-                "hours": json.loads(row["hours_json"] or "{}"),
+                "label": row.label,
+                "line1": row.line1,
+                "line2": row.line2,
+                "city": row.city,
+                "state": row.state,
+                "postal_code": row.postal_code,
+                "country": row.country,
+                "hours": json.loads(row.hours_json or "{}"),
             }
-            for row in locations
+            for row in business.locations
         ],
         "brand_theme": {
-            "name": theme["name"],
-            "primary_color": theme["primary_color"],
-            "secondary_color": theme["secondary_color"],
-            "accent_color": theme["accent_color"],
-            "font_family": theme["font_family"],
-            "logo_path": theme["logo_path"],
+            "name": theme.name,
+            "primary_color": theme.primary_color,
+            "secondary_color": theme.secondary_color,
+            "accent_color": theme.accent_color,
+            "font_family": theme.font_family,
+            "logo_path": theme.logo_path,
         }
         if theme is not None
         else None,
     }
 
 
-def _campaign_snapshot(connection: Any, display_name: str, campaign_name: str, qualifier: str | None) -> dict[str, Any]:
-    business = connection.execute(
-        "SELECT id FROM businesses WHERE display_name = ?;",
-        (display_name,),
-    ).fetchone()
+def _campaign_snapshot(db: Session, display_name: str, campaign_name: str, qualifier: str | None) -> dict[str, Any]:
+    business = db.query(Business).filter(Business.display_name == display_name).first()
     if business is None:
         raise HTTPException(status_code=404, detail="Business not found")
 
-    row = connection.execute(
-        """
-        SELECT id, campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date, details_json
-        FROM campaigns
-        WHERE business_id = ? AND campaign_name = ? AND campaign_key = ?;
-        """,
-        (business["id"], campaign_name, qualifier or ""),
-    ).fetchone()
-    if row is None:
+    campaign = db.query(Campaign).filter(
+        Campaign.business_id == business.id,
+        Campaign.campaign_name == campaign_name,
+        Campaign.campaign_key == (qualifier or "")
+    ).first()
+
+    if campaign is None:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
-    offers = connection.execute(
-        """
-        SELECT offer_name, offer_type, offer_value, start_date, end_date, terms_text
-        FROM campaign_offers WHERE campaign_id = ? ORDER BY id ASC;
-        """,
-        (row["id"],),
-    ).fetchall()
-    assets = connection.execute(
-        """
-        SELECT asset_type, source_type, mime_type, source_path, width, height, metadata_json
-        FROM campaign_assets WHERE campaign_id = ? ORDER BY id ASC;
-        """,
-        (row["id"],),
-    ).fetchall()
-    binding = connection.execute(
-        """
-        SELECT t.template_name, t.template_kind, t.size_spec, t.layout_json, t.default_values_json, b.override_values_json
-        FROM campaign_template_bindings b
-        JOIN template_definitions t ON t.id = b.template_id
-        WHERE b.campaign_id = ? AND b.is_active = 1
-        ORDER BY b.id DESC
-        LIMIT 1;
-        """,
-        (row["id"],),
-    ).fetchone()
-    components = connection.execute(
-        """
-        SELECT id, component_key, component_kind, render_region, render_mode, style_json, display_title, footnote_text, subtitle, description_text, display_order
-        FROM campaign_components
-        WHERE campaign_id = ?
-        ORDER BY display_order ASC, id ASC;
-        """,
-        (row["id"],),
-    ).fetchall()
+    # Sorted offers and components
+    sorted_offers = sorted(campaign.offers, key=lambda o: (o.start_date or "", o.id))
+    sorted_components = sorted(campaign.components, key=lambda c: (c.display_order, c.id))
+
+    binding = db.query(CampaignTemplateBinding).filter(
+        CampaignTemplateBinding.campaign_id == campaign.id,
+        CampaignTemplateBinding.is_active == True
+    ).order_by(CampaignTemplateBinding.id.desc()).first()
 
     component_payloads: list[dict[str, Any]] = []
-    for component in components:
-        items = connection.execute(
-            """
-            SELECT item_name, item_kind, duration_label, item_value, render_role, style_json, description_text, terms_text, display_order
-            FROM campaign_component_items
-            WHERE component_id = ?
-            ORDER BY display_order ASC, id ASC;
-            """,
-            (component["id"],),
-        ).fetchall()
+    for component in sorted_components:
+        sorted_items = sorted(component.items, key=lambda i: (i.display_order, i.id))
         component_payloads.append(
             {
-                "component_key": component["component_key"],
-                "component_kind": component["component_kind"],
-                "render_region": component["render_region"],
-                "render_mode": component["render_mode"],
-                "style": json.loads(component["style_json"] or "{}"),
-                "display_title": component["display_title"],
-                "footnote_text": component["footnote_text"],
-                "subtitle": component["subtitle"],
-                "description_text": component["description_text"],
-                "display_order": component["display_order"],
+                "component_key": component.component_key,
+                "component_kind": component.component_kind,
+                "render_region": component.render_region,
+                "render_mode": component.render_mode,
+                "style": json.loads(component.style_json or "{}"),
+                "display_title": component.display_title,
+                "footnote_text": component.footnote_text,
+                "subtitle": component.subtitle,
+                "description_text": component.description_text,
+                "display_order": component.display_order,
                 "items": [
                     {
-                        "item_name": item["item_name"],
-                        "item_kind": item["item_kind"],
-                        "duration_label": item["duration_label"],
-                        "item_value": item["item_value"],
-                        "render_role": item["render_role"],
-                        "style": json.loads(item["style_json"] or "{}"),
-                        "description_text": item["description_text"],
-                        "terms_text": item["terms_text"],
-                        "display_order": item["display_order"],
+                        "item_name": item.item_name,
+                        "item_kind": item.item_kind,
+                        "duration_label": item.duration_label,
+                        "item_value": item.item_value,
+                        "render_role": item.render_role,
+                        "style": json.loads(item.style_json or "{}"),
+                        "description_text": item.description_text,
+                        "terms_text": item.terms_text,
+                        "display_order": item.display_order,
                     }
-                    for item in items
+                    for item in sorted_items
                 ],
             }
         )
 
     return {
-        "id": row["id"],
-        "display_name": _campaign_display_name(row),
-        "campaign_name": row["campaign_name"],
-        "qualifier": row["campaign_key"] or None,
-        "title": row["title"],
-        "objective": row["objective"],
-        "footnote_text": row["footnote_text"],
-        "status": row["status"],
-        "start_date": row["start_date"],
-        "end_date": row["end_date"],
+        "id": campaign.id,
+        "display_name": campaign.campaign_name, # Simplified
+        "campaign_name": campaign.campaign_name,
+        "qualifier": campaign.campaign_key or None,
+        "title": campaign.title,
+        "objective": campaign.objective,
+        "footnote_text": campaign.footnote_text,
+        "status": campaign.status,
+        "start_date": campaign.start_date,
+        "end_date": campaign.end_date,
         "offers": [
             {
-                "offer_name": item["offer_name"],
-                "offer_type": item["offer_type"],
-                "offer_value": item["offer_value"],
-                "start_date": item["start_date"],
-                "end_date": item["end_date"],
-                "terms_text": item["terms_text"],
+                "offer_name": item.offer_name,
+                "offer_type": item.offer_type,
+                "offer_value": item.offer_value,
+                "start_date": item.start_date,
+                "end_date": item.end_date,
+                "terms_text": item.terms_text,
             }
-            for item in offers
+            for item in sorted_offers
         ],
         "assets": [
             {
-                "asset_type": item["asset_type"],
-                "source_type": item["source_type"],
-                "mime_type": item["mime_type"],
-                "source_path": item["source_path"],
-                "width": item["width"],
-                "height": item["height"],
-                "metadata": json.loads(item["metadata_json"] or "{}"),
+                "asset_type": item.asset_type,
+                "source_type": item.source_type,
+                "mime_type": item.mime_type,
+                "source_path": item.source_path,
+                "width": item.width,
+                "height": item.height,
+                "metadata": json.loads(item.metadata_json or "{}"),
             }
-            for item in assets
+            for item in campaign.assets
         ],
         "components": component_payloads,
         "template_binding": {
-            "template_name": binding["template_name"],
-            "template_kind": binding["template_kind"],
-            "size_spec": binding["size_spec"],
-            "layout": json.loads(binding["layout_json"] or "{}"),
-            "default_values": json.loads(binding["default_values_json"] or "{}"),
-            "override_values": json.loads(binding["override_values_json"] or "{}"),
+            "template_name": binding.template.template_name,
+            "template_kind": binding.template.template_kind,
+            "size_spec": binding.template.size_spec,
+            "layout": json.loads(binding.template.layout_json or "{}"),
+            "default_values": json.loads(binding.template.default_values_json or "{}"),
+            "override_values": json.loads(binding.override_values_json or "{}"),
         }
         if binding is not None
         else None,
@@ -699,11 +765,10 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestIDMiddleware)
 
     @app.get("/health")
-    def health() -> dict[str, str]:
+    def health(db: Session = Depends(get_db_session)) -> dict[str, str]:
+        from sqlalchemy import text
+        db.execute(text("SELECT 1;"))
         config = resolve_config()
-        with connect_database(config) as connection:
-            connection.execute("SELECT 1;")
-
         return {
             "status": "ok",
             "database": "ok",
@@ -720,20 +785,31 @@ def create_app() -> FastAPI:
     @app.post("/startup/resolve")
     def startup_resolve(request: StartupResolveRequest) -> dict[str, bool]:
         config = resolve_config()
-        with connect_database(config) as connection:
+        if not is_sqlite_database_url(config.database_url):
             if request.direction == "yaml_to_db":
-                sync_data_directory(connection, config.data_dir)
-                connection.commit()
-            elif request.direction == "db_to_yaml":
-                write_all_to_data_dir(connection, config.data_dir)
-                connection.commit()
-            # "skip" → no data changes
+                _require_legacy_sqlite_mode(config, "YAML-to-database startup reconciliation")
+            if request.direction == "db_to_yaml":
+                engine = get_engine(config)
+                session_factory = get_session_factory(engine)
+                with session_factory() as db:
+                    write_all_to_data_dir_session(db, config.data_dir)
+            # "skip" -> no data changes
+        else:
+            from .db import connect_database
+            with connect_database(config) as connection:
+                if request.direction == "yaml_to_db":
+                    sync_data_directory(connection, config.data_dir)
+                    connection.commit()
+                elif request.direction == "db_to_yaml":
+                    write_all_to_data_dir(connection, config.data_dir)
+                    connection.commit()
+                # "skip" -> no data changes
         _reconciliation["needed"] = False
         _reconciliation["report"] = None
         return {"ok": True}
 
     @app.post("/businesses", response_model=BusinessResponse, status_code=201)
-    def create_business(payload: BusinessCreate) -> BusinessResponse:
+    def create_business(payload: BusinessCreate, db: Session = Depends(get_db_session)) -> BusinessResponse:
         phone = (payload.phone or "").strip()
         address_line1 = (payload.address_line1 or "").strip()
         address_line2 = (payload.address_line2 or "").strip()
@@ -750,82 +826,54 @@ def create_app() -> FastAPI:
                 detail="Address requires address_line1, city, state, and postal_code",
             )
 
-        config = resolve_config()
-        with connect_database(config) as connection:
-            cursor = connection.execute(
-                """
-                INSERT INTO businesses (legal_name, display_name, timezone)
-                VALUES (?, ?, ?);
-                """,
-                (payload.legal_name.strip(), payload.display_name.strip(), payload.timezone.strip()),
+        from .models import BusinessContact, BusinessLocation
+
+        business = Business(
+            legal_name=payload.legal_name.strip(),
+            display_name=payload.display_name.strip(),
+            timezone=payload.timezone.strip()
+        )
+        db.add(business)
+        db.flush() # Get business.id
+
+        if phone:
+            contact = BusinessContact(
+                business_id=business.id,
+                contact_type="phone",
+                contact_value=phone,
+                is_primary=True
             )
-            business_id = int(cursor.lastrowid)
+            db.add(contact)
 
-            if phone:
-                connection.execute(
-                    """
-                    INSERT INTO business_contacts (business_id, contact_type, contact_value, is_primary)
-                    VALUES (?, 'phone', ?, 1);
-                    """,
-                    (business_id, phone),
-                )
+        if has_required_address:
+            location = BusinessLocation(
+                business_id=business.id,
+                line1=address_line1,
+                line2=address_line2 or None,
+                city=city,
+                state=state,
+                postal_code=postal_code,
+                country=country,
+                hours_json='{}'
+            )
+            db.add(location)
 
-            if has_required_address:
-                connection.execute(
-                    """
-                    INSERT INTO business_locations (
-                      business_id, label, line1, line2, city, state, postal_code, country, hours_json
-                    )
-                    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, '{}');
-                    """,
-                    (
-                        business_id,
-                        address_line1,
-                        address_line2 or None,
-                        city,
-                        state,
-                        postal_code,
-                        country,
-                    ),
-                )
-
-            row = connection.execute(
-                _business_select_sql() + " WHERE b.id = ?;",
-                (business_id,),
-            ).fetchone()
-            connection.commit()
-
-        if row is None:
-            raise HTTPException(status_code=500, detail="Business creation failed")
-
-        return _business_row_to_response(row)
+        db.commit()
+        db.refresh(business)
+        return _business_to_response(business)
 
     @app.get("/businesses", response_model=list[BusinessResponse])
-    def list_businesses() -> list[BusinessResponse]:
-        config = resolve_config()
-        with connect_database(config) as connection:
-            rows = connection.execute(
-                _business_select_sql() + " ORDER BY b.id ASC;"
-            ).fetchall()
-
-        return [_business_row_to_response(row) for row in rows]
+    def list_businesses(db: Session = Depends(get_db_session)) -> list[BusinessResponse]:
+        businesses = db.query(Business).order_by(Business.id.asc()).all()
+        return [_business_to_response(b) for b in businesses]
 
     @app.get("/businesses/{business_id}", response_model=BusinessResponse)
-    def get_business(business_id: int) -> BusinessResponse:
-        config = resolve_config()
-        with connect_database(config) as connection:
-            row = connection.execute(
-                _business_select_sql() + " WHERE b.id = ?;",
-                (business_id,),
-            ).fetchone()
-
-        if row is None:
-            raise HTTPException(status_code=404, detail="Business not found")
-
-        return _business_row_to_response(row)
+    def get_business(business_id: int, db: Session = Depends(get_db_session)) -> BusinessResponse:
+        business = _require_business(db, business_id)
+        return _business_to_response(business)
 
     @app.patch("/businesses/{business_id}", response_model=BusinessResponse)
-    def update_business(business_id: int, payload: BusinessUpdate) -> BusinessResponse:
+    def update_business(business_id: int, payload: BusinessUpdate, db: Session = Depends(get_db_session)) -> BusinessResponse:
         updates = payload.model_dump(exclude_none=True)
         if not updates:
             raise HTTPException(status_code=400, detail="No business fields provided")
@@ -847,210 +895,160 @@ def create_app() -> FastAPI:
                     raise HTTPException(status_code=400, detail=f"{field} cannot be empty")
                 updates[field] = value
 
+        business = _require_business(db, business_id)
+
+        for field, value in updates.items():
+            setattr(business, field, value)
+
+        from .models import BusinessContact, BusinessLocation
+
+        if phone_update is not None:
+            # Simple approach: delete existing phone and add new one
+            db.query(BusinessContact).filter(
+                BusinessContact.business_id == business_id,
+                BusinessContact.contact_type == 'phone'
+            ).delete()
+            if phone_update:
+                contact = BusinessContact(
+                    business_id=business_id,
+                    contact_type="phone",
+                    contact_value=phone_update,
+                    is_primary=True
+                )
+                db.add(contact)
+
+        if location_updates:
+            # Get existing location or default values
+            location = business.locations[0] if business.locations else None
+
+            current_line1 = (location.line1 if location else "").strip()
+            current_city = (location.city if location else "").strip()
+            current_state = (location.state if location else "").strip()
+            current_postal = (location.postal_code if location else "").strip()
+            current_line2 = (location.line2 if location else "").strip()
+            current_country = (location.country if location else "US").strip() or "US"
+
+            next_line1 = location_updates.get("address_line1", current_line1)
+            next_city = location_updates.get("city", current_city)
+            next_state = location_updates.get("state", current_state)
+            next_postal = location_updates.get("postal_code", current_postal)
+            next_line2 = location_updates.get("address_line2", current_line2)
+            next_country = location_updates.get("country", current_country) or "US"
+
+            required = (next_line1, next_city, next_state, next_postal)
+            has_any = any((next_line1, next_line2, next_city, next_state, next_postal))
+            if has_any and not all(required):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Address requires address_line1, city, state, and postal_code",
+                )
+
+            # Re-create location
+            db.query(BusinessLocation).filter(BusinessLocation.business_id == business_id).delete()
+            if all(required):
+                new_location = BusinessLocation(
+                    business_id=business_id,
+                    line1=next_line1,
+                    line2=next_line2 or None,
+                    city=next_city,
+                    state=next_state,
+                    postal_code=next_postal,
+                    country=next_country,
+                    hours_json='{}'
+                )
+                db.add(new_location)
+
+        try:
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="Business update conflicts with existing data") from exc
+
         config = resolve_config()
-        with connect_database(config) as connection:
-            existing = connection.execute(
-                _business_select_sql() + " WHERE b.id = ?;",
-                (business_id,),
-            ).fetchone()
-            if existing is None:
-                raise HTTPException(status_code=404, detail="Business not found")
+        for campaign in business.campaigns:
+            _persist_campaign_yaml_session_or_raise(db, config, campaign.id)
 
-            if updates:
-                fields_sql = ", ".join([f"{field} = ?" for field in updates.keys()])
-                values = list(updates.values()) + [business_id]
-                try:
-                    connection.execute(
-                        f"UPDATE businesses SET {fields_sql}, updated_at = CURRENT_TIMESTAMP WHERE id = ?;",
-                        values,
-                    )
-                except sqlite3.IntegrityError as error:
-                    raise HTTPException(status_code=409, detail="Business update conflicts with existing data") from error
-
-            if phone_update is not None:
-                connection.execute(
-                    "DELETE FROM business_contacts WHERE business_id = ? AND contact_type = 'phone';",
-                    (business_id,),
-                )
-                if phone_update:
-                    connection.execute(
-                        """
-                        INSERT INTO business_contacts (business_id, contact_type, contact_value, is_primary)
-                        VALUES (?, 'phone', ?, 1);
-                        """,
-                        (business_id, phone_update),
-                    )
-
-            if location_updates:
-                current_line1 = (existing["address_line1"] or "").strip()
-                current_city = (existing["city"] or "").strip()
-                current_state = (existing["state"] or "").strip()
-                current_postal = (existing["postal_code"] or "").strip()
-                current_line2 = (existing["address_line2"] or "").strip()
-                current_country = (existing["country"] or "US").strip() or "US"
-
-                next_line1 = location_updates.get("address_line1", current_line1)
-                next_city = location_updates.get("city", current_city)
-                next_state = location_updates.get("state", current_state)
-                next_postal = location_updates.get("postal_code", current_postal)
-                next_line2 = location_updates.get("address_line2", current_line2)
-                next_country = location_updates.get("country", current_country) or "US"
-
-                required = (next_line1, next_city, next_state, next_postal)
-                has_any = any((next_line1, next_line2, next_city, next_state, next_postal))
-                if has_any and not all(required):
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Address requires address_line1, city, state, and postal_code",
-                    )
-
-                connection.execute(
-                    "DELETE FROM business_locations WHERE business_id = ?;",
-                    (business_id,),
-                )
-                if all(required):
-                    connection.execute(
-                        """
-                        INSERT INTO business_locations (
-                          business_id, label, line1, line2, city, state, postal_code, country, hours_json
-                        )
-                        VALUES (?, NULL, ?, ?, ?, ?, ?, ?, '{}');
-                        """,
-                        (
-                            business_id,
-                            next_line1,
-                            next_line2 or None,
-                            next_city,
-                            next_state,
-                            next_postal,
-                            next_country,
-                        ),
-                    )
-
-            row = connection.execute(
-                _business_select_sql() + " WHERE b.id = ?;",
-                (business_id,),
-            ).fetchone()
-
-            campaign_rows = connection.execute(
-                "SELECT id FROM campaigns WHERE business_id = ? ORDER BY id ASC;",
-                (business_id,),
-            ).fetchall()
-            for campaign in campaign_rows:
-                _persist_campaign_yaml_or_raise(connection, config, campaign["id"])
-            connection.commit()
-
-        if row is None:
-            raise HTTPException(status_code=500, detail="Business update failed")
-
-        return _business_row_to_response(row)
+        db.refresh(business)
+        return _business_to_response(business)
 
     @app.get("/businesses/{business_id}/campaigns/lookup")
-    def lookup_campaigns_by_name(business_id: int, campaign_name: str) -> dict[str, Any]:
-        config = resolve_config()
-        with connect_database(config) as connection:
-            _require_business(connection, business_id)
-            rows = connection.execute(
-                """
-                SELECT id, business_id, campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date
-                FROM campaigns
-                WHERE business_id = ? AND campaign_name = ?
-                ORDER BY id ASC;
-                """,
-                (business_id, campaign_name.strip()),
-            ).fetchall()
+    def lookup_campaigns_by_name(business_id: int, campaign_name: str, db: Session = Depends(get_db_session)) -> dict[str, Any]:
+        _require_business(db, business_id)
+
+        campaigns = db.query(Campaign).filter(
+            Campaign.business_id == business_id,
+            Campaign.campaign_name == campaign_name.strip()
+        ).order_by(Campaign.id.asc()).all()
 
         return {
             "campaign_name": campaign_name.strip(),
-            "matches": [_campaign_row_to_dict(row) for row in rows],
-            "prompt": "open_existing_or_create_new" if rows else "create_new",
+            "matches": [_campaign_row_to_dict(row.__dict__) for row in campaigns],
+            "prompt": "open_existing_or_create_new" if campaigns else "create_new",
         }
 
     @app.post("/businesses/{business_id}/campaigns", status_code=201)
-    def create_campaign(business_id: int, payload: CampaignCreate) -> dict[str, Any]:
+    def create_campaign(business_id: int, payload: CampaignCreate, db: Session = Depends(get_db_session)) -> dict[str, Any]:
         normalized_name = payload.campaign_name.strip()
         normalized_key = (payload.campaign_key or "").strip()
         if normalized_key.lower() == "none":
             normalized_key = ""
 
-        config = resolve_config()
-        with connect_database(config) as connection:
-            _require_business(connection, business_id)
+        _require_business(db, business_id)
 
-            name_matches = connection.execute(
-                """
-                SELECT id, business_id, campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date
-                FROM campaigns
-                WHERE business_id = ? AND campaign_name = ?
-                ORDER BY id ASC;
-                """,
-                (business_id, normalized_name),
-            ).fetchall()
+        # Check for name matches to suggest resolution
+        name_matches = db.query(Campaign).filter(
+            Campaign.business_id == business_id,
+            Campaign.campaign_name == normalized_name
+        ).order_by(Campaign.id.asc()).all()
 
-            if name_matches and normalized_key == "":
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "message": "Campaign name already exists. Choose an existing campaign or provide campaign_key to create a new one.",
-                        "resolution": "open_existing_or_create_new",
-                        "matches": [_campaign_row_to_dict(row) for row in name_matches],
-                    },
-                )
-
-            duplicate_key_row = connection.execute(
-                """
-                SELECT id
-                FROM campaigns
-                WHERE business_id = ? AND campaign_name = ? AND campaign_key = ?;
-                """,
-                (business_id, normalized_name, normalized_key),
-            ).fetchone()
-            if duplicate_key_row is not None:
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "message": "Campaign with the same name and key already exists.",
-                        "resolution": "open_existing",
-                    },
-                )
-
-            cursor = connection.execute(
-                """
-                INSERT INTO campaigns (
-                  business_id, campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
-                """,
-                (
-                    business_id,
-                    normalized_name,
-                    normalized_key,
-                    payload.title.strip(),
-                    payload.objective,
-                    payload.footnote_text,
-                    payload.status,
-                    payload.start_date,
-                    payload.end_date,
-                ),
+        if name_matches and normalized_key == "":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "Campaign name already exists. Choose an existing campaign or provide campaign_key to create a new one.",
+                    "resolution": "open_existing_or_create_new",
+                    "matches": [_campaign_row_to_dict(row.__dict__) for row in name_matches],
+                },
             )
-            campaign_id = int(cursor.lastrowid)
-            row = connection.execute(
-                """
-                SELECT id, business_id, campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date
-                FROM campaigns
-                WHERE id = ?;
-                """,
-                (campaign_id,),
-            ).fetchone()
-            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
-            connection.commit()
 
-        if row is None:
-            raise HTTPException(status_code=500, detail="Campaign creation failed")
-        return _campaign_row_to_dict(row)
+        # Check for duplicate key
+        duplicate = db.query(Campaign).filter(
+            Campaign.business_id == business_id,
+            Campaign.campaign_name == normalized_name,
+            Campaign.campaign_key == normalized_key
+        ).first()
+
+        if duplicate is not None:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "Campaign with the same name and key already exists.",
+                    "resolution": "open_existing",
+                },
+            )
+
+        campaign = Campaign(
+            business_id=business_id,
+            campaign_name=normalized_name,
+            campaign_key=normalized_key,
+            title=payload.title.strip(),
+            objective=payload.objective,
+            footnote_text=payload.footnote_text,
+            status=payload.status,
+            start_date=payload.start_date,
+            end_date=payload.end_date
+        )
+        db.add(campaign)
+        db.commit()
+        db.refresh(campaign)
+
+        config = resolve_config()
+        _persist_campaign_yaml_session_or_raise(db, config, campaign.id)
+
+        return _campaign_row_to_dict(campaign.__dict__)
 
     @app.patch("/businesses/{business_id}/campaigns/{campaign_id}")
-    def update_campaign(business_id: int, campaign_id: int, payload: CampaignUpdate) -> dict[str, Any]:
+    def update_campaign(business_id: int, campaign_id: int, payload: CampaignUpdate, db: Session = Depends(get_db_session)) -> dict[str, Any]:
         updates = payload.model_dump(exclude_none=True)
         if not updates:
             raise HTTPException(status_code=400, detail="No campaign fields provided")
@@ -1060,166 +1058,125 @@ def create_app() -> FastAPI:
             if updates["title"] == "":
                 raise HTTPException(status_code=400, detail="title cannot be empty")
 
+        _require_business(db, business_id)
+        campaign = db.query(Campaign).filter(
+            Campaign.id == campaign_id,
+            Campaign.business_id == business_id
+        ).first()
+
+        if campaign is None:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+
+        for field, value in updates.items():
+            setattr(campaign, field, value)
+
+        db.commit()
+        db.refresh(campaign)
+
         config = resolve_config()
-        with connect_database(config) as connection:
-            _require_business(connection, business_id)
+        _persist_campaign_yaml_session_or_raise(db, config, campaign_id)
 
-            existing = connection.execute(
-                """
-                SELECT id, business_id, campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date
-                FROM campaigns
-                WHERE id = ? AND business_id = ?;
-                """,
-                (campaign_id, business_id),
-            ).fetchone()
-            if existing is None:
-                raise HTTPException(status_code=404, detail="Campaign not found")
-
-            fields_sql = ", ".join([f"{field} = ?" for field in updates.keys()])
-            values = list(updates.values()) + [campaign_id, business_id]
-            connection.execute(
-                f"UPDATE campaigns SET {fields_sql}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND business_id = ?;",
-                values,
-            )
-
-            updated = connection.execute(
-                """
-                SELECT id, business_id, campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date
-                FROM campaigns
-                WHERE id = ?;
-                """,
-                (campaign_id,),
-            ).fetchone()
-            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
-            connection.commit()
-
-        if updated is None:
-            raise HTTPException(status_code=500, detail="Campaign update failed")
-        return _campaign_row_to_dict(updated)
+        return _campaign_row_to_dict(campaign.__dict__)
 
     @app.post("/businesses/{business_id}/campaigns/{campaign_id}/clone", status_code=201)
-    def clone_campaign(business_id: int, campaign_id: int, payload: CampaignCloneRequest) -> dict[str, Any]:
+    def clone_campaign(business_id: int, campaign_id: int, payload: CampaignCloneRequest, db: Session = Depends(get_db_session)) -> dict[str, Any]:
         new_name = payload.new_campaign_name.strip()
         new_key = (payload.campaign_key or "").strip()
         if new_name == "":
             raise HTTPException(status_code=400, detail="new_campaign_name cannot be empty")
 
+        _require_business(db, business_id)
+        source = db.query(Campaign).filter(
+            Campaign.id == campaign_id,
+            Campaign.business_id == business_id
+        ).first()
+
+        if source is None:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+
+        name_matches = db.query(Campaign).filter(
+            Campaign.business_id == business_id,
+            Campaign.campaign_name == new_name
+        ).all()
+
+        if name_matches and new_key == "":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "Campaign name already exists. Provide campaign_key to make it unique.",
+                    "resolution": "provide_secondary_key",
+                    "matches": [
+                        {"id": row.id, "campaign_key": row.campaign_key or None}
+                        for row in name_matches
+                    ],
+                },
+            )
+
+        duplicate = db.query(Campaign).filter(
+            Campaign.business_id == business_id,
+            Campaign.campaign_name == new_name,
+            Campaign.campaign_key == new_key
+        ).first()
+
+        if duplicate is not None:
+            raise HTTPException(status_code=409, detail="Campaign name and secondary key already exist")
+
+        destination_slug = new_name if new_key == "" else f"{new_name}-{new_key}"
+
         config = resolve_config()
+        _require_legacy_sqlite_mode(config, "Campaign cloning")
+        from .db import connect_database
         with connect_database(config) as connection:
-            _require_business(connection, business_id)
-            source = connection.execute(
-                """
-                SELECT c.id, c.business_id, c.campaign_name, c.campaign_key, b.display_name AS business_display_name
-                FROM campaigns c
-                JOIN businesses b ON b.id = c.business_id
-                WHERE c.id = ? AND c.business_id = ?;
-                """,
-                (campaign_id, business_id),
-            ).fetchone()
-            if source is None:
-                raise HTTPException(status_code=404, detail="Campaign not found")
-
-            name_matches = connection.execute(
-                """
-                SELECT id, campaign_key
-                FROM campaigns
-                WHERE business_id = ? AND campaign_name = ?
-                ORDER BY id ASC;
-                """,
-                (business_id, new_name),
-            ).fetchall()
-            if name_matches and new_key == "":
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "message": "Campaign name already exists. Provide campaign_key to make it unique.",
-                        "resolution": "provide_secondary_key",
-                        "matches": [
-                            {"id": row["id"], "campaign_key": row["campaign_key"] or None}
-                            for row in name_matches
-                        ],
-                    },
-                )
-
-            duplicate = connection.execute(
-                """
-                SELECT id
-                FROM campaigns
-                WHERE business_id = ? AND campaign_name = ? AND campaign_key = ?;
-                """,
-                (business_id, new_name, new_key),
-            ).fetchone()
-            if duplicate is not None:
-                raise HTTPException(status_code=409, detail="Campaign name and secondary key already exist")
-
-            destination_slug = new_name if new_key == "" else f"{new_name}-{new_key}"
             try:
                 record = clone_campaign_directory(
                     connection,
                     config.data_dir,
-                    source_campaign_name=source["campaign_name"],
-                    source_campaign_key=source["campaign_key"] or "",
+                    source_campaign_name=source.campaign_name,
+                    source_campaign_key=source.campaign_key or "",
                     new_campaign_name=new_name,
                     new_campaign_key=new_key or None,
                     destination_directory_name=destination_slug,
-                    business_name=source["business_display_name"],
+                    business_name=source.business.display_name,
                 )
+                connection.commit()
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-            row = connection.execute(
-                """
-                SELECT id, business_id, campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date
-                FROM campaigns
-                WHERE business_id = ? AND campaign_name = ? AND campaign_key = ?
-                ORDER BY id DESC
-                LIMIT 1;
-                """,
-                (business_id, record.payload.get("campaign_name"), record.payload.get("qualifier") or ""),
-            ).fetchone()
-            connection.commit()
+        new_campaign = db.query(Campaign).filter(
+            Campaign.business_id == business_id,
+            Campaign.campaign_name == record.payload.get("campaign_name"),
+            Campaign.campaign_key == (record.payload.get("qualifier") or "")
+        ).order_by(Campaign.id.desc()).first()
 
-        if row is None:
+        if new_campaign is None:
             raise HTTPException(status_code=500, detail="Campaign clone failed")
-        return _campaign_row_to_dict(row)
+
+        return _campaign_row_to_dict(new_campaign.__dict__)
 
     @app.get("/businesses/{business_id}/campaigns")
-    def list_campaigns(business_id: int) -> dict[str, Any]:
-        config = resolve_config()
-        with connect_database(config) as connection:
-            _require_business(connection, business_id)
-            rows = connection.execute(
-                """
-                SELECT id, business_id, campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date
-                FROM campaigns
-                WHERE business_id = ?
-                ORDER BY campaign_name ASC, campaign_key ASC, id ASC;
-                """,
-                (business_id,),
-            ).fetchall()
+    def list_campaigns(business_id: int, db: Session = Depends(get_db_session)) -> dict[str, Any]:
+        _require_business(db, business_id)
+        campaigns = db.query(Campaign).filter(
+            Campaign.business_id == business_id
+        ).order_by(Campaign.campaign_name.asc(), Campaign.campaign_key.asc(), Campaign.id.asc()).all()
 
-        return {"items": [_campaign_row_to_dict(row) for row in rows]}
+        return {"items": [_campaign_row_to_dict(row.__dict__) for row in campaigns]}
 
     @app.get("/businesses/{business_id}/campaigns/{campaign_id}")
-    def get_campaign(business_id: int, campaign_id: int) -> dict[str, Any]:
-        config = resolve_config()
-        with connect_database(config) as connection:
-            _require_business(connection, business_id)
-            row = connection.execute(
-                """
-                SELECT id, business_id, campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date
-                FROM campaigns
-                WHERE id = ? AND business_id = ?;
-                """,
-                (campaign_id, business_id),
-            ).fetchone()
+    def get_campaign(business_id: int, campaign_id: int, db: Session = Depends(get_db_session)) -> dict[str, Any]:
+        _require_business(db, business_id)
+        campaign = db.query(Campaign).filter(
+            Campaign.id == campaign_id,
+            Campaign.business_id == business_id
+        ).first()
 
-        if row is None:
+        if campaign is None:
             raise HTTPException(status_code=404, detail="Campaign not found")
-        return _campaign_row_to_dict(row)
+        return _campaign_row_to_dict(campaign.__dict__)
+
 
     @app.post("/campaigns/{campaign_id}/offers", status_code=201)
-    def create_campaign_offer(campaign_id: int, payload: CampaignOfferCreate) -> dict[str, Any]:
+    def create_campaign_offer(campaign_id: int, payload: CampaignOfferCreate, db: Session = Depends(get_db_session)) -> dict[str, Any]:
         new_start = _parse_iso_date(payload.start_date, "start_date")
         new_end = _parse_iso_date(payload.end_date, "end_date")
         if (new_start is None) != (new_end is None):
@@ -1227,570 +1184,463 @@ def create_app() -> FastAPI:
         if new_start is not None and new_end is not None and new_start > new_end:
             raise HTTPException(status_code=400, detail="Offer start_date cannot be after end_date")
 
-        config = resolve_config()
-        with connect_database(config) as connection:
-            _require_campaign(connection, campaign_id)
+        campaign = _require_campaign(db, campaign_id)
 
-            existing_rows = connection.execute(
-                """
-                SELECT id, start_date, end_date
-                FROM campaign_offers
-                WHERE campaign_id = ?;
-                """,
-                (campaign_id,),
-            ).fetchall()
-            for row in existing_rows:
-                existing_start = _parse_iso_date(row["start_date"], "start_date")
-                existing_end = _parse_iso_date(row["end_date"], "end_date")
-                if _offers_overlap(new_start, new_end, existing_start, existing_end):
-                    raise HTTPException(
-                        status_code=409,
-                        detail={
-                            "message": "Offer date window overlaps with an existing offer",
-                            "existing_offer_id": row["id"],
-                        },
-                    )
-
-            cursor = connection.execute(
-                """
-                INSERT INTO campaign_offers (
-                  campaign_id, offer_name, offer_type, offer_value, start_date, end_date, terms_text
+        # Check for overlaps
+        for offer in campaign.offers:
+            existing_start = _parse_iso_date(offer.start_date, "start_date")
+            existing_end = _parse_iso_date(offer.end_date, "end_date")
+            if _offers_overlap(new_start, new_end, existing_start, existing_end):
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": "Offer date window overlaps with an existing offer",
+                        "existing_offer_id": offer.id,
+                    },
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?);
-                """,
-                (
-                    campaign_id,
-                    payload.offer_name.strip(),
-                    payload.offer_type.strip(),
-                    payload.offer_value,
-                    payload.start_date,
-                    payload.end_date,
-                    payload.terms_text,
-                ),
-            )
-            offer_id = int(cursor.lastrowid)
-            row = connection.execute(
-                """
-                SELECT id, campaign_id, offer_name, offer_type, offer_value, start_date, end_date, terms_text
-                FROM campaign_offers
-                WHERE id = ?;
-                """,
-                (offer_id,),
-            ).fetchone()
-            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
-            connection.commit()
 
-        if row is None:
-            raise HTTPException(status_code=500, detail="Offer creation failed")
+        new_offer = CampaignOffer(
+            campaign_id=campaign_id,
+            offer_name=payload.offer_name.strip(),
+            offer_type=payload.offer_type.strip(),
+            offer_value=payload.offer_value,
+            start_date=payload.start_date,
+            end_date=payload.end_date,
+            terms_text=payload.terms_text
+        )
+        db.add(new_offer)
+        db.commit()
+        db.refresh(new_offer)
+
+        config = resolve_config()
+        _persist_campaign_yaml_session_or_raise(db, config, campaign_id)
+
         return {
-            "id": row["id"],
-            "campaign_id": row["campaign_id"],
-            "offer_name": row["offer_name"],
-            "offer_type": row["offer_type"],
-            "offer_value": row["offer_value"],
-            "start_date": row["start_date"],
-            "end_date": row["end_date"],
-            "terms_text": row["terms_text"],
+            "id": new_offer.id,
+            "campaign_id": new_offer.campaign_id,
+            "offer_name": new_offer.offer_name,
+            "offer_type": new_offer.offer_type,
+            "offer_value": new_offer.offer_value,
+            "start_date": new_offer.start_date,
+            "end_date": new_offer.end_date,
+            "terms_text": new_offer.terms_text,
         }
 
     @app.get("/campaigns/{campaign_id}/offers")
-    def list_campaign_offers(campaign_id: int) -> dict[str, Any]:
-        config = resolve_config()
-        with connect_database(config) as connection:
-            _require_campaign(connection, campaign_id)
-            rows = connection.execute(
-                """
-                SELECT id, campaign_id, offer_name, offer_type, offer_value, start_date, end_date, terms_text
-                FROM campaign_offers
-                WHERE campaign_id = ?
-                ORDER BY start_date ASC, id ASC;
-                """,
-                (campaign_id,),
-            ).fetchall()
+    def list_campaign_offers(campaign_id: int, db: Session = Depends(get_db_session)) -> dict[str, Any]:
+        campaign = _require_campaign(db, campaign_id)
+        # Sort manually or via query. Manual sort for simple relationship access.
+        sorted_offers = sorted(campaign.offers, key=lambda o: (o.start_date or "", o.id))
 
         return {
             "items": [
                 {
-                    "id": row["id"],
-                    "campaign_id": row["campaign_id"],
-                    "offer_name": row["offer_name"],
-                    "offer_type": row["offer_type"],
-                    "offer_value": row["offer_value"],
-                    "start_date": row["start_date"],
-                    "end_date": row["end_date"],
-                    "terms_text": row["terms_text"],
+                    "id": row.id,
+                    "campaign_id": row.campaign_id,
+                    "offer_name": row.offer_name,
+                    "offer_type": row.offer_type,
+                    "offer_value": row.offer_value,
+                    "start_date": row.start_date,
+                    "end_date": row.end_date,
+                    "terms_text": row.terms_text,
                 }
-                for row in rows
+                for row in sorted_offers
             ]
         }
 
     @app.post("/campaigns/{campaign_id}/assets", status_code=201)
-    def create_campaign_asset(campaign_id: int, payload: CampaignAssetCreate) -> dict[str, Any]:
+    def create_campaign_asset(campaign_id: int, payload: CampaignAssetCreate, db: Session = Depends(get_db_session)) -> dict[str, Any]:
         mime_type = payload.mime_type.strip().lower()
         if mime_type not in ALLOWED_ASSET_MIME_TYPES:
             raise HTTPException(status_code=400, detail="Unsupported mime_type")
 
-        config = resolve_config()
-        with connect_database(config) as connection:
-            _require_campaign(connection, campaign_id)
-            cursor = connection.execute(
-                """
-                INSERT INTO campaign_assets (
-                  campaign_id, asset_type, source_type, mime_type, source_path, width, height, metadata_json
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
-                """,
-                (
-                    campaign_id,
-                    payload.asset_type.strip(),
-                    payload.source_type,
-                    mime_type,
-                    payload.source_path.strip(),
-                    payload.width,
-                    payload.height,
-                    json.dumps(payload.metadata or {}),
-                ),
-            )
-            asset_id = int(cursor.lastrowid)
-            row = connection.execute(
-                """
-                SELECT id, campaign_id, asset_type, source_type, mime_type, source_path, width, height, metadata_json
-                FROM campaign_assets
-                WHERE id = ?;
-                """,
-                (asset_id,),
-            ).fetchone()
-            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
-            connection.commit()
+        _require_campaign(db, campaign_id)
 
-        if row is None:
-            raise HTTPException(status_code=500, detail="Asset creation failed")
+        asset = CampaignAsset(
+            campaign_id=campaign_id,
+            asset_type=payload.asset_type.strip(),
+            source_type=payload.source_type,
+            mime_type=mime_type,
+            source_path=payload.source_path.strip(),
+            width=payload.width,
+            height=payload.height,
+            metadata_json=json.dumps(payload.metadata or {})
+        )
+        db.add(asset)
+        db.commit()
+        db.refresh(asset)
+
+        config = resolve_config()
+        _persist_campaign_yaml_session_or_raise(db, config, campaign_id)
+
         return {
-            "id": row["id"],
-            "campaign_id": row["campaign_id"],
-            "asset_type": row["asset_type"],
-            "source_type": row["source_type"],
-            "mime_type": row["mime_type"],
-            "source_path": row["source_path"],
-            "width": row["width"],
-            "height": row["height"],
-            "metadata": json.loads(row["metadata_json"] or "{}"),
+            "id": asset.id,
+            "campaign_id": asset.campaign_id,
+            "asset_type": asset.asset_type,
+            "source_type": asset.source_type,
+            "mime_type": asset.mime_type,
+            "source_path": asset.source_path,
+            "width": asset.width,
+            "height": asset.height,
+            "metadata": json.loads(asset.metadata_json or "{}"),
         }
 
     @app.get("/campaigns/{campaign_id}/assets")
-    def list_campaign_assets(campaign_id: int) -> dict[str, Any]:
-        config = resolve_config()
-        with connect_database(config) as connection:
-            _require_campaign(connection, campaign_id)
-            rows = connection.execute(
-                """
-                SELECT id, campaign_id, asset_type, source_type, mime_type, source_path, width, height, metadata_json
-                FROM campaign_assets
-                WHERE campaign_id = ?
-                ORDER BY id ASC;
-                """,
-                (campaign_id,),
-            ).fetchall()
-
+    def list_campaign_assets(campaign_id: int, db: Session = Depends(get_db_session)) -> dict[str, Any]:
+        campaign = _require_campaign(db, campaign_id)
         return {
             "items": [
                 {
-                    "id": row["id"],
-                    "campaign_id": row["campaign_id"],
-                    "asset_type": row["asset_type"],
-                    "source_type": row["source_type"],
-                    "mime_type": row["mime_type"],
-                    "source_path": row["source_path"],
-                    "width": row["width"],
-                    "height": row["height"],
-                    "metadata": json.loads(row["metadata_json"] or "{}"),
+                    "id": row.id,
+                    "campaign_id": row.campaign_id,
+                    "asset_type": row.asset_type,
+                    "source_type": row.source_type,
+                    "mime_type": row.mime_type,
+                    "source_path": row.source_path,
+                    "width": row.width,
+                    "height": row.height,
+                    "metadata": json.loads(row.metadata_json or "{}"),
                 }
-                for row in rows
+                for row in campaign.assets
             ]
         }
 
     @app.post("/templates", status_code=201)
-    def create_template(payload: TemplateDefinitionCreate) -> dict[str, Any]:
-        config = resolve_config()
-        with connect_database(config) as connection:
-            duplicate = connection.execute(
-                "SELECT id FROM template_definitions WHERE template_name = ?;",
-                (payload.template_name.strip(),),
-            ).fetchone()
-            if duplicate is not None:
-                raise HTTPException(status_code=409, detail="Template name already exists")
+    def create_template(payload: TemplateDefinitionCreate, db: Session = Depends(get_db_session)) -> dict[str, Any]:
+        duplicate = db.query(TemplateDefinition).filter(
+            TemplateDefinition.template_name == payload.template_name.strip()
+        ).first()
 
-            cursor = connection.execute(
-                """
-                INSERT INTO template_definitions (
-                  template_name, template_kind, size_spec, layout_json, default_values_json
-                )
-                VALUES (?, ?, ?, ?, ?);
-                """,
-                (
-                    payload.template_name.strip(),
-                    payload.template_kind.strip(),
-                    payload.size_spec,
-                    json.dumps(payload.layout or {}),
-                    json.dumps(payload.default_values or {}),
-                ),
-            )
-            template_id = int(cursor.lastrowid)
-            row = connection.execute(
-                """
-                SELECT id, template_name, template_kind, size_spec, layout_json, default_values_json
-                FROM template_definitions
-                WHERE id = ?;
-                """,
-                (template_id,),
-            ).fetchone()
-            connection.commit()
+        if duplicate is not None:
+            raise HTTPException(status_code=409, detail="Template name already exists")
 
-        if row is None:
-            raise HTTPException(status_code=500, detail="Template creation failed")
+        template = TemplateDefinition(
+            template_name=payload.template_name.strip(),
+            template_kind=payload.template_kind.strip(),
+            size_spec=payload.size_spec,
+            layout_json=json.dumps(payload.layout or {}),
+            default_values_json=json.dumps(payload.default_values or {})
+        )
+        db.add(template)
+        db.commit()
+        db.refresh(template)
+
         return {
-            "id": row["id"],
-            "template_name": row["template_name"],
-            "template_kind": row["template_kind"],
-            "size_spec": row["size_spec"],
-            "layout": json.loads(row["layout_json"] or "{}"),
-            "default_values": json.loads(row["default_values_json"] or "{}"),
+            "id": template.id,
+            "template_name": template.template_name,
+            "template_kind": template.template_kind,
+            "size_spec": template.size_spec,
+            "layout": json.loads(template.layout_json or "{}"),
+            "default_values": json.loads(template.default_values_json or "{}"),
         }
 
     @app.get("/templates")
-    def list_templates() -> dict[str, Any]:
-        config = resolve_config()
-        with connect_database(config) as connection:
-            rows = connection.execute(
-                """
-                SELECT id, template_name, template_kind, size_spec, layout_json, default_values_json
-                FROM template_definitions
-                ORDER BY template_name ASC;
-                """
-            ).fetchall()
-
+    def list_templates(db: Session = Depends(get_db_session)) -> dict[str, Any]:
+        rows = db.query(TemplateDefinition).order_by(TemplateDefinition.template_name.asc()).all()
         return {
             "items": [
                 {
-                    "id": row["id"],
-                    "template_name": row["template_name"],
-                    "template_kind": row["template_kind"],
-                    "size_spec": row["size_spec"],
-                    "layout": json.loads(row["layout_json"] or "{}"),
-                    "default_values": json.loads(row["default_values_json"] or "{}"),
+                    "id": row.id,
+                    "template_name": row.template_name,
+                    "template_kind": row.template_kind,
+                    "size_spec": row.size_spec,
+                    "layout": json.loads(row.layout_json or "{}"),
+                    "default_values": json.loads(row.default_values_json or "{}"),
                 }
                 for row in rows
             ]
         }
 
     @app.post("/campaigns/{campaign_id}/template-bindings", status_code=201)
-    def create_template_binding(campaign_id: int, payload: CampaignTemplateBindingCreate) -> dict[str, Any]:
+    def create_template_binding(campaign_id: int, payload: CampaignTemplateBindingCreate, db: Session = Depends(get_db_session)) -> dict[str, Any]:
+        campaign = _require_campaign(db, campaign_id)
+
+        template = db.get(TemplateDefinition, payload.template_id)
+        if template is None:
+            raise HTTPException(status_code=404, detail="Template not found")
+
+        # Deactivate existing bindings
+        db.query(CampaignTemplateBinding).filter(
+            CampaignTemplateBinding.campaign_id == campaign_id
+        ).update({"is_active": False})
+
+        binding = CampaignTemplateBinding(
+            campaign_id=campaign_id,
+            template_id=payload.template_id,
+            override_values_json=json.dumps(payload.override_values or {}),
+            is_active=True
+        )
+        db.add(binding)
+        db.commit()
+        db.refresh(binding)
+
         config = resolve_config()
-        with connect_database(config) as connection:
-            _require_campaign(connection, campaign_id)
-            _require_template(connection, payload.template_id)
+        _persist_campaign_yaml_session_or_raise(db, config, campaign_id)
 
-            connection.execute(
-                "UPDATE campaign_template_bindings SET is_active = 0 WHERE campaign_id = ?;",
-                (campaign_id,),
-            )
-            cursor = connection.execute(
-                """
-                INSERT INTO campaign_template_bindings (
-                  campaign_id, template_id, override_values_json, is_active
-                )
-                VALUES (?, ?, ?, 1);
-                """,
-                (campaign_id, payload.template_id, json.dumps(payload.override_values or {})),
-            )
-            binding_id = int(cursor.lastrowid)
-
-            row = connection.execute(
-                """
-                SELECT b.id, b.campaign_id, b.template_id, b.override_values_json, b.is_active,
-                       t.template_name, t.template_kind, t.size_spec, t.layout_json, t.default_values_json
-                FROM campaign_template_bindings b
-                JOIN template_definitions t ON t.id = b.template_id
-                WHERE b.id = ?;
-                """,
-                (binding_id,),
-            ).fetchone()
-            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
-            connection.commit()
-
-        if row is None:
-            raise HTTPException(status_code=500, detail="Template binding creation failed")
-        defaults = json.loads(row["default_values_json"] or "{}")
-        overrides = json.loads(row["override_values_json"] or "{}")
+        defaults = json.loads(template.default_values_json or "{}")
+        overrides = payload.override_values or {}
         effective_values = {**defaults, **overrides}
 
         return {
-            "id": row["id"],
-            "campaign_id": row["campaign_id"],
-            "template_id": row["template_id"],
-            "template_name": row["template_name"],
-            "template_kind": row["template_kind"],
-            "size_spec": row["size_spec"],
-            "layout": json.loads(row["layout_json"] or "{}"),
+            "id": binding.id,
+            "campaign_id": binding.campaign_id,
+            "template_id": binding.template_id,
+            "template_name": template.template_name,
+            "template_kind": template.template_kind,
+            "size_spec": template.size_spec,
+            "layout": json.loads(template.layout_json or "{}"),
             "default_values": defaults,
             "override_values": overrides,
             "effective_values": effective_values,
-            "is_active": bool(row["is_active"]),
+            "is_active": binding.is_active,
         }
 
     @app.get("/campaigns/{campaign_id}/template-binding/effective")
-    def get_effective_template_binding(campaign_id: int) -> dict[str, Any]:
-        config = resolve_config()
-        with connect_database(config) as connection:
-            _require_campaign(connection, campaign_id)
+    def get_effective_template_binding(campaign_id: int, db: Session = Depends(get_db_session)) -> dict[str, Any]:
+        campaign = _require_campaign(db, campaign_id)
 
-            row = connection.execute(
-                """
-                SELECT b.id, b.campaign_id, b.template_id, b.override_values_json, b.is_active,
-                       t.template_name, t.template_kind, t.size_spec, t.layout_json, t.default_values_json
-                FROM campaign_template_bindings b
-                JOIN template_definitions t ON t.id = b.template_id
-                WHERE b.campaign_id = ? AND b.is_active = 1
-                ORDER BY b.id DESC
-                LIMIT 1;
-                """,
-                (campaign_id,),
-            ).fetchone()
+        binding = db.query(CampaignTemplateBinding).filter(
+            CampaignTemplateBinding.campaign_id == campaign_id,
+            CampaignTemplateBinding.is_active == True
+        ).order_by(CampaignTemplateBinding.id.desc()).first()
 
-        if row is None:
+        if binding is None:
             raise HTTPException(status_code=404, detail="No active template binding for campaign")
 
-        defaults = json.loads(row["default_values_json"] or "{}")
-        overrides = json.loads(row["override_values_json"] or "{}")
+        template = binding.template
+        defaults = json.loads(template.default_values_json or "{}")
+        overrides = json.loads(binding.override_values_json or "{}")
         effective_values = {**defaults, **overrides}
+
         return {
-            "id": row["id"],
-            "campaign_id": row["campaign_id"],
-            "template_id": row["template_id"],
-            "template_name": row["template_name"],
-            "template_kind": row["template_kind"],
-            "size_spec": row["size_spec"],
-            "layout": json.loads(row["layout_json"] or "{}"),
+            "id": binding.id,
+            "campaign_id": binding.campaign_id,
+            "template_id": binding.template_id,
+            "template_name": template.template_name,
+            "template_kind": template.template_kind,
+            "size_spec": template.size_spec,
+            "layout": json.loads(template.layout_json or "{}"),
             "default_values": defaults,
             "override_values": overrides,
             "effective_values": effective_values,
-            "is_active": bool(row["is_active"]),
+            "is_active": binding.is_active,
         }
 
     @app.get("/campaigns/{campaign_id}/components")
-    def list_campaign_components(campaign_id: int) -> dict[str, Any]:
-        config = resolve_config()
-        with connect_database(config) as connection:
-            _require_campaign(connection, campaign_id)
-            rows = connection.execute(
-                """
-                SELECT id, component_key, component_kind, render_region, render_mode, style_json, display_title, subtitle,
-                       description_text, footnote_text, background_color, header_accent_color, display_order
-                FROM campaign_components
-                WHERE campaign_id = ?
-                ORDER BY display_order ASC, id ASC;
-                """,
-                (campaign_id,),
-            ).fetchall()
+    def list_campaign_components(campaign_id: int, db: Session = Depends(get_db_session)) -> dict[str, Any]:
+        campaign = _require_campaign(db, campaign_id)
 
-            items_tree: list[dict[str, Any]] = []
-            for r in rows:
-                item_rows = connection.execute(
-                    """
-                    SELECT id, item_name, item_kind, duration_label, item_value, background_color, render_role, style_json, description_text, terms_text, display_order
-                    FROM campaign_component_items
-                    WHERE component_id = ?
-                    ORDER BY display_order ASC, id ASC;
-                    """,
-                    (r["id"],),
-                ).fetchall()
-                items_tree.append(
+        # Sort components
+        sorted_components = sorted(campaign.components, key=lambda c: (c.display_order, c.id))
+
+        items_tree = []
+        for c in sorted_components:
+            # Sort items
+            sorted_items = sorted(c.items, key=lambda i: (i.display_order, i.id))
+            items_tree.append({
+                "id": c.id,
+                "component_key": c.component_key,
+                "component_kind": c.component_kind,
+                "render_region": c.render_region,
+                "render_mode": c.render_mode,
+                "style": json.loads(c.style_json or "{}"),
+                "display_title": c.display_title,
+                "subtitle": c.subtitle,
+                "description_text": c.description_text,
+                "footnote_text": c.footnote_text,
+                "background_color": c.background_color,
+                "header_accent_color": c.header_accent_color,
+                "display_order": c.display_order,
+                "items": [
                     {
-                        "id": r["id"],
-                        "component_key": r["component_key"],
-                        "component_kind": r["component_kind"],
-                        "render_region": r["render_region"],
-                        "render_mode": r["render_mode"],
-                        "style": json.loads(r["style_json"] or "{}"),
-                        "display_title": r["display_title"],
-                        "subtitle": r["subtitle"],
-                        "description_text": r["description_text"],
-                        "footnote_text": r["footnote_text"],
-                        "background_color": r["background_color"],
-                        "header_accent_color": r["header_accent_color"],
-                        "display_order": r["display_order"],
-                        "items": [
-                            {
-                                "id": ir["id"],
-                                "item_name": ir["item_name"],
-                                "item_kind": ir["item_kind"],
-                                "duration_label": ir["duration_label"],
-                                "item_value": ir["item_value"],
-                                "background_color": ir["background_color"],
-                                "render_role": ir["render_role"],
-                                "style": json.loads(ir["style_json"] or "{}"),
-                                "description_text": ir["description_text"],
-                                "terms_text": ir["terms_text"],
-                                "display_order": ir["display_order"],
-                            }
-                            for ir in item_rows
-                        ],
+                        "id": ir.id,
+                        "item_name": ir.item_name,
+                        "item_kind": ir.item_kind,
+                        "duration_label": ir.duration_label,
+                        "item_value": ir.item_value,
+                        "background_color": ir.background_color,
+                        "render_role": ir.render_role,
+                        "style": json.loads(ir.style_json or "{}"),
+                        "description_text": ir.description_text,
+                        "terms_text": ir.terms_text,
+                        "display_order": ir.display_order,
                     }
-                )
+                    for ir in sorted_items
+                ]
+            })
+
         return {
             "campaign_id": campaign_id,
             "items": items_tree,
         }
 
     @app.post("/campaigns/{campaign_id}/components", status_code=201)
-    def create_component(campaign_id: int, payload: ComponentCreate) -> dict[str, Any]:
-        config = resolve_config()
-        with connect_database(config) as connection:
-            _require_campaign(connection, campaign_id)
-            try:
-                cursor = connection.execute(
-                    """
-                    INSERT INTO campaign_components (
-                      campaign_id, component_key, component_kind, render_region, render_mode,
-                      style_json, display_title, background_color, header_accent_color,
-                      footnote_text, subtitle, description_text, display_order
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-                    """,
-                    (
-                        campaign_id,
-                        payload.component_key.strip(),
-                        payload.component_kind.strip(),
-                        payload.render_region,
-                        payload.render_mode,
-                        json.dumps(payload.style or {}),
-                        payload.display_title.strip(),
-                        payload.background_color,
-                        payload.header_accent_color,
-                        payload.footnote_text,
-                        payload.subtitle,
-                        payload.description_text,
-                        payload.display_order,
-                    ),
-                )
-                component_id = int(cursor.lastrowid)
-                _persist_campaign_yaml_or_raise(connection, config, campaign_id)
-                connection.commit()
-            except sqlite3.IntegrityError as exc:
-                raise HTTPException(status_code=409, detail="Component key already exists in this campaign") from exc
+    def create_component(campaign_id: int, payload: ComponentCreate, db: Session = Depends(get_db_session)) -> dict[str, Any]:
+        _require_campaign(db, campaign_id)
 
-        return {"id": component_id, "campaign_id": campaign_id, **payload.model_dump()}
+        # Check for duplicate key
+        duplicate = db.query(CampaignComponent).filter(
+            CampaignComponent.campaign_id == campaign_id,
+            CampaignComponent.component_key == payload.component_key.strip()
+        ).first()
+
+        if duplicate is not None:
+            raise HTTPException(status_code=409, detail="Component key already exists in this campaign")
+
+        component = CampaignComponent(
+            campaign_id=campaign_id,
+            component_key=payload.component_key.strip(),
+            component_kind=payload.component_kind.strip(),
+            render_region=payload.render_region,
+            render_mode=payload.render_mode,
+            style_json=json.dumps(payload.style or {}),
+            display_title=payload.display_title.strip(),
+            background_color=payload.background_color,
+            header_accent_color=payload.header_accent_color,
+            footnote_text=payload.footnote_text,
+            subtitle=payload.subtitle,
+            description_text=payload.description_text,
+            display_order=payload.display_order
+        )
+        db.add(component)
+        db.commit()
+        db.refresh(component)
+
+        config = resolve_config()
+        _persist_campaign_yaml_session_or_raise(db, config, campaign_id)
+
+        return {"id": component.id, "campaign_id": campaign_id, **payload.model_dump()}
 
     @app.patch("/campaigns/{campaign_id}/components/{component_id}")
-    def update_component(campaign_id: int, component_id: int, payload: ComponentUpdate) -> dict[str, Any]:
+    def update_component(campaign_id: int, component_id: int, payload: ComponentUpdate, db: Session = Depends(get_db_session)) -> dict[str, Any]:
         updates = payload.model_dump(exclude_none=True)
         if not updates:
             raise HTTPException(status_code=400, detail="No component fields provided")
 
+        _require_campaign(db, campaign_id)
+        component = db.query(CampaignComponent).filter(
+            CampaignComponent.id == component_id,
+            CampaignComponent.campaign_id == campaign_id
+        ).first()
+
+        if component is None:
+            raise HTTPException(status_code=404, detail="Component not found")
+
         if "style" in updates:
             updates["style_json"] = json.dumps(updates.pop("style"))
 
+        for field, value in updates.items():
+            setattr(component, field, value)
+
+        try:
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="Component update conflicts with existing data") from exc
+
         config = resolve_config()
-        with connect_database(config) as connection:
-            _require_campaign(connection, campaign_id)
-            _require_component(connection, component_id)
+        _persist_campaign_yaml_session_or_raise(db, config, campaign_id)
 
-            fields_sql = ", ".join([f"{field} = ?" for field in updates.keys()])
-            values = list(updates.values()) + [component_id, campaign_id]
-            try:
-                connection.execute(
-                    f"UPDATE campaign_components SET {fields_sql}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND campaign_id = ?;",
-                    values,
-                )
-                _persist_campaign_yaml_or_raise(connection, config, campaign_id)
-                connection.commit()
-            except sqlite3.IntegrityError as exc:
-                raise HTTPException(status_code=409, detail="Component update conflicts with existing data") from exc
-
-        return {"id": component_id, "campaign_id": campaign_id, "updates": list(updates.keys())}
+        db.refresh(component)
+        return {"id": component.id, "campaign_id": campaign_id, "updates": list(updates.keys())}
 
     @app.delete("/campaigns/{campaign_id}/components/{component_id}", status_code=204)
-    def delete_component(campaign_id: int, component_id: int) -> None:
+    def delete_component(campaign_id: int, component_id: int, db: Session = Depends(get_db_session)) -> None:
+        _require_campaign(db, campaign_id)
+        component = db.query(CampaignComponent).filter(
+            CampaignComponent.id == component_id,
+            CampaignComponent.campaign_id == campaign_id
+        ).first()
+
+        if component is None:
+            raise HTTPException(status_code=404, detail="Component not found")
+
+        db.delete(component)
+        db.commit()
+
         config = resolve_config()
-        with connect_database(config) as connection:
-            _require_campaign(connection, campaign_id)
-            _require_component(connection, component_id)
-            connection.execute("DELETE FROM campaign_components WHERE id = ? AND campaign_id = ?;", (component_id, campaign_id))
-            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
-            connection.commit()
+        _persist_campaign_yaml_session_or_raise(db, config, campaign_id)
 
     @app.post("/campaigns/{campaign_id}/components/{component_id}/items", status_code=201)
-    def create_component_item(campaign_id: int, component_id: int, payload: ComponentItemCreate) -> dict[str, Any]:
+    def create_component_item(campaign_id: int, component_id: int, payload: ComponentItemCreate, db: Session = Depends(get_db_session)) -> dict[str, Any]:
+        _require_campaign(db, campaign_id)
+        # Component must belong to this campaign
+        component = db.query(CampaignComponent).filter(
+            CampaignComponent.id == component_id,
+            CampaignComponent.campaign_id == campaign_id
+        ).first()
+        if component is None:
+            raise HTTPException(status_code=404, detail="Component not found")
+
+        item = CampaignComponentItem(
+            component_id=component_id,
+            item_name=payload.item_name.strip(),
+            item_kind=payload.item_kind.strip(),
+            render_role=payload.render_role,
+            style_json=json.dumps(payload.style or {}),
+            duration_label=payload.duration_label,
+            item_value=payload.item_value,
+            background_color=payload.background_color,
+            description_text=payload.description_text,
+            terms_text=payload.terms_text,
+            display_order=payload.display_order
+        )
+        db.add(item)
+        db.commit()
+        db.refresh(item)
+
         config = resolve_config()
-        with connect_database(config) as connection:
-            _require_campaign(connection, campaign_id)
-            _require_component(connection, component_id)
+        _persist_campaign_yaml_session_or_raise(db, config, campaign_id)
 
-            cursor = connection.execute(
-                """
-                INSERT INTO campaign_component_items (
-                  component_id, item_name, item_kind, render_role, style_json,
-                  duration_label, item_value, background_color, description_text,
-                  terms_text, display_order
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-                """,
-                (
-                    component_id,
-                    payload.item_name.strip(),
-                    payload.item_kind.strip(),
-                    payload.render_role,
-                    json.dumps(payload.style or {}),
-                    payload.duration_label,
-                    payload.item_value,
-                    payload.background_color,
-                    payload.description_text,
-                    payload.terms_text,
-                    payload.display_order,
-                ),
-            )
-            item_id = int(cursor.lastrowid)
-            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
-            connection.commit()
-
-        return {"id": item_id, "component_id": component_id, **payload.model_dump()}
+        return {"id": item.id, "component_id": component_id, **payload.model_dump()}
 
     @app.patch("/campaigns/{campaign_id}/components/{component_id}/items/{item_id}")
-    def update_component_item(campaign_id: int, component_id: int, item_id: int, payload: ComponentItemUpdate) -> dict[str, Any]:
+    def update_component_item(campaign_id: int, component_id: int, item_id: int, payload: ComponentItemUpdate, db: Session = Depends(get_db_session)) -> dict[str, Any]:
         updates = payload.model_dump(exclude_none=True)
         if not updates:
             raise HTTPException(status_code=400, detail="No item fields provided")
 
+        _require_campaign(db, campaign_id)
+        item = db.query(CampaignComponentItem).join(CampaignComponent).filter(
+            CampaignComponentItem.id == item_id,
+            CampaignComponentItem.component_id == component_id,
+            CampaignComponent.campaign_id == campaign_id
+        ).first()
+
+        if item is None:
+            raise HTTPException(status_code=404, detail="Component item not found")
+
         if "style" in updates:
             updates["style_json"] = json.dumps(updates.pop("style"))
 
+        for field, value in updates.items():
+            setattr(item, field, value)
+
+        db.commit()
+        db.refresh(item)
+
         config = resolve_config()
-        with connect_database(config) as connection:
-            _require_campaign(connection, campaign_id)
-            _require_component(connection, component_id)
-            _require_item(connection, item_id)
+        _persist_campaign_yaml_session_or_raise(db, config, campaign_id)
 
-            fields_sql = ", ".join([f"{field} = ?" for field in updates.keys()])
-            values = list(updates.values()) + [item_id, component_id]
-            connection.execute(
-                f"UPDATE campaign_component_items SET {fields_sql}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND component_id = ?;",
-                values,
-            )
-            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
-            connection.commit()
-
-        return {"id": item_id, "component_id": component_id, "updates": list(updates.keys())}
+        return {"id": item.id, "component_id": component_id, "updates": list(updates.keys())}
 
     @app.delete("/campaigns/{campaign_id}/components/{component_id}/items/{item_id}", status_code=204)
-    def delete_component_item(campaign_id: int, component_id: int, item_id: int) -> None:
+    def delete_component_item(campaign_id: int, component_id: int, item_id: int, db: Session = Depends(get_db_session)) -> None:
+        _require_campaign(db, campaign_id)
+        item = db.query(CampaignComponentItem).join(CampaignComponent).filter(
+            CampaignComponentItem.id == item_id,
+            CampaignComponentItem.component_id == component_id,
+            CampaignComponent.campaign_id == campaign_id
+        ).first()
+
+        if item is None:
+            raise HTTPException(status_code=404, detail="Component item not found")
+
+        db.delete(item)
+        db.commit()
+
         config = resolve_config()
-        with connect_database(config) as connection:
-            _require_campaign(connection, campaign_id)
-            _require_component(connection, component_id)
-            _require_item(connection, item_id)
-            connection.execute("DELETE FROM campaign_component_items WHERE id = ? AND component_id = ?;", (item_id, component_id))
-            _persist_campaign_yaml_or_raise(connection, config, campaign_id)
-            connection.commit()
+        _persist_campaign_yaml_session_or_raise(db, config, campaign_id)
 
     @app.post("/chat/sessions", status_code=201)
     def create_chat_session() -> dict[str, str]:
@@ -1803,9 +1653,15 @@ def create_app() -> FastAPI:
         return {"session_id": session_id, "history": chat_store.history(session_id)}
 
     @app.post("/chat/sessions/{session_id}/messages")
-    def post_chat_message(session_id: str, payload: ChatMessageRequest) -> dict[str, Any]:
+    def post_chat_message(
+        session_id: str,
+        payload: ChatMessageRequest,
+        db: Session = Depends(get_db_session),
+    ) -> dict[str, Any]:
         if not chat_store.exists(session_id):
             raise HTTPException(status_code=404, detail="Chat session not found")
+
+        config = resolve_config()
 
         def _sync_active_campaign_context(active_campaign_id: int | None) -> None:
             previous_campaign_id = chat_store.get_context(session_id).get("active_campaign_id")
@@ -1815,7 +1671,7 @@ def create_app() -> FastAPI:
 
         clone_cmd = parse_clone_command(payload.message)
         if clone_cmd is not None:
-            config = resolve_config()
+            _require_legacy_sqlite_mode(config, "Chat campaign cloning")
             with connect_database(config) as connection:
                 try:
                     record = clone_campaign_directory(
@@ -1866,35 +1722,20 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail="campaign_id is required for edit commands")
 
         _sync_active_campaign_context(payload.campaign_id)
-
-        config = resolve_config()
-        with connect_database(config) as connection:
-            campaign_meta = connection.execute(
-                """
-                SELECT b.display_name AS business_display_name
-                FROM campaigns c
-                JOIN businesses b ON b.id = c.business_id
-                WHERE c.id = ?;
-                """,
-                (payload.campaign_id,),
-            ).fetchone()
-            if campaign_meta is None:
-                raise HTTPException(status_code=404, detail="Campaign not found")
-            business_display_name = campaign_meta["business_display_name"]
+        campaign = _require_campaign(db, payload.campaign_id)
+        business_display_name = campaign.business.display_name
 
         context_cmd = parse_session_context_command(payload.message)
         if context_cmd is not None:
-            config = resolve_config()
-            with connect_database(config) as connection:
-                component = resolve_component(connection, payload.campaign_id, context_cmd.component_ref)
-                if component is None:
-                    raise HTTPException(status_code=404, detail="Component not found")
-            chat_store.set_context_value(session_id, "active_component_ref", component["component_key"])
+            component = _resolve_component_session(db, payload.campaign_id, context_cmd.component_ref)
+            if component is None:
+                raise HTTPException(status_code=404, detail="Component not found")
+            chat_store.set_context_value(session_id, "active_component_ref", component.component_key)
             chat_store.append(session_id, "user", payload.message)
             chat_store.append(
                 session_id,
                 "system",
-                f"Set active component context to '{component['component_key']}'",
+                f"Set active component context to '{component.component_key}'",
             )
             return {
                 "session_id": session_id,
@@ -1902,114 +1743,105 @@ def create_app() -> FastAPI:
                     "target": "context",
                     "context_type": "component",
                     "component": {
-                        "id": component["id"],
-                        "campaign_id": component["campaign_id"],
-                        "component_key": component["component_key"],
-                        "component_kind": component["component_kind"],
-                        "display_title": component["display_title"],
+                        "id": component.id,
+                        "campaign_id": component.campaign_id,
+                        "component_key": component.component_key,
+                        "component_kind": component.component_kind,
+                        "display_title": component.display_title,
                     },
-                    "message": f"Working on component {component['component_key']}",
+                    "message": f"Working on component {component.component_key}",
                 },
                 "history": chat_store.history(session_id),
             }
 
         query_cmd = parse_query_command(payload.message)
         if query_cmd is not None:
-            config = resolve_config()
             session_context = chat_store.get_context(session_id)
-            with connect_database(config) as connection:
-                if query_cmd.query_type == "list_components":
-                    rows = connection.execute(
-                        """
-                        SELECT component_key, display_title, component_kind, display_order
-                        FROM campaign_components
-                        WHERE campaign_id = ?
-                        ORDER BY display_order ASC, id ASC;
-                        """,
-                        (payload.campaign_id,),
-                    ).fetchall()
-                    components_list = [
-                        {
-                            "component_key": r["component_key"],
-                            "display_title": r["display_title"],
-                            "component_kind": r["component_kind"],
-                            "display_order": r["display_order"],
-                        }
-                        for r in rows
-                    ]
-                    if components_list:
-                        lines = [f"{i + 1}. {c['component_key']} — {c['display_title'] or '(no title)'}" for i, c in enumerate(components_list)]
-                        message = "Components of the current promotion:\n" + "\n".join(lines)
-                    else:
-                        message = "This promotion has no components yet."
-                    result: dict[str, Any] = {
-                        "target": "query",
-                        "query_type": "list_components",
-                        "components": components_list,
-                        "message": message,
+            if query_cmd.query_type == "list_components":
+                components = (
+                    db.query(CampaignComponent)
+                    .filter(CampaignComponent.campaign_id == payload.campaign_id)
+                    .order_by(CampaignComponent.display_order.asc(), CampaignComponent.id.asc())
+                    .all()
+                )
+                components_list = [
+                    {
+                        "component_key": row.component_key,
+                        "display_title": row.display_title,
+                        "component_kind": row.component_kind,
+                        "display_order": row.display_order,
                     }
-                else:  # list_items
-                    active_component_ref = session_context.get("active_component_ref")
-                    if not active_component_ref:
+                    for row in components
+                ]
+                if components_list:
+                    lines = [
+                        f"{i + 1}. {c['component_key']} — {c['display_title'] or '(no title)'}"
+                        for i, c in enumerate(components_list)
+                    ]
+                    message = "Components of the current promotion:\n" + "\n".join(lines)
+                else:
+                    message = "This promotion has no components yet."
+                result: dict[str, Any] = {
+                    "target": "query",
+                    "query_type": "list_components",
+                    "components": components_list,
+                    "message": message,
+                }
+            else:  # list_items
+                active_component_ref = session_context.get("active_component_ref")
+                if not active_component_ref:
+                    result = {
+                        "target": "clarify",
+                        "message": (
+                            "No active component is set. "
+                            "Reference a component first, for example: "
+                            "'change the name of the weekday-specials component to …' "
+                            "or 'I am working on the weekday-specials component'."
+                        ),
+                    }
+                else:
+                    component = (
+                        db.query(CampaignComponent)
+                        .filter(
+                            CampaignComponent.campaign_id == payload.campaign_id,
+                            CampaignComponent.component_key == active_component_ref,
+                        )
+                        .first()
+                    )
+                    if component is None:
                         result = {
                             "target": "clarify",
-                            "message": (
-                                "No active component is set. "
-                                "Reference a component first, for example: "
-                                "'change the name of the weekday-specials component to …' "
-                                "or 'I am working on the weekday-specials component'."
-                            ),
+                            "message": f"Component '{active_component_ref}' not found in this campaign.",
                         }
                     else:
-                        component_row = connection.execute(
-                            """
-                            SELECT id FROM campaign_components
-                            WHERE campaign_id = ? AND component_key = ?;
-                            """,
-                            (payload.campaign_id, active_component_ref),
-                        ).fetchone()
-                        if component_row is None:
-                            result = {
-                                "target": "clarify",
-                                "message": f"Component '{active_component_ref}' not found in this campaign.",
+                        items = sorted(component.items, key=lambda row: (row.display_order, row.id))
+                        items_list = [
+                            {
+                                "item_name": row.item_name,
+                                "item_kind": row.item_kind,
+                                "item_value": row.item_value,
+                                "duration_label": row.duration_label,
+                                "display_order": row.display_order,
                             }
-                        else:
-                            item_rows = connection.execute(
-                                """
-                                SELECT item_name, item_kind, item_value, duration_label, display_order
-                                FROM campaign_component_items
-                                WHERE component_id = ?
-                                ORDER BY display_order ASC, id ASC;
-                                """,
-                                (component_row["id"],),
-                            ).fetchall()
-                            items_list = [
-                                {
-                                    "item_name": r["item_name"],
-                                    "item_kind": r["item_kind"],
-                                    "item_value": r["item_value"],
-                                    "duration_label": r["duration_label"],
-                                    "display_order": r["display_order"],
-                                }
-                                for r in item_rows
+                            for row in items
+                        ]
+                        if items_list:
+                            lines = [
+                                f"{i + 1}. {it['item_name']}"
+                                + (f" — {it['item_value']}" if it["item_value"] else "")
+                                + (f" ({it['duration_label']})" if it["duration_label"] else "")
+                                for i, it in enumerate(items_list)
                             ]
-                            if items_list:
-                                lines = [
-                                    f"{i + 1}. {it['item_name']}"
-                                    + (f" — {it['item_value']}" if it["item_value"] else "")
-                                    + (f" ({it['duration_label']})" if it["duration_label"] else "")
-                                    for i, it in enumerate(items_list)
-                                ]
-                                message = f"Items in '{active_component_ref}':\n" + "\n".join(lines)
-                            else:
-                                message = f"Component '{active_component_ref}' has no items yet."
-                            result = {
-                                "target": "query",
-                                "query_type": "list_items",
-                                "component_key": active_component_ref,
-                                "items": items_list,
-                                "message": message,
-                            }
+                            message = f"Items in '{active_component_ref}':\n" + "\n".join(lines)
+                        else:
+                            message = f"Component '{active_component_ref}' has no items yet."
+                        result = {
+                            "target": "query",
+                            "query_type": "list_items",
+                            "component_key": active_component_ref,
+                            "items": items_list,
+                            "message": message,
+                        }
             chat_store.append(session_id, "user", payload.message)
             chat_store.append(session_id, "assistant", result.get("message", ""))
             return {
@@ -2018,9 +1850,9 @@ def create_app() -> FastAPI:
                 "history": chat_store.history(session_id),
             }
 
-        config = resolve_config()
         llm_warning: str | None = None
         session_context = chat_store.get_context(session_id)
+        _require_legacy_sqlite_mode(config, "Chat campaign editing")
 
         if config.openrouter_api_key:
             # LLM path: translate natural language → structured command
@@ -2102,12 +1934,11 @@ def create_app() -> FastAPI:
         return response
 
     @app.post("/campaigns/{campaign_id}/save")
-    def save_campaign(campaign_id: int, payload: CampaignSaveRequest | None = None) -> dict[str, Any]:
+    def save_campaign(campaign_id: int, payload: CampaignSaveRequest | None = None, db: Session = Depends(get_db_session)) -> dict[str, Any]:
         request = payload or CampaignSaveRequest()
         config = resolve_config()
 
-        with connect_database(config) as connection:
-            _require_campaign(connection, campaign_id)
+        _require_campaign(db, campaign_id)
 
         if not config.commit_on_save:
             return {
@@ -2127,11 +1958,7 @@ def create_app() -> FastAPI:
 
         business_file: Path
         campaign_file: Path
-        with connect_database(config) as connection:
-            try:
-                business_file, campaign_file = campaign_yaml_paths_for_id(connection, config.data_dir, campaign_id)
-            except ValueError as error:
-                raise HTTPException(status_code=409, detail=str(error)) from error
+        business_file, campaign_file = _campaign_yaml_paths_for_session_or_raise(db, config, campaign_id)
         repo_root = config.git_repo_path
         default_message = f"Save campaign {campaign_id} YAML"
         commit_message = (request.commit_message or default_message).strip()
@@ -2164,63 +1991,77 @@ def create_app() -> FastAPI:
     def render_artifact(
         campaign_id: int,
         payload: ArtifactRenderRequest | None = None,
+        db: Session = Depends(get_db_session)
     ) -> list[ArtifactResponse]:
         request = payload or ArtifactRenderRequest()
         config = resolve_config()
-        with connect_database(config) as connection:
-            _require_campaign(connection, campaign_id)
-            try:
-                results = render_campaign_artifact(
-                    connection,
-                    campaign_id,
-                    config.output_dir,
-                    artifact_type=request.artifact_type,
-                    data_dir=config.data_dir,
-                    images_per_page=config.images_per_page,
-                    overwrite=request.overwrite,
-                    custom_name=request.custom_name,
-                )
-                connection.commit()
-            except ValueError as exc:
-                raise HTTPException(status_code=409, detail={"reason": "file_exists", "message": str(exc)}) from exc
-            except Exception as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-        
+        _require_campaign(db, campaign_id)
+
+        try:
+            results = render_campaign_artifact_session(
+                db,
+                campaign_id,
+                config.output_dir,
+                artifact_type=request.artifact_type,
+                data_dir=config.data_dir,
+                images_per_page=config.images_per_page,
+                overwrite=request.overwrite,
+                custom_name=request.custom_name,
+            )
+            db.commit()
+        except ValueError as exc:
+            db.rollback()
+            raise HTTPException(status_code=409, detail={"reason": "file_exists", "message": str(exc)}) from exc
+        except Exception as exc:
+            db.rollback()
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
         response_items = []
         for res in results:
-            row = _get_artifact_row(config, res["id"])
-            response_items.append(ArtifactResponse(**row))
+            artifact = db.get(GeneratedArtifact, res["id"])
+            if artifact:
+                response_items.append(ArtifactResponse(
+                    id=artifact.id,
+                    campaign_id=artifact.campaign_id,
+                    artifact_type=artifact.artifact_type,
+                    file_path=artifact.file_path,
+                    checksum=artifact.checksum,
+                    status=artifact.status,
+                    created_at=artifact.created_at.isoformat() if artifact.created_at else None
+                ))
         return response_items
 
     @app.get("/campaigns/{campaign_id}/artifacts")
-    def list_artifacts(campaign_id: int) -> dict[str, Any]:
-        config = resolve_config()
-        with connect_database(config) as connection:
-            _require_campaign(connection, campaign_id)
-            rows = connection.execute(
-                """
-                SELECT id, campaign_id, artifact_type, file_path, checksum, status, created_at
-                FROM generated_artifacts
-                WHERE campaign_id = ?
-                ORDER BY created_at DESC;
-                """,
-                (campaign_id,),
-            ).fetchall()
-        return {"items": [dict(r) for r in rows]}
+    def list_artifacts(campaign_id: int, db: Session = Depends(get_db_session)) -> dict[str, Any]:
+        _require_campaign(db, campaign_id)
+        artifacts = db.query(GeneratedArtifact).filter(
+            GeneratedArtifact.campaign_id == campaign_id
+        ).order_by(GeneratedArtifact.created_at.desc()).all()
+
+        return {
+            "items": [
+                {
+                    "id": a.id,
+                    "campaign_id": a.campaign_id,
+                    "artifact_type": a.artifact_type,
+                    "file_path": a.file_path,
+                    "checksum": a.checksum,
+                    "status": a.status,
+                    "created_at": a.created_at.isoformat() if a.created_at else None
+                }
+                for a in artifacts
+            ]
+        }
 
     @app.get("/artifacts/{artifact_id}/download")
-    def download_artifact(artifact_id: int):
+    def download_artifact(artifact_id: int, db: Session = Depends(get_db_session)):
         from fastapi.responses import FileResponse
 
-        config = resolve_config()
-        with connect_database(config) as connection:
-            row = connection.execute(
-                "SELECT id, file_path, artifact_type FROM generated_artifacts WHERE id = ?",
-                (artifact_id,),
-            ).fetchone()
-        if row is None:
+        artifact = db.get(GeneratedArtifact, artifact_id)
+        if artifact is None:
             raise HTTPException(status_code=404, detail="Artifact not found")
-        file_path = Path(row["file_path"])
+
+        file_path = Path(artifact.file_path)
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="Artifact file missing")
         filename = file_path.name
@@ -2231,18 +2072,14 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/artifacts/{artifact_id}/view")
-    def view_artifact(artifact_id: int):
+    def view_artifact(artifact_id: int, db: Session = Depends(get_db_session)):
         from fastapi.responses import FileResponse
 
-        config = resolve_config()
-        with connect_database(config) as connection:
-            row = connection.execute(
-                "SELECT id, file_path, artifact_type FROM generated_artifacts WHERE id = ?",
-                (artifact_id,),
-            ).fetchone()
-        if row is None:
+        artifact = db.get(GeneratedArtifact, artifact_id)
+        if artifact is None:
             raise HTTPException(status_code=404, detail="Artifact not found")
-        file_path = Path(row["file_path"])
+
+        file_path = Path(artifact.file_path)
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="Artifact file missing")
 
@@ -2261,14 +2098,15 @@ def create_app() -> FastAPI:
                 user_name=config.git_user_name,
                 user_email=config.git_user_email,
             )
-            
+
             # If changes were pulled, we should probably trigger a sync to DB automatically
             synced = None
             if changed:
+                _require_legacy_sqlite_mode(config, "Git pull YAML sync")
                 with connect_database(config) as connection:
                     synced = sync_data_directory(connection, config.data_dir)
                     connection.commit()
-            
+
             return {
                 "changed": changed,
                 "synced": {
@@ -2283,6 +2121,7 @@ def create_app() -> FastAPI:
     @app.post("/data/sync")
     def sync_yaml_data() -> dict[str, Any]:
         config = resolve_config()
+        _require_legacy_sqlite_mode(config, "YAML data sync")
         with connect_database(config) as connection:
             summary = sync_data_directory(connection, config.data_dir)
             connection.commit()
@@ -2292,95 +2131,60 @@ def create_app() -> FastAPI:
             "data_dir": str(config.data_dir),
         }
 
-    def _get_artifact_row(config, artifact_id: int) -> dict[str, Any]:
-        with connect_database(config) as connection:
-            row = connection.execute(
-                "SELECT id, campaign_id, artifact_type, file_path, checksum, status, created_at "
-                "FROM generated_artifacts WHERE id = ?",
-                (artifact_id,),
-            ).fetchone()
-        if row is None:
-            raise HTTPException(status_code=404, detail="Artifact not found after insert")
-        return dict(row)
-
     @app.get("/data-manager/businesses")
-    def list_data_manager_businesses() -> dict[str, Any]:
-        config = resolve_config()
-        with connect_database(config) as connection:
-            rows = connection.execute(
-                """
-                SELECT display_name, legal_name, timezone, is_active
-                FROM businesses
-                ORDER BY display_name ASC;
-                """
-            ).fetchall()
+    def list_data_manager_businesses(db: Session = Depends(get_db_session)) -> dict[str, Any]:
+        rows = db.query(Business).order_by(Business.display_name.asc()).all()
 
         return {
             "items": [
                 {
-                    "display_name": row["display_name"],
-                    "legal_name": row["legal_name"],
-                    "timezone": row["timezone"],
-                    "is_active": bool(row["is_active"]),
+                    "display_name": row.display_name,
+                    "legal_name": row.legal_name,
+                    "timezone": row.timezone,
+                    "is_active": row.is_active,
                 }
                 for row in rows
             ]
         }
 
     @app.get("/data-manager/businesses/{business_name}")
-    def get_data_manager_business(business_name: str) -> dict[str, Any]:
-        config = resolve_config()
-        with connect_database(config) as connection:
-            return _business_snapshot(connection, business_name)
+    def get_data_manager_business(business_name: str, db: Session = Depends(get_db_session)) -> dict[str, Any]:
+        return _business_snapshot(db, business_name)
 
     @app.get("/data-manager/businesses/{business_name}/campaigns")
-    def list_data_manager_campaigns(business_name: str) -> dict[str, Any]:
-        config = resolve_config()
-        with connect_database(config) as connection:
-            business = connection.execute(
-                "SELECT id FROM businesses WHERE display_name = ?;",
-                (business_name,),
-            ).fetchone()
-            if business is None:
-                raise HTTPException(status_code=404, detail="Business not found")
+    def list_data_manager_campaigns(business_name: str, db: Session = Depends(get_db_session)) -> dict[str, Any]:
+        business = db.query(Business).filter(Business.display_name == business_name).first()
+        if business is None:
+            raise HTTPException(status_code=404, detail="Business not found")
 
-            rows = connection.execute(
-                """
-                SELECT campaign_name, campaign_key, title, objective, footnote_text, status, start_date, end_date, details_json
-                FROM campaigns
-                WHERE business_id = ?
-                ORDER BY campaign_name ASC, campaign_key ASC;
-                """,
-                (business["id"],),
-            ).fetchall()
+        # Sorted campaigns
+        campaigns = sorted(business.campaigns, key=lambda c: (c.campaign_name, c.campaign_key or ""))
 
         return {
             "items": [
                 {
-                    "display_name": _campaign_display_name(row),
-                    "campaign_name": row["campaign_name"],
-                    "qualifier": row["campaign_key"] or None,
-                    "title": row["title"],
-                    "objective": row["objective"],
-                    "footnote_text": row["footnote_text"],
-                    "status": row["status"],
-                    "start_date": row["start_date"],
-                    "end_date": row["end_date"],
+                    "display_name": c.campaign_name,
+                    "campaign_name": c.campaign_name,
+                    "qualifier": c.campaign_key or None,
+                    "title": c.title,
+                    "objective": c.objective,
+                    "footnote_text": c.footnote_text,
+                    "status": c.status,
+                    "start_date": c.start_date,
+                    "end_date": c.end_date,
                 }
-                for row in rows
+                for c in campaigns
             ]
         }
 
     @app.get("/data-manager/businesses/{business_name}/campaigns/{campaign_name}")
     def get_data_manager_campaign(
-        business_name: str, campaign_name: str, qualifier: str | None = None
+        business_name: str, campaign_name: str, qualifier: str | None = None, db: Session = Depends(get_db_session)
     ) -> dict[str, Any]:
-        config = resolve_config()
-        with connect_database(config) as connection:
-            return {
-                "business": _business_snapshot(connection, business_name),
-                "campaign": _campaign_snapshot(connection, business_name, campaign_name, qualifier),
-            }
+        return {
+            "business": _business_snapshot(db, business_name),
+            "campaign": _campaign_snapshot(db, business_name, campaign_name, qualifier),
+        }
 
     static_dir = Path(__file__).resolve().parent / "static"
     if static_dir.exists():

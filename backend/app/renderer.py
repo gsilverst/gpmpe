@@ -15,6 +15,9 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas as rl_canvas
+from sqlalchemy.orm import Session
+
+from .models import Campaign, CampaignTemplateBinding, GeneratedArtifact
 
 try:
     from PIL import Image as _PILImage
@@ -1003,6 +1006,145 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
     }
 
 
+def _collect_render_context_session(db: Session, campaign_id: int) -> dict[str, Any]:
+    campaign = db.get(Campaign, campaign_id)
+    if campaign is None:
+        raise ValueError(f"Campaign {campaign_id} not found")
+
+    business = campaign.business
+    default_theme = next(
+        (
+            theme
+            for theme in sorted(business.brand_themes, key=lambda item: item.id)
+            if theme.name == "default"
+        ),
+        None,
+    )
+    location = next(iter(sorted(business.locations, key=lambda item: item.id)), None)
+    contacts = sorted(business.contacts, key=lambda item: (not item.is_primary, item.id))
+    offers = sorted(campaign.offers, key=lambda item: item.id)
+    components = sorted(campaign.components, key=lambda item: (item.display_order, item.id))
+    binding = (
+        db.query(CampaignTemplateBinding)
+        .filter(
+            CampaignTemplateBinding.campaign_id == campaign_id,
+            CampaignTemplateBinding.is_active.is_(True),
+        )
+        .order_by(CampaignTemplateBinding.id.desc())
+        .first()
+    )
+
+    effective: dict[str, Any] = {}
+    template_name = None
+    template: dict[str, Any] = {"layout": {}}
+    if binding is not None:
+        defaults = json.loads(binding.template.default_values_json or "{}")
+        overrides = json.loads(binding.override_values_json or "{}")
+        effective = {**defaults, **overrides}
+        template_name = binding.template.template_name
+        template = {
+            "template_name": binding.template.template_name,
+            "template_kind": binding.template.template_kind,
+            "size_spec": binding.template.size_spec,
+            "layout": json.loads(binding.template.layout_json or "{}"),
+            "default_values": defaults,
+            "override_values": overrides,
+        }
+
+    offer_payloads = [
+        {
+            "offer_name": offer.offer_name,
+            "offer_type": offer.offer_type,
+            "offer_value": offer.offer_value,
+            "start_date": offer.start_date,
+            "end_date": offer.end_date,
+            "terms_text": offer.terms_text,
+        }
+        for offer in offers
+    ]
+
+    component_payloads: list[dict[str, Any]] = []
+    for component in components:
+        items = sorted(component.items, key=lambda item: (item.display_order, item.id))
+        component_payloads.append(
+            {
+                "component_key": component.component_key,
+                "component_kind": component.component_kind,
+                "render_region": component.render_region,
+                "render_mode": component.render_mode,
+                "style": json.loads(component.style_json or "{}"),
+                "display_title": component.display_title,
+                "background_color": component.background_color,
+                "header_accent_color": component.header_accent_color,
+                "footnote_text": component.footnote_text,
+                "subtitle": component.subtitle,
+                "description_text": component.description_text,
+                "display_order": component.display_order,
+                "items": [
+                    {
+                        "item_name": item.item_name,
+                        "item_kind": item.item_kind,
+                        "duration_label": item.duration_label,
+                        "item_value": item.item_value,
+                        "background_color": item.background_color,
+                        "render_role": item.render_role,
+                        "style_json": item.style_json,
+                        "description_text": item.description_text,
+                        "terms_text": item.terms_text,
+                        "display_order": item.display_order,
+                        "style": json.loads(item.style_json or "{}"),
+                    }
+                    for item in items
+                ],
+            }
+        )
+    if not component_payloads:
+        component_payloads = _fallback_components(offer_payloads)
+
+    return {
+        "campaign_id": campaign_id,
+        "campaign_name": campaign.campaign_name,
+        "title": campaign.title,
+        "objective": campaign.objective,
+        "campaign_footnote_text": campaign.footnote_text,
+        "start_date": campaign.start_date,
+        "end_date": campaign.end_date,
+        "business_display_name": business.display_name,
+        "business_legal_name": business.legal_name,
+        "theme": {
+            "primary_color": default_theme.primary_color,
+            "secondary_color": default_theme.secondary_color,
+            "accent_color": default_theme.accent_color,
+            "font_family": default_theme.font_family,
+            "logo_path": default_theme.logo_path,
+        }
+        if default_theme
+        else {},
+        "location": {
+            "line1": location.line1,
+            "line2": location.line2,
+            "city": location.city,
+            "state": location.state,
+            "postal_code": location.postal_code,
+        }
+        if location
+        else None,
+        "contacts": [
+            {
+                "contact_type": contact.contact_type,
+                "contact_value": contact.contact_value,
+                "is_primary": contact.is_primary,
+            }
+            for contact in contacts
+        ],
+        "offers": offer_payloads,
+        "components": component_payloads,
+        "effective_values": effective,
+        "template_name": template_name,
+        "template": template,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Public render API
 # ---------------------------------------------------------------------------
@@ -1160,7 +1302,11 @@ def render_campaign_artifact(
         campaign_slug = _slug(ctx["campaign_name"])
         base_name = f"{company_slug}-{campaign_slug}"
     
-    filename = f"{base_name}.pdf" if artifact_type == "flyer" else f"{base_name}-{artifact_type}.pdf"
+    filename = (
+        f"{base_name}.pdf"
+        if artifact_type == "flyer"
+        else f"{base_name}-{artifact_type}.pdf"
+    )
     file_path = output_dir / filename
 
     # Check for file existence before any rendering
@@ -1233,5 +1379,109 @@ def render_campaign_artifact(
             "checksum": nup_checksum,
             "status": "complete",
         })
+
+    return results
+
+
+def render_campaign_artifact_session(
+    db: Session,
+    campaign_id: int,
+    output_dir: Path,
+    artifact_type: str = "flyer",
+    data_dir: Path | None = None,
+    images_per_page: int | None = None,
+    overwrite: bool = False,
+    custom_name: str | None = None,
+) -> list[dict[str, Any]]:
+    """Generates and registers campaign artifacts using the SQLAlchemy session path."""
+    ctx = _collect_render_context_session(db, campaign_id)
+
+    if artifact_type not in {"flyer", "poster"}:
+        raise ValueError(f"Unsupported artifact_type '{artifact_type}'")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if custom_name:
+        clean_name = Path(custom_name).name
+        if clean_name.lower().endswith(".pdf"):
+            clean_name = clean_name[:-4]
+        base_name = _slug(clean_name)
+    else:
+        company_slug = _slug(ctx["business_display_name"])
+        campaign_slug = _slug(ctx["campaign_name"])
+        base_name = f"{company_slug}-{campaign_slug}"
+
+    filename = f"{base_name}.pdf" if artifact_type == "flyer" else f"{base_name}-{artifact_type}.pdf"
+    file_path = output_dir / filename
+
+    if not overwrite and file_path.exists():
+        raise ValueError(filename)
+
+    nup_file_path: Path | None = None
+    if artifact_type == "flyer" and images_per_page is not None:
+        nup_filename = f"{base_name}-{images_per_page}p.pdf"
+        nup_file_path = output_dir / nup_filename
+        if not overwrite and nup_file_path.exists():
+            raise ValueError(nup_filename)
+
+    pdf_bytes = render_flyer(ctx, data_dir=data_dir)
+    checksum = _file_checksum(pdf_bytes)
+    _atomic_write_bytes(file_path, pdf_bytes)
+
+    template_snapshot = json.dumps(
+        {
+            "template_name": ctx["template_name"],
+            "template": ctx.get("template") or {},
+            "effective_values": ctx["effective_values"],
+        }
+    )
+
+    primary = GeneratedArtifact(
+        campaign_id=campaign_id,
+        artifact_type=artifact_type,
+        file_path=str(file_path),
+        checksum=checksum,
+        status="complete",
+        template_snapshot_json=template_snapshot,
+    )
+    db.add(primary)
+    db.flush()
+
+    results = [
+        {
+            "id": primary.id,
+            "campaign_id": campaign_id,
+            "artifact_type": artifact_type,
+            "file_path": str(file_path),
+            "checksum": checksum,
+            "status": "complete",
+        }
+    ]
+
+    if artifact_type == "flyer" and images_per_page is not None and nup_file_path:
+        nup_bytes = render_flyer_nup(ctx, images_per_page, data_dir=data_dir)
+        _atomic_write_bytes(nup_file_path, nup_bytes)
+        nup_checksum = _file_checksum(nup_bytes)
+
+        nup = GeneratedArtifact(
+            campaign_id=campaign_id,
+            artifact_type=artifact_type,
+            file_path=str(nup_file_path),
+            checksum=nup_checksum,
+            status="complete",
+            template_snapshot_json=template_snapshot,
+        )
+        db.add(nup)
+        db.flush()
+        results.append(
+            {
+                "id": nup.id,
+                "campaign_id": campaign_id,
+                "artifact_type": artifact_type,
+                "file_path": str(nup_file_path),
+                "checksum": nup_checksum,
+                "status": "complete",
+            }
+        )
 
     return results

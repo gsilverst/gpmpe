@@ -26,9 +26,49 @@ The current implementation is tightly coupled to the `sqlite3` library. We will 
 - **Task 1.3**: Abstract SQLite-specific features (like `PRAGMA`) into dialect-neutral migrations (e.g., using Alembic).
 - **Outcome**: The app automatically uses SQLite if a local path is provided, or RDS if a networked connection string is provided.
 
+### Current Phase 1 Status
+
+- SQLAlchemy models and dynamic engine creation are in place.
+- Several FastAPI endpoints now use SQLAlchemy sessions.
+- SQLAlchemy-owned route handlers now use SQLAlchemy-backed YAML export helpers for campaign write-back instead of reopening `connect_database()`.
+- The render API now builds PDF context and registers generated artifacts through the SQLAlchemy session path. The legacy renderer entry point remains available for local SQLite callers and direct tests.
+- Non-SQLite/RDS startup no longer opens the legacy SQLite connection. If the database has data and `DATA_DIR` is empty, startup can export database state to YAML through SQLAlchemy. If YAML data is present, startup reports reconciliation as pending until YAML import/compare helpers are migrated.
+- Whole-database YAML export now has a SQLAlchemy-backed implementation.
+- Read-only chatbot context/query commands now use SQLAlchemy session reads. Chat-driven campaign mutations still use the legacy mutation engine and remain guarded in RDS mode.
+- Legacy sync/edit endpoints that still require raw SQLite now return explicit `501 Not Implemented` responses in RDS mode instead of failing through `connect_database()`.
+- Legacy paths still depend on `connect_database()` and raw SQLite-style SQL:
+    - YAML import/reconciliation and database-to-YAML comparison
+    - campaign clone/import flows
+    - chat mutation helpers
+    - LLM context building
+- `connect_database()` is intentionally guarded so it only runs in SQLite/local mode. If `DATABASE_URL` points to RDS, remaining legacy call paths fail loudly instead of silently writing to a separate local SQLite database.
+- Next Phase 1 work should migrate the legacy helper modules to SQLAlchemy or provide SQLAlchemy-backed service functions before enabling full RDS runtime parity.
+
 ---
 
-## 4. Phase 2: Storage & Filesystem Parity (Amazon EFS)
+## 4. Phase 1.5: Backend Modularization
+
+`backend/app/main.py` is currently over 2,000 lines and combines API route definitions, business logic, persistence orchestration, YAML synchronization, chat handling, rendering orchestration, data-manager snapshots, and artifact delivery. This makes the AWS migration harder to reason about and increases the risk of regressions.
+
+This refactor should happen after the current database migration slice is stable, unless `main.py` complexity becomes the primary blocker to finishing Phase 1. The goal is to move behavior into focused modules without changing API contracts.
+
+- **Task 1.5.1: Split routes by domain**:
+    - Move business and campaign endpoints into route modules.
+    - Move offer, asset, template, component, artifact, chat, startup, data-sync, and data-manager endpoints into focused route modules.
+- **Task 1.5.2: Introduce service-layer boundaries**:
+    - Create service modules for campaign persistence, YAML sync/write-back, rendering/artifact registration, chat mutation, and data-manager snapshots.
+    - Keep route handlers thin: validation, dependency injection, service call, response mapping.
+- **Task 1.5.3: Centralize database dependencies**:
+    - Keep SQLAlchemy session creation and legacy SQLite/local guards in one database dependency module.
+    - Remove ad hoc imports of `connect_database()` from route handlers as service modules are migrated.
+- **Task 1.5.4: Preserve external behavior**:
+    - Keep existing API paths and response shapes stable.
+    - Run the full backend suite after each extracted slice.
+- **Outcome**: The backend has clear route/service/persistence boundaries, making the remaining RDS migration, Cognito authorization, and AWS deployment work easier to maintain.
+
+---
+
+## 5. Phase 2: Storage & Filesystem Parity (Amazon EFS)
 To satisfy the requirement of maintaining YAML files for version control without a traditional local filesystem in AWS, we will use **Amazon EFS**.
 
 - **Task 2.1**: Provision an Amazon EFS volume.
@@ -38,7 +78,7 @@ To satisfy the requirement of maintaining YAML files for version control without
 
 ---
 
-## 5. Phase 3: Version Control & Data Synchronization
+## 6. Phase 3: Version Control & Data Synchronization
 Since YAML files in the repository are the authoritative source, we must synchronize them with the EFS volume in AWS.
 
 - **Task 3.1: Git-to-Cloud Sync**: Implement a "Git Sync" utility (running as a sidecar container or a Lambda hook).
@@ -51,7 +91,7 @@ Since YAML files in the repository are the authoritative source, we must synchro
 
 ---
 
-## 6. Phase 4: CI/CD and Dual Build
+## 7. Phase 4: CI/CD and Dual Build
 - **Task 4.1**: Update `Dockerfile` to be environment-aware.
 - **Task 4.2**: Implement a GitHub Action or AWS CodePipeline that:
     1. Runs the test suite using SQLite (Local mode).
@@ -61,7 +101,7 @@ Since YAML files in the repository are the authoritative source, we must synchro
 
 ---
 
-## 7. Phase 5: User Authentication & Access Control
+## 8. Phase 5: User Authentication & Access Control
 To secure the application in AWS and support multi-user workflows, we will implement a role-based access control (RBAC) system.
 
 ### 7.1 User Roles & Hierarchy
@@ -87,7 +127,7 @@ To secure the application in AWS and support multi-user workflows, we will imple
 
 ---
 
-## 8. Phase 6: Verification & Parity
+## 9. Phase 6: Verification & Parity
 - **Parity Test**: Run the full backend test suite against an RDS instance in a staging VPC.
 - **Sync Test**: Verify that editing a campaign title via the AWS-hosted chatbot results in a new commit appearing in the GitHub repository.
 - **Local Fallback**: Confirm that developers can still run `start.sh` on their laptops with zero AWS dependencies.

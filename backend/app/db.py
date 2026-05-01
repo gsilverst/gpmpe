@@ -11,13 +11,20 @@ from .config import AppConfig
 from .models import Base
 
 
+def is_sqlite_database_url(database_url: str) -> bool:
+    return database_url.startswith("sqlite")
+
+
 def get_engine(config: AppConfig) -> Engine:
     """Create a SQLAlchemy engine based on the provided configuration."""
+    if is_sqlite_database_url(config.database_url):
+        config.database_path.parent.mkdir(parents=True, exist_ok=True)
+
     # Use pool_pre_ping for RDS robustness
     engine = create_engine(config.database_url, pool_pre_ping=True)
 
     # Enable foreign keys for SQLite
-    if config.database_url.startswith("sqlite"):
+    if is_sqlite_database_url(config.database_url):
         @event.listens_for(Engine, "connect")
         def set_sqlite_pragma(dbapi_connection, connection_record):
             cursor = dbapi_connection.cursor()
@@ -87,7 +94,7 @@ def _backfill_renderer_fields(connection: sqlite3.Connection) -> None:
 
 def initialize_database(config: AppConfig) -> None:
     # Ensure directory exists for SQLite
-    if config.database_url.startswith("sqlite"):
+    if is_sqlite_database_url(config.database_url):
         config.database_path.parent.mkdir(parents=True, exist_ok=True)
 
     engine = get_engine(config)
@@ -95,7 +102,7 @@ def initialize_database(config: AppConfig) -> None:
     Base.metadata.create_all(engine)
 
     # Legacy support for SQLite script migrations
-    if config.database_url.startswith("sqlite"):
+    if is_sqlite_database_url(config.database_url):
         schemas_dir = Path(__file__).resolve().parents[1] / "schemas"
         migration_files = sorted(schemas_dir.glob("*.sql"))
         with sqlite3.connect(config.database_path) as connection:
@@ -117,6 +124,12 @@ def initialize_database(config: AppConfig) -> None:
 
 
 def connect_database(config: AppConfig) -> sqlite3.Connection:
+    if not is_sqlite_database_url(config.database_url):
+        raise RuntimeError(
+            "connect_database is only available in SQLite/local mode. "
+            "This call path must be migrated to SQLAlchemy before it can run against RDS."
+        )
+
     # Keep endpoint calls robust in tests and local scripts where startup hooks may not run.
     initialize_database(config)
     connection = sqlite3.connect(config.database_path)
