@@ -529,6 +529,82 @@ def dispatch_llm_action(
     raise HTTPException(status_code=400, detail=f"LLM returned unknown action: {action!r}")
 
 
+def dispatch_llm_action_session(
+    db: Session,
+    campaign_id: int,
+    action_obj: dict[str, Any],
+) -> dict[str, Any]:
+    """Translate a validated LLM action object and apply it through SQLAlchemy."""
+    from fastapi import HTTPException
+    from .chat import (
+        ParsedCommand,
+        apply_chat_command_session,
+        CAMPAIGN_FIELDS,
+        BRAND_FIELDS,
+        BUSINESS_FIELDS,
+        OFFER_FIELDS,
+    )
+
+    action = action_obj.get("action", "")
+
+    if action == "clarify":
+        message = action_obj.get("message", "")
+        return {"target": "clarify", "message": str(message)}
+
+    if action == "set_campaign_field":
+        field = str(action_obj.get("field", "")).strip()
+        value = str(action_obj.get("value", "")).strip()
+        if field not in CAMPAIGN_FIELDS:
+            raise HTTPException(status_code=400, detail=f"LLM returned unknown campaign field: {field!r}")
+        return apply_chat_command_session(db, campaign_id, ParsedCommand(target="campaign", field=field, value=value))
+
+    if action == "set_brand_field":
+        field = str(action_obj.get("field", "")).strip()
+        value = str(action_obj.get("value", "")).strip()
+        if field not in BRAND_FIELDS:
+            raise HTTPException(status_code=400, detail=f"LLM returned unknown brand field: {field!r}")
+        return apply_chat_command_session(db, campaign_id, ParsedCommand(target="brand", field=field, value=value))
+
+    if action == "set_business_field":
+        field = str(action_obj.get("field", "")).strip()
+        value = str(action_obj.get("value", "")).strip()
+        if field not in BUSINESS_FIELDS:
+            raise HTTPException(status_code=400, detail=f"LLM returned unknown business field: {field!r}")
+        return apply_chat_command_session(db, campaign_id, ParsedCommand(target="business", field=field, value=value))
+
+    if action == "set_offer_field":
+        offer_id_raw = action_obj.get("offer_id")
+        try:
+            offer_id = int(offer_id_raw)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="LLM returned invalid offer_id") from exc
+        field = str(action_obj.get("field", "")).strip()
+        value = str(action_obj.get("value", "")).strip()
+        if field not in OFFER_FIELDS:
+            raise HTTPException(status_code=400, detail=f"LLM returned unknown offer field: {field!r}")
+        return apply_chat_command_session(
+            db,
+            campaign_id,
+            ParsedCommand(target="offer", field=field, value=value, offer_id=offer_id),
+        )
+
+    if action == "set_component_field":
+        component_key = str(action_obj.get("component_key", "")).strip()
+        field = str(action_obj.get("field", "")).strip()
+        value = str(action_obj.get("value", "")).strip()
+        if not component_key:
+            raise HTTPException(status_code=400, detail="LLM response missing component_key")
+        if field not in COMPONENT_EDITABLE_FIELDS:
+            raise HTTPException(status_code=400, detail=f"LLM returned unknown component field: {field!r}")
+        return apply_chat_command_session(
+            db,
+            campaign_id,
+            ParsedCommand(target="component", field=field, value=value, component_ref=component_key),
+        )
+
+    raise HTTPException(status_code=400, detail=f"LLM returned unknown action: {action!r}")
+
+
 # ---------------------------------------------------------------------------
 # Main entry point used by post_chat_message
 # ---------------------------------------------------------------------------
@@ -545,3 +621,17 @@ def translate_and_apply(
     log.debug("LLM raw response: %r", raw)
     action_obj = parse_llm_response(raw)
     return dispatch_llm_action(connection, campaign_id, action_obj)
+
+
+def translate_and_apply_session(
+    db: Session,
+    campaign_id: int,
+    api_key: str,
+    user_message: str,
+) -> dict[str, Any]:
+    """Full SQLAlchemy pipeline: build prompt -> call LLM -> parse -> dispatch."""
+    system_prompt = build_system_prompt_session(db, campaign_id)
+    raw = call_llm(api_key, system_prompt, user_message)
+    log.debug("LLM raw response: %r", raw)
+    action_obj = parse_llm_response(raw)
+    return dispatch_llm_action_session(db, campaign_id, action_obj)

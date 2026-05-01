@@ -9,6 +9,19 @@ import uuid
 from typing import Any, Literal
 
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from .models import (
+    BrandTheme,
+    BusinessContact,
+    BusinessLocation,
+    Campaign,
+    CampaignComponent,
+    CampaignComponentItem,
+    CampaignOffer,
+    CampaignTemplateBinding,
+)
 
 
 CAMPAIGN_STATUS_VALUES = {"draft", "active", "paused", "completed", "archived"}
@@ -947,6 +960,646 @@ def _resequence_component_items(connection: Any, component_id: int) -> None:
             """,
             (index, item["id"]),
         )
+
+
+def _campaign_payload_session(campaign: Campaign) -> dict[str, Any]:
+    return {
+        "id": campaign.id,
+        "business_id": campaign.business_id,
+        "campaign_name": campaign.campaign_name,
+        "campaign_key": campaign.campaign_key,
+        "title": campaign.title,
+        "objective": campaign.objective,
+        "footnote_text": campaign.footnote_text,
+        "status": campaign.status,
+        "start_date": campaign.start_date,
+        "end_date": campaign.end_date,
+    }
+
+
+def _business_payload_session(business: Any) -> dict[str, Any]:
+    phone = next(
+        (
+            contact.contact_value
+            for contact in sorted(business.contacts, key=lambda row: (not row.is_primary, row.id))
+            if contact.contact_type == "phone"
+        ),
+        None,
+    )
+    location = next(iter(sorted(business.locations, key=lambda row: row.id)), None)
+    return {
+        "id": business.id,
+        "legal_name": business.legal_name,
+        "display_name": business.display_name,
+        "timezone": business.timezone,
+        "is_active": bool(business.is_active),
+        "phone": phone,
+        "address_line1": location.line1 if location else None,
+        "address_line2": location.line2 if location else None,
+        "city": location.city if location else None,
+        "state": location.state if location else None,
+        "postal_code": location.postal_code if location else None,
+        "country": location.country if location else None,
+    }
+
+
+def _brand_payload_session(theme: BrandTheme) -> dict[str, Any]:
+    return {
+        "id": theme.id,
+        "business_id": theme.business_id,
+        "name": theme.name,
+        "primary_color": theme.primary_color,
+        "secondary_color": theme.secondary_color,
+        "accent_color": theme.accent_color,
+        "font_family": theme.font_family,
+        "logo_path": theme.logo_path,
+    }
+
+
+def _component_payload_session(component: CampaignComponent) -> dict[str, Any]:
+    return {
+        "id": component.id,
+        "campaign_id": component.campaign_id,
+        "component_key": component.component_key,
+        "component_kind": component.component_kind,
+        "display_title": component.display_title,
+        "background_color": component.background_color,
+        "header_accent_color": component.header_accent_color,
+        "footnote_text": component.footnote_text,
+        "subtitle": component.subtitle,
+        "description_text": component.description_text,
+        "display_order": component.display_order,
+    }
+
+
+def _component_item_payload_session(item: CampaignComponentItem) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "component_id": item.component_id,
+        "item_name": item.item_name,
+        "item_kind": item.item_kind,
+        "duration_label": item.duration_label,
+        "item_value": item.item_value,
+        "background_color": item.background_color,
+        "description_text": item.description_text,
+        "terms_text": item.terms_text,
+        "display_order": item.display_order,
+    }
+
+
+def _resolve_component_session(db: Session, campaign_id: int, component_ref: str) -> CampaignComponent | None:
+    return (
+        db.query(CampaignComponent)
+        .filter(CampaignComponent.campaign_id == campaign_id)
+        .filter(
+            (CampaignComponent.component_key.ilike(component_ref))
+            | (CampaignComponent.display_title.ilike(component_ref))
+        )
+        .order_by(CampaignComponent.id.asc())
+        .first()
+    )
+
+
+def _find_component_item_session(
+    items: list[CampaignComponentItem],
+    item_ref: str,
+) -> CampaignComponentItem | None:
+    item_index = _resolve_item_selector_index(item_ref, len(items))
+    if item_index is not None:
+        return items[item_index]
+
+    normalized_ref = _normalize_item_ref(item_ref)
+    for item in items:
+        if _normalize_item_ref(item.item_name) == normalized_ref:
+            return item
+    return None
+
+
+def _resequence_component_items_session(component: CampaignComponent) -> None:
+    for index, item in enumerate(
+        sorted(component.items, key=lambda row: (row.display_order, row.id)),
+        start=1,
+    ):
+        item.display_order = index
+
+
+def apply_chat_command_session(
+    db: Session,
+    campaign_id: int,
+    command: ParsedCommand,
+    session_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    campaign = db.get(Campaign, campaign_id)
+    if campaign is None:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    if command.target == "clarify":
+        return {"target": "clarify", "message": command.value}
+
+    if command.target == "campaign":
+        if command.field == "delete":
+            if command.value and command.value.lower() != campaign.campaign_name.lower():
+                target = (
+                    db.query(Campaign)
+                    .filter(
+                        Campaign.business_id == campaign.business_id,
+                        Campaign.campaign_name == command.value,
+                    )
+                    .first()
+                )
+                if target is None:
+                    raise HTTPException(status_code=404, detail=f"Campaign '{command.value}' not found")
+                campaign_name = target.campaign_name
+                db.delete(target)
+            else:
+                campaign_name = campaign.campaign_name
+                db.delete(campaign)
+            db.flush()
+            return {
+                "target": "campaign",
+                "field": "delete",
+                "deleted": True,
+                "campaign_name": campaign_name,
+            }
+
+        if command.field not in CAMPAIGN_FIELDS:
+            raise HTTPException(status_code=400, detail="Unsupported campaign field")
+
+        value: str | None = command.value
+        if command.field in {"title", "objective"}:
+            value = value.strip()
+            if value == "":
+                raise HTTPException(status_code=400, detail=f"{command.field} cannot be empty")
+        if command.field == "status":
+            normalized = command.value.lower().strip()
+            if normalized not in CAMPAIGN_STATUS_VALUES:
+                raise HTTPException(status_code=400, detail="Unsupported campaign status")
+            value = normalized
+        if command.field in {"start_date", "end_date"}:
+            _parse_iso_date(command.value, command.field)
+
+        setattr(campaign, command.field, value)
+        db.flush()
+        return {"target": "campaign", "field": command.field, "campaign": _campaign_payload_session(campaign)}
+
+    if command.target == "offer":
+        if command.field == "add":
+            offer = CampaignOffer(campaign_id=campaign_id, offer_name=command.value, offer_type="discount")
+            db.add(offer)
+            db.flush()
+            return {"target": "offer", "field": "add", "id": offer.id, "offer_name": command.value}
+
+        if command.offer_id is None:
+            raise HTTPException(status_code=400, detail="Offer id is required")
+
+        offer = (
+            db.query(CampaignOffer)
+            .filter(CampaignOffer.id == command.offer_id, CampaignOffer.campaign_id == campaign_id)
+            .first()
+        )
+        if command.field == "delete":
+            if offer is not None:
+                db.delete(offer)
+                db.flush()
+            return {"target": "offer", "field": "delete", "deleted": True, "id": command.offer_id}
+
+        if command.field not in OFFER_FIELDS:
+            raise HTTPException(status_code=400, detail="Unsupported offer field")
+        if offer is None:
+            raise HTTPException(status_code=404, detail="Offer not found")
+
+        value = command.value
+        if command.field in {"offer_value", "terms_text"}:
+            value = value.strip()
+            if value == "":
+                raise HTTPException(status_code=400, detail=f"{command.field} cannot be empty")
+        if command.field in {"start_date", "end_date"}:
+            _parse_iso_date(command.value, command.field)
+
+        next_start = offer.start_date
+        next_end = offer.end_date
+        if command.field == "start_date":
+            next_start = command.value
+        if command.field == "end_date":
+            next_end = command.value
+        if next_start and next_end:
+            start_date = _parse_iso_date(next_start, "start_date")
+            end_date = _parse_iso_date(next_end, "end_date")
+            if start_date > end_date:
+                raise HTTPException(status_code=400, detail="Offer start_date cannot be after end_date")
+            siblings = (
+                db.query(CampaignOffer)
+                .filter(
+                    CampaignOffer.campaign_id == campaign_id,
+                    CampaignOffer.id != command.offer_id,
+                    CampaignOffer.start_date.isnot(None),
+                    CampaignOffer.end_date.isnot(None),
+                )
+                .all()
+            )
+            for sibling in siblings:
+                sibling_start = _parse_iso_date(sibling.start_date, "start_date")
+                sibling_end = _parse_iso_date(sibling.end_date, "end_date")
+                if _offers_overlap(start_date, end_date, sibling_start, sibling_end):
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "message": "Offer date window overlaps with an existing offer",
+                            "existing_offer_id": sibling.id,
+                        },
+                    )
+
+        setattr(offer, command.field, value)
+        db.flush()
+        return {
+            "target": "offer",
+            "field": command.field,
+            "offer": {
+                "id": offer.id,
+                "campaign_id": offer.campaign_id,
+                "offer_name": offer.offer_name,
+                "offer_type": offer.offer_type,
+                "offer_value": offer.offer_value,
+                "start_date": offer.start_date,
+                "end_date": offer.end_date,
+                "terms_text": offer.terms_text,
+            },
+        }
+
+    if command.target == "brand":
+        if command.field not in BRAND_FIELDS:
+            raise HTTPException(status_code=400, detail="Unsupported brand field")
+        theme = next((row for row in campaign.business.brand_themes if row.name == "default"), None)
+        if theme is None:
+            theme = BrandTheme(name="default")
+            campaign.business.brand_themes.append(theme)
+            db.flush()
+        setattr(theme, command.field, command.value.strip())
+        db.flush()
+        return {
+            "target": "brand",
+            "field": command.field,
+            "brand_theme": _brand_payload_session(theme),
+        }
+
+    if command.target == "business":
+        if command.field not in BUSINESS_FIELDS:
+            raise HTTPException(status_code=400, detail="Unsupported business field")
+        business = campaign.business
+        value = command.value.strip()
+        if command.field in {"legal_name", "display_name", "timezone"}:
+            if value == "":
+                raise HTTPException(status_code=400, detail=f"{command.field} cannot be empty")
+            setattr(business, command.field, value)
+            try:
+                db.flush()
+            except IntegrityError as exc:
+                raise HTTPException(status_code=409, detail="Business update conflicts with existing data") from exc
+        elif command.field == "is_active":
+            business.is_active = _parse_boolean_value(value, command.field)
+        elif command.field == "phone":
+            business.contacts = [
+                contact for contact in business.contacts if contact.contact_type != "phone"
+            ]
+            business.contacts.append(
+                BusinessContact(contact_type="phone", contact_value=value, is_primary=True)
+            )
+        elif command.field in {"address_line1", "address_line2", "city", "state", "postal_code", "country"}:
+            current = _business_payload_session(business)
+            next_line1 = value if command.field == "address_line1" else (current["address_line1"] or "")
+            next_line2 = value if command.field == "address_line2" else (current["address_line2"] or "")
+            next_city = value if command.field == "city" else (current["city"] or "")
+            next_state = value if command.field == "state" else (current["state"] or "")
+            next_postal = value if command.field == "postal_code" else (current["postal_code"] or "")
+            next_country = (value if command.field == "country" else (current["country"] or "US")) or "US"
+            required = (next_line1, next_city, next_state, next_postal)
+            has_any = any((next_line1, next_line2, next_city, next_state, next_postal))
+            if has_any and not all(required):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Address requires address_line1, city, state, and postal_code",
+                )
+            business.locations.clear()
+            if has_any:
+                business.locations.append(
+                    BusinessLocation(
+                        line1=next_line1,
+                        line2=next_line2 or None,
+                        city=next_city,
+                        state=next_state,
+                        postal_code=next_postal,
+                        country=next_country,
+                    )
+                )
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported business field")
+        db.flush()
+        return {"target": "business", "field": command.field, "business": _business_payload_session(business)}
+
+    if command.target == "template_override":
+        if command.field not in TEMPLATE_OVERRIDE_FIELDS:
+            raise HTTPException(status_code=400, detail="Unsupported template override field")
+        binding = (
+            db.query(CampaignTemplateBinding)
+            .filter(CampaignTemplateBinding.campaign_id == campaign_id, CampaignTemplateBinding.is_active.is_(True))
+            .order_by(CampaignTemplateBinding.id.desc())
+            .first()
+        )
+        if binding is None:
+            raise HTTPException(status_code=404, detail="Active template binding not found")
+        try:
+            override_values = json.loads(binding.override_values_json or "{}")
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=500, detail="Template override values are not valid JSON") from exc
+        if not isinstance(override_values, dict):
+            raise HTTPException(status_code=500, detail="Template override values must be a JSON object")
+        override_values[command.field] = _coerce_template_override_value(command.field, command.value)
+        binding.override_values_json = json.dumps(override_values, sort_keys=True)
+        db.flush()
+        return {
+            "target": "template_override",
+            "field": command.field,
+            "template_binding_id": binding.id,
+            "override_values": override_values,
+        }
+
+    if command.target == "component":
+        if command.field == "add":
+            display_title = command.value
+            kind = command.component_ref or "featured-offers"
+            base_key = display_title.lower().replace(" ", "-")
+            key = base_key
+            counter = 1
+            while (
+                db.query(CampaignComponent)
+                .filter(CampaignComponent.campaign_id == campaign_id, CampaignComponent.component_key == key)
+                .first()
+            ):
+                key = f"{base_key}-{counter}"
+                counter += 1
+            component = CampaignComponent(
+                campaign_id=campaign_id,
+                component_key=key,
+                display_title=display_title,
+                component_kind=kind,
+            )
+            db.add(component)
+            db.flush()
+            return {
+                "target": "component",
+                "field": "add",
+                "id": component.id,
+                "component_key": key,
+                "display_title": display_title,
+                "component_kind": kind,
+            }
+
+        if command.component_ref is None:
+            raise HTTPException(status_code=400, detail="Component reference is required")
+
+        if command.field == "style_json":
+            component = _resolve_component_session(db, campaign_id, command.component_ref)
+            if component is None:
+                raise HTTPException(status_code=404, detail="Component not found")
+            if not command.style_key:
+                raise HTTPException(status_code=400, detail="Style key is required for style override")
+            style = json.loads(component.style_json or "{}")
+            style[command.style_key] = command.value
+            component.style_json = json.dumps(style, sort_keys=True)
+            db.flush()
+            return {
+                "target": "component",
+                "field": "style_json",
+                "id": component.id,
+                "style": style,
+                "component_key": component.component_key,
+            }
+
+        value = command.value.strip()
+        if command.field in {"component_key", "display_title", "component_kind"} and value == "":
+            raise HTTPException(status_code=400, detail=f"component {command.field} cannot be empty")
+
+        if command.component_ref == "__all__":
+            if command.field == "delete":
+                raise HTTPException(status_code=400, detail="Deleting all components is not supported in one command")
+            if command.field == "component_key":
+                raise HTTPException(status_code=400, detail="component_key cannot be set for all components at once")
+            if command.field not in COMPONENT_FIELDS:
+                raise HTTPException(status_code=400, detail="Unsupported component field")
+            components = db.query(CampaignComponent).filter(CampaignComponent.campaign_id == campaign_id).all()
+            for component in components:
+                if command.field == "component_kind":
+                    render_region, render_mode = _COMPONENT_RENDER_DEFAULTS.get(value, (None, None))
+                    component.component_kind = value
+                    component.render_region = render_region
+                    component.render_mode = render_mode
+                else:
+                    setattr(component, command.field, value)
+            db.flush()
+            return {
+                "target": "component",
+                "field": command.field,
+                "updated_count": len(components),
+                "scope": "all_components",
+            }
+
+        component = _resolve_component_session(db, campaign_id, command.component_ref)
+        if component is None:
+            raise HTTPException(status_code=404, detail="Component not found")
+
+        if command.field == "delete":
+            payload = _component_payload_session(component)
+            db.delete(component)
+            db.flush()
+            return {"target": "component", "field": "delete", "deleted": True, "component": payload}
+
+        if command.field == "component_key":
+            normalized_key = _normalize_component_key(value)
+            if normalized_key == "":
+                raise HTTPException(status_code=400, detail="component_key must contain letters or numbers")
+            component.component_key = normalized_key
+            try:
+                db.flush()
+            except IntegrityError as exc:
+                raise HTTPException(status_code=409, detail="component_key already exists for this campaign") from exc
+        elif command.field in COMPONENT_FIELDS:
+            if command.field == "component_kind":
+                render_region, render_mode = _COMPONENT_RENDER_DEFAULTS.get(value, (None, None))
+                component.component_kind = value
+                component.render_region = render_region
+                component.render_mode = render_mode
+            else:
+                setattr(component, command.field, value)
+            db.flush()
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported component field")
+        return {
+            "target": "component",
+            "field": command.field,
+            "component": _component_payload_session(component),
+        }
+
+    if command.target == "component_item":
+        if command.item_ref is None and command.field != "add":
+            raise HTTPException(status_code=400, detail="Item reference is required")
+        if command.field not in {"clone", "delete", "add"} and command.field not in COMPONENT_ITEM_FIELDS:
+            raise HTTPException(status_code=400, detail="Unsupported component item field")
+
+        component_ref = command.component_ref
+        if component_ref is None and session_context is not None:
+            component_ref = session_context.get("active_component_ref")
+        if component_ref is None:
+            return {
+                "target": "clarify",
+                "message": "Please tell me which component you are working on first, for example: 'I am working on the main-street-appreciation component'.",
+            }
+
+        value = command.value.strip()
+        if command.field not in {"clone", "delete", "add"} and value == "":
+            raise HTTPException(status_code=400, detail=f"component item {command.field} cannot be empty")
+
+        component = _resolve_component_session(db, campaign_id, component_ref)
+        if component is None:
+            raise HTTPException(status_code=404, detail="Component not found")
+        items = sorted(component.items, key=lambda row: (row.display_order, row.id))
+
+        if command.item_ref == "__all__":
+            if command.field in {"clone", "delete", "add"}:
+                raise HTTPException(status_code=400, detail=f"Bulk '{command.field}' for all items is not supported")
+            for item in items:
+                setattr(item, command.field, value)
+            db.flush()
+            return {
+                "target": "component_item",
+                "field": command.field,
+                "deleted": False,
+                "updated_count": len(items),
+                "scope": "all_items",
+                "component": {
+                    "id": component.id,
+                    "campaign_id": component.campaign_id,
+                    "component_key": component.component_key,
+                    "component_kind": component.component_kind,
+                    "display_title": component.display_title,
+                    "background_color": component.background_color,
+                    "display_order": component.display_order,
+                },
+            }
+
+        item = None
+        if command.item_ref:
+            item = _find_component_item_session(items, command.item_ref)
+            if item is None:
+                raise HTTPException(status_code=404, detail="Component item not found")
+
+        if command.field == "add":
+            if value == "":
+                raise HTTPException(status_code=400, detail="Item name cannot be empty")
+            item_kind = "service"
+            duration_label = None
+            item_value = ""
+            background_color = None
+            description_text = None
+            terms_text = None
+            if item:
+                item_kind = item.item_kind
+                duration_label = item.duration_label
+                item_value = item.item_value
+                background_color = item.background_color
+                description_text = item.description_text
+                terms_text = item.terms_text
+            if command.secondary_item_ref and command.tertiary_item_ref:
+                relative_item = _find_component_item_session(items, command.secondary_item_ref)
+                if relative_item is None:
+                    raise HTTPException(status_code=404, detail="Relative positioning item not found")
+                insert_position = relative_item.display_order if command.tertiary_item_ref.lower() == "before" else relative_item.display_order + 1
+            else:
+                insert_position = max((row.display_order for row in items), default=0) + 1
+            for existing in items:
+                if existing.display_order >= insert_position:
+                    existing.display_order += 1
+            updated_item = CampaignComponentItem(
+                item_name=value,
+                item_kind=item_kind,
+                duration_label=duration_label,
+                item_value=item_value,
+                background_color=background_color,
+                description_text=description_text,
+                terms_text=terms_text,
+                display_order=insert_position,
+            )
+            component.items.append(updated_item)
+            db.flush()
+            _resequence_component_items_session(component)
+            db.flush()
+
+        elif command.field == "clone":
+            insert_before_ref = command.tertiary_item_ref
+            if insert_before_ref is None:
+                raise HTTPException(status_code=400, detail="A target item to insert before is required")
+            if value == "":
+                raise HTTPException(status_code=400, detail="Cloned item name cannot be empty")
+            if item is None:
+                raise HTTPException(status_code=400, detail="Item reference is required for clone")
+            insert_before_item = _find_component_item_session(items, insert_before_ref)
+            if insert_before_item is None:
+                raise HTTPException(status_code=404, detail="Target insertion item not found")
+            insert_position = insert_before_item.display_order
+            for existing in items:
+                if existing.display_order >= insert_position:
+                    existing.display_order += 1
+            updated_item = CampaignComponentItem(
+                item_name=value,
+                item_kind=item.item_kind,
+                duration_label=item.duration_label,
+                item_value=item.item_value,
+                background_color=item.background_color,
+                description_text=item.description_text,
+                terms_text=item.terms_text,
+                display_order=insert_position,
+            )
+            component.items.append(updated_item)
+            db.flush()
+            _resequence_component_items_session(component)
+            db.flush()
+
+        elif command.field == "delete":
+            if item is None:
+                raise HTTPException(status_code=400, detail="Item reference is required for delete")
+            deleted_item = _component_item_payload_session(item)
+            component.items.remove(item)
+            db.flush()
+            _resequence_component_items_session(component)
+            updated_item = deleted_item
+        else:
+            if item is None:
+                raise HTTPException(status_code=400, detail="Item reference is required for update")
+            setattr(item, command.field, value)
+            db.flush()
+            updated_item = item
+
+        item_payload = (
+            updated_item
+            if isinstance(updated_item, dict)
+            else _component_item_payload_session(updated_item)
+        )
+        return {
+            "target": "component_item",
+            "field": command.field,
+            "deleted": command.field == "delete",
+            "component": {
+                "id": component.id,
+                "campaign_id": component.campaign_id,
+                "component_key": component.component_key,
+                "component_kind": component.component_kind,
+                "display_title": component.display_title,
+                "background_color": component.background_color,
+                "display_order": component.display_order,
+            },
+            "item": item_payload,
+        }
+
+    raise HTTPException(status_code=400, detail="Unsupported command target")
 
 
 def apply_chat_command(

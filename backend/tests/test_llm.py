@@ -18,6 +18,7 @@ from app.llm import (
     build_system_prompt,
     build_system_prompt_session,
     dispatch_llm_action,
+    dispatch_llm_action_session,
     parse_llm_response,
     translate_and_apply,
 )
@@ -228,6 +229,29 @@ class TestDispatchLlmAction:
         assert result["field"] == "display_title"
         assert result["component"]["display_title"] == "Spring Highlights"
         conn.close()
+
+    def test_session_dispatch_set_campaign_field(self, tmp_path):
+        config = _make_config(tmp_path)
+        conn = _make_db(config)
+        _, campaign_id = _seed(conn)
+        conn.close()
+
+        engine = get_engine(config)
+        session_factory = get_session_factory(engine)
+        with session_factory() as db:
+            result = dispatch_llm_action_session(
+                db,
+                campaign_id,
+                {"action": "set_campaign_field", "field": "title", "value": "Session Title"},
+            )
+            db.commit()
+
+        with connect_database(config) as connection:
+            row = connection.execute("SELECT title FROM campaigns WHERE id = ?;", (campaign_id,)).fetchone()
+
+        assert result["target"] == "campaign"
+        assert result["field"] == "title"
+        assert row["title"] == "Session Title"
 
     def test_set_component_field_unknown_component(self, tmp_path):
         from fastapi import HTTPException

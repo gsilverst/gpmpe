@@ -22,7 +22,7 @@ from .chat import (
     ChatSessionStore,
     ParsedCloneCommand,
     ParsedQueryCommand,
-    apply_chat_command,
+    apply_chat_command_session,
     parse_chat_command,
     parse_clone_command,
     parse_query_command,
@@ -45,7 +45,7 @@ from .db import (
     is_sqlite_database_url,
 )
 from .git_store import GitStoreError, auto_commit_paths, pull_latest_changes
-from .llm import translate_and_apply
+from .llm import translate_and_apply_session
 from .models import (
     Business,
     Campaign,
@@ -61,7 +61,6 @@ from .renderer import render_campaign_artifact_session
 from .yaml_store import (
     campaign_yaml_paths_for_id_session,
     delete_yaml_state_for_campaign,
-    persist_yaml_state_for_campaign,
     persist_yaml_state_for_campaign_session,
     write_all_to_data_dir,
     write_all_to_data_dir_session,
@@ -383,17 +382,6 @@ def get_db_session():
         db.close()
 
 
-def _require_legacy_sqlite_mode(config: Any, feature: str) -> None:
-    if not is_sqlite_database_url(config.database_url):
-        raise HTTPException(
-            status_code=501,
-            detail=(
-                f"{feature} still depends on the legacy SQLite/YAML sync path "
-                "and is not available in RDS mode yet."
-            ),
-        )
-
-
 def _require_business(db: Session, business_id: int) -> Business:
     business = db.get(Business, business_id)
     if business is None:
@@ -490,13 +478,6 @@ def _campaign_row_to_dict(row: Any) -> dict[str, Any]:
 def _campaign_display_name(row: Any) -> str:
     details = json.loads(row["details_json"] or "{}") if "details_json" in row.keys() else {}
     return details.get("display_name") or row["campaign_name"]
-
-
-def _persist_campaign_yaml_or_raise(connection: Any, config: Any, campaign_id: int) -> tuple[Path, Path]:
-    try:
-        return persist_yaml_state_for_campaign(connection, config.data_dir, campaign_id)
-    except ValueError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 def _persist_campaign_yaml_session_or_raise(db: Session, config: Any, campaign_id: int) -> tuple[Path, Path]:
@@ -1852,38 +1833,15 @@ def create_app() -> FastAPI:
 
         llm_warning: str | None = None
         session_context = chat_store.get_context(session_id)
-        _require_legacy_sqlite_mode(config, "Chat campaign editing")
 
         if config.openrouter_api_key:
             # LLM path: translate natural language → structured command
             try:
-                with connect_database(config) as connection:
-                    result = translate_and_apply(
-                        connection,
-                        payload.campaign_id,
-                        config.openrouter_api_key,
-                        payload.message,
-                    )
-                    if result.get("target") != "clarify":
-                        _persist_campaign_yaml_or_raise(connection, config, payload.campaign_id)
-                    connection.commit()
-            except HTTPException:
-                raise
-            except Exception as exc:  # noqa: BLE001
-                _logger.warning("LLM call failed (%s); falling back to regex router", exc)
-                llm_warning = "AI assistant unavailable; falling back to command syntax."
-                with connect_database(config) as connection:
-                    command = parse_chat_command(payload.message)
-                    result = apply_chat_command(connection, payload.campaign_id, command, session_context=session_context)
-                    if result.get("target") != "clarify":
-                        _persist_campaign_yaml_or_raise(connection, config, payload.campaign_id)
-                    connection.commit()
-        else:
-            # Regex-only path (no API key configured)
-            with connect_database(config) as connection:
-                command = parse_chat_command(payload.message)
-                result = apply_chat_command(
-                    connection, payload.campaign_id, command, session_context=session_context
+                result = translate_and_apply_session(
+                    db,
+                    payload.campaign_id,
+                    config.openrouter_api_key,
+                    payload.message,
                 )
                 if result.get("target") != "clarify":
                     if (
@@ -1897,8 +1855,57 @@ def create_app() -> FastAPI:
                             result.get("campaign_name"),
                         )
                     else:
-                        _persist_campaign_yaml_or_raise(connection, config, payload.campaign_id)
-                connection.commit()
+                        _persist_campaign_yaml_session_or_raise(db, config, payload.campaign_id)
+                db.commit()
+            except HTTPException:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                _logger.warning("LLM call failed (%s); falling back to regex router", exc)
+                llm_warning = "AI assistant unavailable; falling back to command syntax."
+                command = parse_chat_command(payload.message)
+                result = apply_chat_command_session(
+                    db,
+                    payload.campaign_id,
+                    command,
+                    session_context=session_context,
+                )
+                if result.get("target") != "clarify":
+                    if (
+                        result.get("target") == "campaign"
+                        and result.get("field") == "delete"
+                        and result.get("deleted")
+                    ):
+                        delete_yaml_state_for_campaign(
+                            config.data_dir,
+                            business_display_name,
+                            result.get("campaign_name"),
+                        )
+                    else:
+                        _persist_campaign_yaml_session_or_raise(db, config, payload.campaign_id)
+                db.commit()
+        else:
+            # Regex-only path (no API key configured)
+            command = parse_chat_command(payload.message)
+            result = apply_chat_command_session(
+                db,
+                payload.campaign_id,
+                command,
+                session_context=session_context,
+            )
+            if result.get("target") != "clarify":
+                if (
+                    result.get("target") == "campaign"
+                    and result.get("field") == "delete"
+                    and result.get("deleted")
+                ):
+                    delete_yaml_state_for_campaign(
+                        config.data_dir,
+                        business_display_name,
+                        result.get("campaign_name"),
+                    )
+                else:
+                    _persist_campaign_yaml_session_or_raise(db, config, payload.campaign_id)
+            db.commit()
 
         chat_store.append(session_id, "user", payload.message)
         if result.get("target") == "clarify":
