@@ -191,6 +191,33 @@ Objective:
 - Setup GitHub Actions to build Docker images and deploy to Amazon ECR/ECS.
 - Support a `RUN_MODE=aws|local` toggle for environment-specific behaviors.
 
+## Phase 6: Post-AWS Workspace Model
+
+### Step 27: Business-Scoped User Workspaces (POST-AWS TODO)
+Objective:
+- After the AWS migration is complete and the application has been successfully deployed to AWS, add user-created workspaces under each business profile.
+- Workspaces are separate from the campaigns that live directly under the business profile.
+- A workspace belongs to exactly one business profile. If a user has access to multiple business profiles and wants workspace organization for each one, they must create separate workspace(s) under each business profile.
+
+Workspace modes:
+- Support either a single workspace that is public or private, or separate public and private workspaces under the same business profile.
+- A private workspace is visible only to the workspace owner and admin users.
+- A public workspace is visible to all users who have access to campaigns for the associated business profile.
+
+Access model:
+- Admin users can view all campaigns and all workspaces associated with all business profiles.
+- Regular users can view public workspaces for business profiles they have been granted access to.
+- Regular users can view their own private workspaces.
+- Regular users cannot view another regular user's private workspace.
+
+Implementation considerations:
+- Add a workspace data model scoped by `business_id`, with ownership, visibility (`public` or `private`), and lifecycle metadata.
+- Associate campaigns with either the business profile directly or with a workspace under that business profile.
+- Update campaign list/query APIs to support direct business campaigns, public workspace campaigns, and private workspace campaigns according to the requesting user's permissions.
+- Update the UI to let users create, select, and manage workspaces within the active business profile.
+- Ensure chatbot campaign creation and evolution can target either the business-level campaign area or a selected workspace.
+- Include authorization tests for admin visibility, public workspace access, private workspace isolation, and multi-business-profile separation.
+
 ### Step 22: Detailed Requirements Documentation (COMPLETED)
 Objective:
 - Write a comprehensive requirements document that captures the original intent and evolution of the project.
