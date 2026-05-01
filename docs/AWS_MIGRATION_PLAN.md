@@ -124,7 +124,8 @@ Since YAML files in the repository are the authoritative source, we must synchro
     - Keep commit scope restricted to configured YAML/data paths so generated PDFs, database files, and unrelated files are never pushed.
     - Define conflict behavior: surface a 409/error state, leave the repo in an inspectable state, and require admin intervention before retrying destructive resolution.
 - **Task 3.4: Verification**:
-    - Add GitStore tests with temporary repositories for commit-only, push-disabled, push-enabled failure, pull, and path-boundary behavior.
+    - Add GitStore tests with temporary repositories for commit-only, push-disabled, push-enabled failure, pull, and path-boundary behavior. **Complete.**
+    - Add a local end-to-end sync flow test that mirrors the AWS path with a bare remote, an EFS-like cloned data repo, `/data/pull`, YAML-to-DB reconciliation, campaign save, and push back to the remote. **Complete.**
     - Run a staging sync test where a Git commit updates YAML, `/data/pull` imports it into RDS, a chatbot edit writes YAML on EFS, and a save operation pushes a new commit back to the configured branch.
 - **Outcome**: Customers continue to use Git/YAML as their source of truth, while the AWS deployment stays perfectly in sync.
 
