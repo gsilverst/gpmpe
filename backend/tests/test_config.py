@@ -108,6 +108,7 @@ def test_resolve_config_reads_commit_on_save_and_git_settings(tmp_path: Path) ->
     assert config.git_push_enabled is False
     assert config.git_remote == "origin"
     assert config.git_branch == "HEAD"
+    assert config.git_lock_timeout_seconds == 30.0
 
 
 def test_resolve_config_reads_git_sync_settings(tmp_path: Path) -> None:
@@ -127,6 +128,21 @@ def test_resolve_config_reads_git_sync_settings(tmp_path: Path) -> None:
     assert config.git_push_enabled is True
     assert config.git_remote == "upstream"
     assert config.git_branch == "main"
+
+
+def test_resolve_config_reads_git_lock_timeout(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    config_path = repo_root / ".config"
+    config_path.write_text(
+        "DATA_DIR=./tests/data\n"
+        "GIT_LOCK_TIMEOUT_SECONDS=2.5\n",
+        encoding="utf-8",
+    )
+
+    config = resolve_config(repo_root=repo_root, cwd=tmp_path)
+
+    assert config.git_lock_timeout_seconds == 2.5
 
 
 def test_resolve_config_reads_images_per_page(tmp_path: Path) -> None:

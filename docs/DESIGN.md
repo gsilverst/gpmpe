@@ -450,6 +450,7 @@ Runtime configuration lives in a `.config` file at the repo root using `KEY=VALU
 | `GIT_PUSH_ENABLED` | Push commits to the configured Git remote | `false` |
 | `GIT_REMOTE` | Git remote used for pull/push operations | `origin` |
 | `GIT_BRANCH` | Git branch/ref used for pull/push operations | `HEAD` |
+| `GIT_LOCK_TIMEOUT_SECONDS` | Seconds to wait for the Git operation lock | `30` |
 | `TEST_DATABASE_PATH` | Isolated test database path | *(unset)* |
 | `TEST_DATA_DIR` | Isolated test YAML tree | *(unset)* |
 

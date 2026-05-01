@@ -21,6 +21,7 @@ class AppConfig:
     git_push_enabled: bool = False
     git_remote: str = "origin"
     git_branch: str = "HEAD"
+    git_lock_timeout_seconds: float = 30.0
     openrouter_api_key: str | None = None
 
 
@@ -89,6 +90,18 @@ def _parse_images_per_page(value: str | None) -> int | None:
     return parsed
 
 
+def _parse_positive_float(value: str | None, *, default: float, key: str) -> float:
+    if value is None or value.strip() == "":
+        return default
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise ValueError(f"{key} must be a positive number") from exc
+    if parsed <= 0:
+        raise ValueError(f"{key} must be a positive number")
+    return parsed
+
+
 def resolve_config(
     repo_root: Path | None = None,
     cwd: Path | None = None,
@@ -141,6 +154,11 @@ def resolve_config(
     git_push_enabled = _parse_bool(_config_value(values, "GIT_PUSH_ENABLED"), default=False)
     git_remote = _config_value(values, "GIT_REMOTE") or "origin"
     git_branch = _config_value(values, "GIT_BRANCH") or "HEAD"
+    git_lock_timeout_seconds = _parse_positive_float(
+        _config_value(values, "GIT_LOCK_TIMEOUT_SECONDS"),
+        default=30.0,
+        key="GIT_LOCK_TIMEOUT_SECONDS",
+    )
 
     return AppConfig(
         config_path=config_path,
@@ -157,5 +175,6 @@ def resolve_config(
         git_push_enabled=git_push_enabled,
         git_remote=git_remote,
         git_branch=git_branch,
+        git_lock_timeout_seconds=git_lock_timeout_seconds,
         openrouter_api_key=_config_value(values, "OPENROUTER_API_KEY") or None,
     )

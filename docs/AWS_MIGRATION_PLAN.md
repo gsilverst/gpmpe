@@ -109,8 +109,9 @@ Since YAML files in the repository are the authoritative source, we must synchro
     - `backend/scripts/git_sync_worker.sh` can run as a polling sidecar and call `/data/pull`.
     - Campaign saves can create Git commits when `COMMIT_ON_SAVE=true` and Git author/repository settings are configured.
     - Git push is now explicit and disabled by default through `GIT_PUSH_ENABLED=false`, so local and staging environments can commit without requiring outbound repository credentials.
+    - Git pull/commit/push operations are guarded by an EFS-compatible `.gpmpe-git.lock` file with a configurable `GIT_LOCK_TIMEOUT_SECONDS` timeout.
 - **Task 3.1: Git-to-Cloud Sync**: Deploy the Git sync worker as an ECS sidecar mounted to the same EFS data volume as the application.
-    - Configure `GPMPE_API_URL`, `SYNC_INTERVAL_SECONDS`, `GIT_REPO_PATH`, `GIT_USER_NAME`, `GIT_USER_EMAIL`, `GIT_REMOTE`, and `GIT_BRANCH` in the task environment.
+    - Configure `GPMPE_API_URL`, `SYNC_INTERVAL_SECONDS`, `GIT_REPO_PATH`, `GIT_USER_NAME`, `GIT_USER_EMAIL`, `GIT_REMOTE`, `GIT_BRANCH`, and `GIT_LOCK_TIMEOUT_SECONDS` in the task environment.
     - Inbound flow: the worker calls `/data/pull`; the backend runs `git pull --rebase` for the configured remote/branch and reconciles changed YAML into RDS.
     - Add CloudWatch logs and alarms for pull failures, API reachability failures, and reconciliation conflicts.
 - **Task 3.2: Cloud-to-Git Write-Back**:
@@ -119,7 +120,7 @@ Since YAML files in the repository are the authoritative source, we must synchro
     - Store Git credentials in AWS Secrets Manager or ECS task secrets, preferably using a GitHub App, deploy key, or narrowly scoped machine-user token.
     - Confirm the target branch strategy before enabling push in production. The initial default should be a protected integration branch rather than direct writes to `main`.
 - **Task 3.3: Sync Safety Controls**:
-    - Add an EFS-backed lock file or equivalent process lock before allowing multiple app/worker tasks to pull, commit, or push concurrently.
+    - Validate the EFS-backed `.gpmpe-git.lock` behavior with the deployed ECS task count before scaling beyond one application task and one sync worker.
     - Keep commit scope restricted to configured YAML/data paths so generated PDFs, database files, and unrelated files are never pushed.
     - Define conflict behavior: surface a 409/error state, leave the repo in an inspectable state, and require admin intervention before retrying destructive resolution.
 - **Task 3.4: Verification**:

@@ -63,6 +63,7 @@ def save_campaign(
             push_enabled=config.git_push_enabled,
             remote=config.git_remote,
             branch=config.git_branch,
+            lock_timeout_seconds=config.git_lock_timeout_seconds,
         )
     except GitStoreError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error

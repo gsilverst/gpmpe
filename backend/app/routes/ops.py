@@ -75,6 +75,7 @@ def create_ops_router(reconciliation: dict[str, Any]) -> APIRouter:
                 user_email=config.git_user_email,
                 remote=config.git_remote,
                 branch=config.git_branch,
+                lock_timeout_seconds=config.git_lock_timeout_seconds,
             )
 
             synced = None
