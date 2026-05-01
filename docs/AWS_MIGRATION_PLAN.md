@@ -118,7 +118,13 @@ Since YAML files in the repository are the authoritative source, we must synchro
     - When edits are made via Chat/GUI, the backend writes YAML on EFS and can commit those changed YAML files through the existing save endpoint.
     - Enable outbound repository pushes only after credentials are ready by setting `GIT_PUSH_ENABLED=true`.
     - Store Git credentials in AWS Secrets Manager or ECS task secrets, preferably using a GitHub App, deploy key, or narrowly scoped machine-user token.
+    - Treat the configured Git identity as an application/service identity, not the signed-in end user's personal Git credentials.
     - Confirm the target branch strategy before enabling push in production. The initial default should be a protected integration branch rather than direct writes to `main`.
+- **Task 3.2a: Global Git Credential Administration**:
+    - The AWS migration release will support global Git credentials only. These credentials apply to all business profiles and are administered by Primary Admin/Admin users.
+    - Do not store raw Git tokens or private keys in RDS. Store only secret references/metadata in application tables and keep secret material in AWS Secrets Manager or ECS task secrets.
+    - Admin users should be able to create/update/rotate global Git credential settings. Regular users should not be able to view or modify Git credentials.
+    - Audit all Git credential changes, including the admin user, scope (`global`), repository/branch metadata, and rotation timestamp.
 - **Task 3.3: Sync Safety Controls**:
     - Validate the EFS-backed `.gpmpe-git.lock` behavior with the deployed ECS task count before scaling beyond one application task and one sync worker.
     - Keep commit scope restricted to configured YAML/data paths so generated PDFs, database files, and unrelated files are never pushed.
@@ -171,3 +177,14 @@ To secure the application in AWS and support multi-user workflows, we will imple
 - **Parity Test**: Run the full backend test suite against an RDS instance in a staging VPC.
 - **Sync Test**: Verify that editing a campaign title via the AWS-hosted chatbot results in a new commit appearing in the GitHub repository.
 - **Local Fallback**: Confirm that developers can still run `start.sh` on their laptops with zero AWS dependencies.
+
+---
+
+## 10. Post-AWS Deployment Enhancements
+These enhancements should be planned after the migration is complete and the application has been successfully deployed and validated in AWS.
+
+- **Business-Profile-Specific Git Credentials**:
+    - Add optional Git credential overrides at the business profile level after the global credential flow has been validated in AWS.
+    - A business profile may supply its own repository URL/path, branch/ref, author identity, and credential secret reference; when present, those settings override the global Git settings for campaigns under that business profile.
+    - Continue storing raw tokens/private keys only in AWS Secrets Manager or ECS task secrets, with RDS holding secret references and non-sensitive metadata.
+    - Restrict business-profile credential management to Primary Admin/Admin users and audit all create/update/rotation events with the target business profile.
