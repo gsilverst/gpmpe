@@ -58,10 +58,11 @@ This refactor should happen after the current database migration slice is stable
     - FastAPI request/response schemas have moved into `backend/app/schemas.py`.
     - Campaign YAML persistence helpers have moved into `backend/app/services/yaml_persistence.py`.
     - Artifact save, render, list, download, and view endpoints have moved into `backend/app/routes/artifacts.py`.
+    - Business and campaign CRUD/clone endpoints have moved into `backend/app/routes/business_campaigns.py`.
     - Data-manager snapshot helpers have moved into `backend/app/services/data_manager.py`, with data-manager endpoints in `backend/app/routes/data_manager.py`.
     - API behavior is unchanged; route groups are now being split one domain at a time.
 - **Task 1.5.1: Split routes by domain**:
-    - Move business and campaign endpoints into route modules.
+    - Business and campaign endpoints are complete.
     - Move offer, asset, template, component, artifact, chat, startup, data-sync, and data-manager endpoints into focused route modules.
     - Artifact and data-manager endpoints are complete; remaining route groups should continue in small slices with full test runs after each slice.
 - **Task 1.5.2: Introduce service-layer boundaries**:
