@@ -1,0 +1,142 @@
+{
+  "family": "gpmpe-staging",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "1024",
+  "memory": "2048",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/gpmpe-ecs-execution-role",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/gpmpe-ecs-task-role",
+  "volumes": [
+    {
+      "name": "gpmpe-data",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "fs-REPLACE_ME",
+        "rootDirectory": "/",
+        "transitEncryption": "ENABLED",
+        "authorizationConfig": {
+          "accessPointId": "fsap-REPLACE_ME_DATA",
+          "iam": "ENABLED"
+        }
+      }
+    },
+    {
+      "name": "gpmpe-output",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "fs-REPLACE_ME",
+        "rootDirectory": "/",
+        "transitEncryption": "ENABLED",
+        "authorizationConfig": {
+          "accessPointId": "fsap-REPLACE_ME_OUTPUT",
+          "iam": "ENABLED"
+        }
+      }
+    }
+  ],
+  "containerDefinitions": [
+    {
+      "name": "gpmpe-app",
+      "image": "ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/gpmpe:REPLACE_ME",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8000,
+          "hostPort": 8000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "RUN_MODE", "value": "aws" },
+        { "name": "DATA_DIR", "value": "/app/data" },
+        { "name": "OUTPUT_DIR", "value": "/app/output" },
+        { "name": "GIT_REPO_PATH", "value": "/app/data" },
+        { "name": "GIT_REMOTE", "value": "origin" },
+        { "name": "GIT_BRANCH", "value": "main" },
+        { "name": "GIT_PUSH_ENABLED", "value": "false" },
+        { "name": "GIT_LOCK_TIMEOUT_SECONDS", "value": "30" },
+        { "name": "COMMIT_ON_SAVE", "value": "true" }
+      ],
+      "secrets": [
+        {
+          "name": "DATABASE_URL",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:gpmpe/staging/database-url"
+        },
+        {
+          "name": "OPENROUTER_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:gpmpe/staging/openrouter-api-key"
+        },
+        {
+          "name": "GIT_USER_NAME",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:gpmpe/staging/git-user-name"
+        },
+        {
+          "name": "GIT_USER_EMAIL",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:gpmpe/staging/git-user-email"
+        }
+      ],
+      "mountPoints": [
+        {
+          "sourceVolume": "gpmpe-data",
+          "containerPath": "/app/data",
+          "readOnly": false
+        },
+        {
+          "sourceVolume": "gpmpe-output",
+          "containerPath": "/app/output",
+          "readOnly": false
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/gpmpe-staging",
+          "awslogs-region": "REGION",
+          "awslogs-stream-prefix": "app"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)\""],
+        "interval": 30,
+        "timeout": 10,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    },
+    {
+      "name": "gpmpe-git-sync",
+      "image": "ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/gpmpe:REPLACE_ME",
+      "essential": false,
+      "command": ["/app/backend/scripts/git_sync_worker.sh"],
+      "environment": [
+        { "name": "GPMPE_API_URL", "value": "http://127.0.0.1:8000" },
+        { "name": "SYNC_INTERVAL_SECONDS", "value": "60" },
+        { "name": "RUN_MODE", "value": "aws" },
+        { "name": "DATA_DIR", "value": "/app/data" },
+        { "name": "OUTPUT_DIR", "value": "/app/output" },
+        { "name": "GIT_REPO_PATH", "value": "/app/data" },
+        { "name": "GIT_REMOTE", "value": "origin" },
+        { "name": "GIT_BRANCH", "value": "main" },
+        { "name": "GIT_LOCK_TIMEOUT_SECONDS", "value": "30" }
+      ],
+      "mountPoints": [
+        {
+          "sourceVolume": "gpmpe-data",
+          "containerPath": "/app/data",
+          "readOnly": false
+        },
+        {
+          "sourceVolume": "gpmpe-output",
+          "containerPath": "/app/output",
+          "readOnly": false
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/gpmpe-staging",
+          "awslogs-region": "REGION",
+          "awslogs-stream-prefix": "git-sync"
+        }
+      }
+    }
+  ]
+}

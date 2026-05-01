@@ -149,7 +149,10 @@ Since YAML files in the repository are the authoritative source, we must synchro
     - The Docker image has local defaults for `RUN_MODE`, `DATA_DIR`, `OUTPUT_DIR`, and `DATABASE_PATH`, while allowing AWS/ECS task definitions to override them with RDS/EFS settings.
     - The runtime image includes Git/OpenSSH tooling required by the sync worker.
     - GitHub Actions CI runs backend tests, builds the frontend export, and validates the Docker image build.
-    - ECR push and ECS deploy steps remain pending until AWS account identifiers, IAM roles, and deployment targets are available.
+    - A manual GitHub Actions AWS deploy workflow scaffold now builds the image, pushes it to ECR, renders an ECS task definition, and deploys it to ECS/Fargate once account-specific values are supplied.
+    - `aws/ecs-task-definition.template.json` provides the initial app-plus-git-sync-sidecar task shape, including EFS mounts for `/app/data` and `/app/output`.
+    - `docs/AWS_DEPLOYMENT_RUNBOOK.md` documents the AWS values, GitHub variables/secrets, first deploy flow, staging validation, and rollback steps.
+    - Actual ECR push and ECS deploy execution remain pending until AWS account identifiers, IAM roles, networking, RDS, EFS, and deployment targets are available.
 
 ---
 

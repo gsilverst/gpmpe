@@ -300,6 +300,13 @@ docker run --rm -p 8000:8000 \
 
 For AWS/ECS, override the same image with `RUN_MODE=aws`, `DATABASE_URL`, `DATA_DIR=/app/data`, and `OUTPUT_DIR=/app/output`, with `/app/data` and `/app/output` backed by EFS.
 
+AWS deployment planning lives in:
+
+- `docs/AWS_MIGRATION_PLAN.md` for the migration roadmap
+- `docs/AWS_DEPLOYMENT_RUNBOOK.md` for the first ECS/Fargate deployment checklist
+- `.github/workflows/aws-deploy.yml` for the manual ECR/ECS deployment scaffold
+- `aws/ecs-task-definition.template.json` for the initial ECS task definition template
+
 Then open:
 
 - `http://127.0.0.1:8000/` for the frontend

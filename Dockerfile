@@ -18,7 +18,7 @@ ENV OUTPUT_DIR=/app/output
 ENV DATABASE_PATH=/app/backend/data/gpmpe.db
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates git openssh-client \
+  && apt-get install -y --no-install-recommends ca-certificates curl git openssh-client \
   && rm -rf /var/lib/apt/lists/*
 
 COPY backend/ ./backend/
