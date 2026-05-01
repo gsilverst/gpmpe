@@ -55,6 +55,7 @@ This refactor should happen after the current database migration slice is stable
 - **Current Status**:
     - Database session dependency and entity lookup guards have moved into `backend/app/dependencies.py`.
     - Request ID middleware has moved into `backend/app/middleware.py`.
+    - FastAPI request/response schemas have moved into `backend/app/schemas.py`.
     - API behavior is unchanged; this is the first low-risk extraction before splitting route groups.
 - **Task 1.5.1: Split routes by domain**:
     - Move business and campaign endpoints into route modules.
