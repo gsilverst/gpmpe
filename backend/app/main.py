@@ -8,15 +8,13 @@ from pathlib import Path
 from typing import Literal
 from typing import Any
 from urllib.parse import urlparse
-import uuid
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from .chat import (
     ChatSessionStore,
@@ -37,6 +35,14 @@ from .data_sync import (
     sync_data_directory,
     sync_data_directory_session,
 )
+from .dependencies import (
+    get_db_session,
+    require_business as _require_business,
+    require_campaign as _require_campaign,
+    require_component as _require_component,
+    require_item as _require_item,
+    require_template as _require_template,
+)
 from .db import (
     connect_database,
     get_engine,
@@ -46,6 +52,7 @@ from .db import (
 )
 from .git_store import GitStoreError, auto_commit_paths, pull_latest_changes
 from .llm import translate_and_apply_session
+from .middleware import RequestIDMiddleware
 from .models import (
     Business,
     Campaign,
@@ -151,15 +158,6 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 _logger = logging.getLogger("gpmpe")
-
-
-class RequestIDMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
-        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
-        _logger.info("[%s] %s %s", request_id, request.method, request.url.path)
-        response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
-        return response
 
 
 class BusinessCreate(BaseModel):
@@ -368,53 +366,6 @@ ALLOWED_ASSET_MIME_TYPES = {
     "application/pdf",
     "text/plain",
 }
-
-
-def get_db_session():
-    config = resolve_config()
-    initialize_database(config)
-    engine = get_engine(config)
-    session_factory = get_session_factory(engine)
-    db = session_factory()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-def _require_business(db: Session, business_id: int) -> Business:
-    business = db.get(Business, business_id)
-    if business is None:
-        raise HTTPException(status_code=404, detail="Business not found")
-    return business
-
-
-def _require_campaign(db: Session, campaign_id: int) -> Campaign:
-    campaign = db.get(Campaign, campaign_id)
-    if campaign is None:
-        raise HTTPException(status_code=404, detail="Campaign not found")
-    return campaign
-
-
-def _require_template(db: Session, template_id: int) -> TemplateDefinition:
-    template = db.get(TemplateDefinition, template_id)
-    if template is None:
-        raise HTTPException(status_code=404, detail="Template not found")
-    return template
-
-
-def _require_component(db: Session, component_id: int) -> CampaignComponent:
-    component = db.get(CampaignComponent, component_id)
-    if component is None:
-        raise HTTPException(status_code=404, detail="Component not found")
-    return component
-
-
-def _require_item(db: Session, item_id: int) -> CampaignComponentItem:
-    item = db.get(CampaignComponentItem, item_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail="Component item not found")
-    return item
 
 
 def _business_to_response(business: Business) -> BusinessResponse:
