@@ -92,10 +92,11 @@ To satisfy the requirement of maintaining YAML files for version control without
     - Docker Compose already maps `/app/data`, `/app/output`, and `/app/backend/data` to named volumes; those same paths can be backed by EFS in AWS.
     - YAML write-back and PDF rendering use atomic file replacement.
     - Campaign clone YAML updates now also use atomic file replacement, so chat/GUI clone flows are safer on EFS-backed storage.
+    - `backend/tests/test_efs_storage_parity.py` provides a local EFS-style smoke test for env-configured paths, data sync, YAML mutation write-back, chat clone, and render output.
 - **Task 2.1**: Provision an Amazon EFS volume.
 - **Task 2.2**: Mount the EFS volume to the AWS Fargate tasks or Lambda functions at `/app/data` and `/app/output`.
 - **Task 2.3**: Set `DATA_DIR=/app/data` and `OUTPUT_DIR=/app/output` in the AWS task/container environment.
-- **Task 2.4**: Validate EFS permissions by running data sync, campaign mutation, clone, and render smoke tests against the mounted paths.
+- **Task 2.4**: Validate EFS permissions by running `backend/tests/test_efs_storage_parity.py` locally and repeating the same sync, campaign mutation, clone, and render flow against mounted EFS paths in AWS.
 - **Outcome**: The codebase remains identical, using standard Python `pathlib` operations, while the underlying storage is a durable, networked cloud filesystem.
 
 ---
