@@ -30,7 +30,7 @@ from .chat import (
 )
 from .config import resolve_config
 from .data_sync import (
-    clone_campaign_directory,
+    clone_campaign_directory_session,
     compare_db_to_yaml,
     compare_db_to_yaml_session,
     discover_data_directory,
@@ -1132,23 +1132,21 @@ def create_app() -> FastAPI:
         destination_slug = new_name if new_key == "" else f"{new_name}-{new_key}"
 
         config = resolve_config()
-        _require_legacy_sqlite_mode(config, "Campaign cloning")
-        from .db import connect_database
-        with connect_database(config) as connection:
-            try:
-                record = clone_campaign_directory(
-                    connection,
-                    config.data_dir,
-                    source_campaign_name=source.campaign_name,
-                    source_campaign_key=source.campaign_key or "",
-                    new_campaign_name=new_name,
-                    new_campaign_key=new_key or None,
-                    destination_directory_name=destination_slug,
-                    business_name=source.business.display_name,
-                )
-                connection.commit()
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            record = clone_campaign_directory_session(
+                db,
+                config.data_dir,
+                source_campaign_name=source.campaign_name,
+                source_campaign_key=source.campaign_key or "",
+                new_campaign_name=new_name,
+                new_campaign_key=new_key or None,
+                destination_directory_name=destination_slug,
+                business_name=source.business.display_name,
+            )
+            db.commit()
+        except ValueError as exc:
+            db.rollback()
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         new_campaign = db.query(Campaign).filter(
             Campaign.business_id == business_id,
@@ -1679,33 +1677,27 @@ def create_app() -> FastAPI:
 
         clone_cmd = parse_clone_command(payload.message)
         if clone_cmd is not None:
-            _require_legacy_sqlite_mode(config, "Chat campaign cloning")
-            with connect_database(config) as connection:
-                try:
-                    record = clone_campaign_directory(
-                        connection,
-                        config.data_dir,
-                        source_campaign_name=clone_cmd.source_campaign_name,
-                        new_campaign_name=clone_cmd.new_campaign_name,
-                        business_name=clone_cmd.business_name,
-                    )
-                    # Resolve the new campaign's DB id and business id
-                    new_row = connection.execute(
-                        """
-                        SELECT c.id AS campaign_id, c.business_id
-                        FROM campaigns c
-                        WHERE c.campaign_name = ?
-                        ORDER BY c.id DESC
-                        LIMIT 1;
-                        """,
-                        (clone_cmd.new_campaign_name,),
-                    ).fetchone()
-                    connection.commit()
-                except ValueError as exc:
-                    raise HTTPException(status_code=400, detail=str(exc)) from exc
+            try:
+                record = clone_campaign_directory_session(
+                    db,
+                    config.data_dir,
+                    source_campaign_name=clone_cmd.source_campaign_name,
+                    new_campaign_name=clone_cmd.new_campaign_name,
+                    business_name=clone_cmd.business_name,
+                )
+                db.commit()
+            except ValueError as exc:
+                db.rollback()
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-            new_campaign_id = int(new_row["campaign_id"]) if new_row else None
-            new_business_id = int(new_row["business_id"]) if new_row else None
+            new_campaign = (
+                db.query(Campaign)
+                .filter(Campaign.campaign_name == clone_cmd.new_campaign_name)
+                .order_by(Campaign.id.desc())
+                .first()
+            )
+            new_campaign_id = new_campaign.id if new_campaign else None
+            new_business_id = new_campaign.business_id if new_campaign else None
             _sync_active_campaign_context(new_campaign_id)
             chat_store.append(session_id, "user", payload.message)
             chat_store.append(

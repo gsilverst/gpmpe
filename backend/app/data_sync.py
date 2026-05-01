@@ -924,6 +924,85 @@ def clone_campaign_directory(
     return record
 
 
+def clone_campaign_directory_session(
+    db: Session,
+    data_dir: Path,
+    source_campaign_name: str,
+    new_campaign_name: str,
+    source_campaign_key: str | None = None,
+    destination_directory_name: str | None = None,
+    new_campaign_key: str | None = None,
+    business_name: str | None = None,
+    new_title: str | None = None,
+) -> CampaignYamlRecord:
+    """Copy a campaign YAML directory tree and sync the clone through SQLAlchemy."""
+    _ensure_safe_name(new_campaign_name, "campaign")
+    destination_directory = destination_directory_name or new_campaign_name
+    _ensure_safe_name(destination_directory, "campaign")
+
+    source_dir: Path | None = None
+    source_business_dir: Path | None = None
+    for business_dir in sorted(p for p in data_dir.iterdir() if p.is_dir()):
+        if business_name and business_dir.name.lower() != business_name.lower():
+            continue
+        candidate = business_dir / source_campaign_name
+        candidate_yaml = candidate / f"{source_campaign_name}.yaml"
+        if candidate.is_dir() and candidate_yaml.exists():
+            if source_campaign_key is not None:
+                candidate_payload = _load_yaml_file(candidate_yaml)
+                candidate_key = _optional_string(candidate_payload, "qualifier") or ""
+                if candidate_key != source_campaign_key:
+                    continue
+            source_dir = candidate
+            source_business_dir = business_dir
+            break
+
+    if source_dir is None or source_business_dir is None:
+        raise ValueError(
+            f"Source campaign '{source_campaign_name}' not found under '{data_dir}'"
+            + (f" for business '{business_name}'" if business_name else "")
+        )
+
+    dest_dir = source_business_dir / destination_directory
+    if dest_dir.exists():
+        raise ValueError(f"Destination '{dest_dir}' already exists")
+
+    shutil.copytree(source_dir, dest_dir)
+
+    old_yaml = dest_dir / f"{source_campaign_name}.yaml"
+    new_yaml = dest_dir / f"{destination_directory}.yaml"
+    old_yaml.rename(new_yaml)
+
+    payload = _load_yaml_file(new_yaml)
+    payload["campaign_name"] = new_campaign_name
+    payload["display_name"] = destination_directory
+    payload["qualifier"] = (new_campaign_key or "").strip() or None
+    if new_title:
+        payload["title"] = new_title
+    else:
+        payload["title"] = new_campaign_name.replace("-", " ").replace("_", " ").title()
+
+    with new_yaml.open("w", encoding="utf-8") as handle:
+        yaml.dump(payload, handle, allow_unicode=True, sort_keys=False)
+
+    record = CampaignYamlRecord(
+        directory_name=destination_directory,
+        file_path=new_yaml,
+        payload=payload,
+    )
+    business_yaml = source_business_dir / f"{source_business_dir.name}.yaml"
+    business_payload = _load_yaml_file(business_yaml)
+    business_record = BusinessYamlRecord(
+        directory_name=source_business_dir.name,
+        file_path=business_yaml,
+        payload=business_payload,
+        campaigns=[record],
+    )
+    business_id = _sync_business_session(db, business_record)
+    _sync_campaign_session(db, business_id, record)
+    return record
+
+
 def compare_db_to_yaml(connection: sqlite3.Connection, data_dir: Path) -> ReconciliationReport:
     """Compare DB state against DATA_DIR YAML files.
 

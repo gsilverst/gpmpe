@@ -36,10 +36,10 @@ The current implementation is tightly coupled to the `sqlite3` library. We will 
 - Whole-database YAML export now has a SQLAlchemy-backed implementation.
 - YAML import/sync now has a SQLAlchemy-backed implementation, and the manual data sync and git-pull sync paths use it in RDS mode.
 - Database-to-YAML comparison now has a SQLAlchemy-backed implementation for startup reconciliation in RDS mode.
+- Campaign clone/import flows now have a SQLAlchemy-backed implementation, and the campaign clone API plus chat clone command use it.
 - Read-only chatbot context/query commands now use SQLAlchemy session reads. Chat-driven campaign mutations still use the legacy mutation engine and remain guarded in RDS mode.
 - Legacy sync/edit endpoints that still require raw SQLite now return explicit `501 Not Implemented` responses in RDS mode instead of failing through `connect_database()`.
 - Legacy paths still depend on `connect_database()` and raw SQLite-style SQL:
-    - campaign clone/import flows
     - chat mutation helpers
     - LLM context building
 - `connect_database()` is intentionally guarded so it only runs in SQLite/local mode. If `DATABASE_URL` points to RDS, remaining legacy call paths fail loudly instead of silently writing to a separate local SQLite database.
