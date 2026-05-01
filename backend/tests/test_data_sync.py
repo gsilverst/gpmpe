@@ -4,9 +4,15 @@ import sqlite3
 from fastapi.testclient import TestClient
 
 from app.config import resolve_config
-from app.data_sync import discover_data_directory, sync_data_directory
-from app.db import connect_database, initialize_database
+from app.data_sync import (
+    compare_db_to_yaml_session,
+    discover_data_directory,
+    sync_data_directory,
+    sync_data_directory_session,
+)
+from app.db import connect_database, get_engine, get_session_factory, initialize_database
 from app.main import create_app
+from app.models import Business, Campaign
 from .conftest import enable_test_paths
 
 
@@ -153,6 +159,58 @@ def test_sync_data_directory_populates_database(monkeypatch, tmp_path: Path) -> 
     assert campaign is not None
     assert campaign["campaign_key"] == ""
     assert campaign["title"] == "Mother's Day Appreciation Sale"
+
+
+def test_sync_data_directory_session_populates_database(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path, _sample_data_dir())
+    enable_test_paths(monkeypatch, config_path)
+    config = resolve_config(repo_root=_repo_root(), cwd=_repo_root())
+
+    initialize_database(config)
+    engine = get_engine(config)
+    session_factory = get_session_factory(engine)
+    with session_factory() as db:
+        summary = sync_data_directory_session(db, config.data_dir)
+        db.commit()
+
+    with session_factory() as db:
+        business = db.query(Business).filter(Business.display_name == "acme").first()
+        campaign = db.query(Campaign).filter(Campaign.campaign_name == "mothersday").first()
+
+    assert summary.businesses_synced == 1
+    assert summary.campaigns_synced == 1
+    assert business is not None
+    assert business.legal_name == "Acme Promotions LLC"
+    assert campaign is not None
+    assert campaign.campaign_key == ""
+    assert campaign.title == "Mother's Day Appreciation Sale"
+
+
+def test_compare_db_to_yaml_session_reports_differences(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path, _sample_data_dir())
+    enable_test_paths(monkeypatch, config_path)
+    config = resolve_config(repo_root=_repo_root(), cwd=_repo_root())
+
+    initialize_database(config)
+    engine = get_engine(config)
+    session_factory = get_session_factory(engine)
+    with session_factory() as db:
+        db.add(
+            Business(
+                legal_name="Legacy Promotions LLC",
+                display_name="legacy",
+                timezone="America/New_York",
+                is_active=True,
+            )
+        )
+        db.commit()
+
+    with session_factory() as db:
+        report = compare_db_to_yaml_session(db, config.data_dir)
+
+    assert not report.in_sync
+    assert report.yaml_only == ["acme"]
+    assert report.db_only == ["legacy"]
 
 
 def test_resolve_config_uses_test_database_and_data_dir_together(monkeypatch, tmp_path: Path) -> None:

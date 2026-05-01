@@ -32,8 +32,10 @@ from .config import resolve_config
 from .data_sync import (
     clone_campaign_directory,
     compare_db_to_yaml,
+    compare_db_to_yaml_session,
     discover_data_directory,
     sync_data_directory,
+    sync_data_directory_session,
 )
 from .db import (
     connect_database,
@@ -90,22 +92,24 @@ async def lifespan(_: FastAPI):
         if not yaml_records and db_count > 0:
             with session_factory() as db:
                 write_all_to_data_dir_session(db, config.data_dir)
+        elif yaml_records and db_count == 0:
+            with session_factory() as db:
+                sync_data_directory_session(db, config.data_dir)
+                db.commit()
         elif yaml_records:
-            _reconciliation = {
-                "needed": True,
-                "report": {
-                    "mode": "rds",
-                    "message": (
-                        "YAML reconciliation is pending SQLAlchemy migration. "
-                        "Legacy sync currently runs only in SQLite/local mode."
-                    ),
-                    "yaml_only": [record.directory_name for record in yaml_records],
-                    "db_only": [],
-                    "content_differs": [],
-                    "db_latest_updated_at": None,
-                    "yaml_latest_mtime": None,
-                },
-            }
+            with session_factory() as db:
+                report = compare_db_to_yaml_session(db, config.data_dir)
+            if not report.in_sync:
+                _reconciliation = {
+                    "needed": True,
+                    "report": {
+                        "yaml_only": report.yaml_only,
+                        "db_only": report.db_only,
+                        "content_differs": report.content_differs,
+                        "db_latest_updated_at": report.db_latest_updated_at,
+                        "yaml_latest_mtime": report.yaml_latest_mtime,
+                    },
+                }
     else:
         with connect_database(config) as connection:
             db_count = int(
@@ -787,8 +791,12 @@ def create_app() -> FastAPI:
         config = resolve_config()
         if not is_sqlite_database_url(config.database_url):
             if request.direction == "yaml_to_db":
-                _require_legacy_sqlite_mode(config, "YAML-to-database startup reconciliation")
-            if request.direction == "db_to_yaml":
+                engine = get_engine(config)
+                session_factory = get_session_factory(engine)
+                with session_factory() as db:
+                    sync_data_directory_session(db, config.data_dir)
+                    db.commit()
+            elif request.direction == "db_to_yaml":
                 engine = get_engine(config)
                 session_factory = get_session_factory(engine)
                 with session_factory() as db:
@@ -2102,10 +2110,16 @@ def create_app() -> FastAPI:
             # If changes were pulled, we should probably trigger a sync to DB automatically
             synced = None
             if changed:
-                _require_legacy_sqlite_mode(config, "Git pull YAML sync")
-                with connect_database(config) as connection:
-                    synced = sync_data_directory(connection, config.data_dir)
-                    connection.commit()
+                if is_sqlite_database_url(config.database_url):
+                    with connect_database(config) as connection:
+                        synced = sync_data_directory(connection, config.data_dir)
+                        connection.commit()
+                else:
+                    engine = get_engine(config)
+                    session_factory = get_session_factory(engine)
+                    with session_factory() as db:
+                        synced = sync_data_directory_session(db, config.data_dir)
+                        db.commit()
 
             return {
                 "changed": changed,
@@ -2121,10 +2135,16 @@ def create_app() -> FastAPI:
     @app.post("/data/sync")
     def sync_yaml_data() -> dict[str, Any]:
         config = resolve_config()
-        _require_legacy_sqlite_mode(config, "YAML data sync")
-        with connect_database(config) as connection:
-            summary = sync_data_directory(connection, config.data_dir)
-            connection.commit()
+        if is_sqlite_database_url(config.database_url):
+            with connect_database(config) as connection:
+                summary = sync_data_directory(connection, config.data_dir)
+                connection.commit()
+        else:
+            engine = get_engine(config)
+            session_factory = get_session_factory(engine)
+            with session_factory() as db:
+                summary = sync_data_directory_session(db, config.data_dir)
+                db.commit()
         return {
             "businesses_synced": summary.businesses_synced,
             "campaigns_synced": summary.campaigns_synced,

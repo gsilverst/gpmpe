@@ -10,6 +10,21 @@ import sqlite3
 from typing import Any
 
 import yaml
+from sqlalchemy.orm import Session
+
+from .models import (
+    BrandTheme,
+    Business,
+    BusinessContact,
+    BusinessLocation,
+    Campaign,
+    CampaignAsset,
+    CampaignComponent,
+    CampaignComponentItem,
+    CampaignOffer,
+    CampaignTemplateBinding,
+    TemplateDefinition,
+)
 
 
 SAFE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -529,6 +544,290 @@ def sync_data_directory(connection: sqlite3.Connection, data_dir: Path) -> SyncS
     return SyncSummary(businesses_synced=len(records), campaigns_synced=campaigns_synced)
 
 
+def _sync_business_session(db: Session, record: BusinessYamlRecord) -> int:
+    payload = record.payload
+    display_name = _required_string(payload, "display_name", record.file_path)
+    legal_name = _required_string(payload, "legal_name", record.file_path)
+    timezone = _optional_string(payload, "timezone") or "America/New_York"
+    is_active = bool(payload.get("is_active", True))
+
+    business = db.query(Business).filter(Business.display_name == display_name).first()
+    if business is None:
+        business = Business(
+            legal_name=legal_name,
+            display_name=display_name,
+            timezone=timezone,
+            is_active=is_active,
+        )
+        db.add(business)
+        db.flush()
+    else:
+        business.legal_name = legal_name
+        business.display_name = display_name
+        business.timezone = timezone
+        business.is_active = is_active
+
+    contacts = payload.get("contacts", []) or []
+    if not isinstance(contacts, list):
+        raise ValueError(f"contacts must be a list in {record.file_path}")
+    business.contacts.clear()
+    for contact in contacts:
+        if not isinstance(contact, dict):
+            raise ValueError(f"contacts entries must be objects in {record.file_path}")
+        business.contacts.append(
+            BusinessContact(
+                contact_type=_required_string(contact, "contact_type", record.file_path),
+                contact_value=_required_string(contact, "contact_value", record.file_path),
+                is_primary=bool(contact.get("is_primary", False)),
+            )
+        )
+
+    locations = payload.get("locations", []) or []
+    if not isinstance(locations, list):
+        raise ValueError(f"locations must be a list in {record.file_path}")
+    business.locations.clear()
+    for location in locations:
+        if not isinstance(location, dict):
+            raise ValueError(f"locations entries must be objects in {record.file_path}")
+        business.locations.append(
+            BusinessLocation(
+                label=_optional_string(location, "label"),
+                line1=_required_string(location, "line1", record.file_path),
+                line2=_optional_string(location, "line2"),
+                city=_required_string(location, "city", record.file_path),
+                state=_required_string(location, "state", record.file_path),
+                postal_code=_required_string(location, "postal_code", record.file_path),
+                country=_optional_string(location, "country") or "US",
+                hours_json=json.dumps(location.get("hours") or {}),
+            )
+        )
+
+    brand_theme = payload.get("brand_theme") or {}
+    if not isinstance(brand_theme, dict):
+        raise ValueError(f"brand_theme must be an object in {record.file_path}")
+    theme_name = _optional_string(brand_theme, "name") or "default"
+    for theme in list(business.brand_themes):
+        if theme.name != theme_name:
+            db.delete(theme)
+    theme = next((row for row in business.brand_themes if row.name == theme_name), None)
+    if theme is None:
+        theme = BrandTheme(name=theme_name)
+        business.brand_themes.append(theme)
+    theme.primary_color = _optional_string(brand_theme, "primary_color")
+    theme.secondary_color = _optional_string(brand_theme, "secondary_color")
+    theme.accent_color = _optional_string(brand_theme, "accent_color")
+    theme.font_family = _optional_string(brand_theme, "font_family")
+    theme.logo_path = _optional_string(brand_theme, "logo_path")
+    db.flush()
+    return business.id
+
+
+def _reconcile_campaigns_session(
+    db: Session,
+    business_id: int,
+    campaign_records: list[CampaignYamlRecord],
+) -> None:
+    expected_campaigns = {
+        (
+            _required_string(record.payload, "campaign_name", record.file_path),
+            _optional_string(record.payload, "qualifier") or "",
+        )
+        for record in campaign_records
+    }
+    rows = db.query(Campaign).filter(Campaign.business_id == business_id).all()
+    for row in rows:
+        if (row.campaign_name, row.campaign_key or "") not in expected_campaigns:
+            db.delete(row)
+
+
+def _reconcile_businesses_session(db: Session, business_records: list[BusinessYamlRecord]) -> None:
+    expected_businesses = {
+        _required_string(record.payload, "display_name", record.file_path) for record in business_records
+    }
+    rows = db.query(Business).all()
+    for row in rows:
+        if row.display_name not in expected_businesses:
+            db.delete(row)
+
+
+def _delete_orphaned_template_definitions_session(db: Session) -> None:
+    db.flush()
+    templates = db.query(TemplateDefinition).filter(~TemplateDefinition.bindings.any()).all()
+    for template in templates:
+        db.delete(template)
+
+
+def _sync_campaign_components_session(db: Session, campaign: Campaign, record: CampaignYamlRecord) -> None:
+    components = record.payload.get("components", []) or []
+    if not isinstance(components, list):
+        raise ValueError(f"components must be a list in {record.file_path}")
+
+    campaign.components.clear()
+    db.flush()
+    for component_index, component in enumerate(components):
+        if not isinstance(component, dict):
+            raise ValueError(f"components entries must be objects in {record.file_path}")
+        component_kind = _optional_string(component, "component_kind") or "featured-offers"
+        default_region, default_mode = _component_render_defaults(component_kind)
+        component_model = CampaignComponent(
+            component_key=_required_string(component, "component_key", record.file_path),
+            component_kind=component_kind,
+            render_region=_optional_string(component, "render_region") or default_region,
+            render_mode=_optional_string(component, "render_mode") or default_mode,
+            style_json=json.dumps(component.get("style") or component.get("style_json") or {}),
+            display_title=_required_string(component, "display_title", record.file_path),
+            background_color=_optional_string(component, "background_color"),
+            header_accent_color=_optional_string(component, "header_accent_color"),
+            footnote_text=_optional_string(component, "footnote_text"),
+            subtitle=_optional_string(component, "subtitle"),
+            description_text=_optional_string(component, "description_text"),
+            display_order=component.get("display_order", component_index),
+        )
+        campaign.components.append(component_model)
+
+        items = component.get("items", []) or []
+        if not isinstance(items, list):
+            raise ValueError(f"component items must be a list in {record.file_path}")
+        for item_index, item in enumerate(items):
+            if not isinstance(item, dict):
+                raise ValueError(f"component items entries must be objects in {record.file_path}")
+            component_model.items.append(
+                CampaignComponentItem(
+                    item_name=_required_string(item, "item_name", record.file_path),
+                    item_kind=_optional_string(item, "item_kind") or "service",
+                    duration_label=_optional_string(item, "duration_label"),
+                    item_value=_optional_string(item, "item_value"),
+                    background_color=_optional_string(item, "background_color"),
+                    render_role=_optional_string(item, "render_role"),
+                    style_json=json.dumps(item.get("style") or item.get("style_json") or {}),
+                    description_text=_optional_string(item, "description_text"),
+                    terms_text=_optional_string(item, "terms_text"),
+                    display_order=item.get("display_order", item_index),
+                )
+            )
+
+
+def _sync_campaign_session(db: Session, business_id: int, record: CampaignYamlRecord) -> None:
+    payload = record.payload
+    campaign_name = _required_string(payload, "campaign_name", record.file_path)
+    qualifier = _optional_string(payload, "qualifier") or ""
+    title = _required_string(payload, "title", record.file_path)
+    display_name = _optional_string(payload, "display_name") or record.directory_name
+
+    campaign = (
+        db.query(Campaign)
+        .filter(
+            Campaign.business_id == business_id,
+            Campaign.campaign_name == campaign_name,
+            Campaign.campaign_key == qualifier,
+        )
+        .first()
+    )
+    if campaign is None:
+        campaign = Campaign(
+            business_id=business_id,
+            campaign_name=campaign_name,
+            campaign_key=qualifier,
+            title=title,
+        )
+        db.add(campaign)
+        db.flush()
+
+    campaign.title = title
+    campaign.objective = _optional_string(payload, "objective")
+    campaign.footnote_text = _optional_string(payload, "footnote_text")
+    campaign.status = _optional_string(payload, "status") or "draft"
+    campaign.start_date = _optional_string(payload, "start_date")
+    campaign.end_date = _optional_string(payload, "end_date")
+    campaign.details_json = json.dumps({"display_name": display_name})
+
+    offers = payload.get("offers", []) or []
+    if not isinstance(offers, list):
+        raise ValueError(f"offers must be a list in {record.file_path}")
+    campaign.offers.clear()
+    for offer in offers:
+        if not isinstance(offer, dict):
+            raise ValueError(f"offers entries must be objects in {record.file_path}")
+        campaign.offers.append(
+            CampaignOffer(
+                offer_name=_required_string(offer, "offer_name", record.file_path),
+                offer_type=_optional_string(offer, "offer_type") or "discount",
+                offer_value=_optional_string(offer, "offer_value"),
+                start_date=_optional_string(offer, "start_date"),
+                end_date=_optional_string(offer, "end_date"),
+                terms_text=_optional_string(offer, "terms_text"),
+            )
+        )
+
+    _sync_campaign_components_session(db, campaign, record)
+
+    assets = payload.get("assets", []) or []
+    if not isinstance(assets, list):
+        raise ValueError(f"assets must be a list in {record.file_path}")
+    campaign.assets.clear()
+    for asset in assets:
+        if not isinstance(asset, dict):
+            raise ValueError(f"assets entries must be objects in {record.file_path}")
+        campaign.assets.append(
+            CampaignAsset(
+                asset_type=_required_string(asset, "asset_type", record.file_path),
+                source_type=_required_string(asset, "source_type", record.file_path),
+                mime_type=_required_string(asset, "mime_type", record.file_path),
+                source_path=_required_string(asset, "source_path", record.file_path),
+                width=asset.get("width"),
+                height=asset.get("height"),
+                metadata_json=json.dumps(asset.get("metadata") or {}),
+            )
+        )
+
+    campaign.template_bindings.clear()
+    binding = payload.get("template_binding") or {}
+    if binding:
+        if not isinstance(binding, dict):
+            raise ValueError(f"template_binding must be an object in {record.file_path}")
+        template_name = _required_string(binding, "template_name", record.file_path)
+        template_kind = _required_string(binding, "template_kind", record.file_path)
+        size_spec = _optional_string(binding, "size_spec")
+        layout = binding.get("layout") or {}
+        default_values = binding.get("default_values") or {}
+        override_values = binding.get("override_values") or {}
+
+        template = (
+            db.query(TemplateDefinition)
+            .filter(TemplateDefinition.template_name == template_name)
+            .first()
+        )
+        if template is None:
+            template = TemplateDefinition(template_name=template_name, template_kind=template_kind)
+            db.add(template)
+            db.flush()
+        template.template_kind = template_kind
+        template.size_spec = size_spec
+        template.layout_json = json.dumps(layout)
+        template.default_values_json = json.dumps(default_values)
+        campaign.template_bindings.append(
+            CampaignTemplateBinding(
+                template=template,
+                override_values_json=json.dumps(override_values),
+                is_active=True,
+            )
+        )
+
+
+def sync_data_directory_session(db: Session, data_dir: Path) -> SyncSummary:
+    records = discover_data_directory(data_dir)
+    campaigns_synced = 0
+    for business_record in records:
+        business_id = _sync_business_session(db, business_record)
+        _reconcile_campaigns_session(db, business_id, business_record.campaigns)
+        for campaign_record in business_record.campaigns:
+            _sync_campaign_session(db, business_id, campaign_record)
+            campaigns_synced += 1
+    _reconcile_businesses_session(db, records)
+    _delete_orphaned_template_definitions_session(db)
+    return SyncSummary(businesses_synced=len(records), campaigns_synced=campaigns_synced)
+
+
 def clone_campaign_directory(
     connection: sqlite3.Connection,
     data_dir: Path,
@@ -682,6 +981,79 @@ def compare_db_to_yaml(connection: sqlite3.Connection, data_dir: Path) -> Reconc
         db_businesses[display_name] = campaign_keys
 
     # ── Comparison ─────────────────────────────────────────────────────────
+    yaml_set = set(yaml_businesses)
+    db_set = set(db_businesses)
+
+    yaml_only = sorted(yaml_set - db_set)
+    db_only = sorted(db_set - yaml_set)
+    content_differs = [
+        name for name in sorted(yaml_set & db_set)
+        if yaml_businesses[name] != db_businesses[name]
+    ]
+    in_sync = not yaml_only and not db_only and not content_differs
+
+    yaml_mtime_str = (
+        datetime.fromtimestamp(yaml_latest_mtime).isoformat() if yaml_latest_mtime else None
+    )
+
+    return ReconciliationReport(
+        in_sync=in_sync,
+        yaml_only=yaml_only,
+        db_only=db_only,
+        content_differs=content_differs,
+        db_latest_updated_at=db_latest_updated_at,
+        yaml_latest_mtime=yaml_mtime_str,
+    )
+
+
+def compare_db_to_yaml_session(db: Session, data_dir: Path) -> ReconciliationReport:
+    """Compare SQLAlchemy-managed DB state against DATA_DIR YAML files."""
+    yaml_records = discover_data_directory(data_dir)
+
+    yaml_businesses: dict[str, set[str]] = {}
+    yaml_latest_mtime: float | None = None
+
+    for record in yaml_records:
+        display_name = str(record.payload.get("display_name") or record.directory_name)
+        campaign_keys: set[str] = set()
+        for camp in record.campaigns:
+            cname = str(camp.payload.get("campaign_name") or camp.directory_name)
+            qualifier = str(camp.payload.get("qualifier") or "")
+            campaign_keys.add(f"{cname}:{qualifier}")
+            cmtime = camp.file_path.stat().st_mtime
+            if yaml_latest_mtime is None or cmtime > yaml_latest_mtime:
+                yaml_latest_mtime = cmtime
+        yaml_businesses[display_name] = campaign_keys
+        bmtime = record.file_path.stat().st_mtime
+        if yaml_latest_mtime is None or bmtime > yaml_latest_mtime:
+            yaml_latest_mtime = bmtime
+
+    db_businesses: dict[str, set[str]] = {}
+    db_latest_updated_at: str | None = None
+
+    businesses = db.query(Business).order_by(Business.id.asc()).all()
+    for business in businesses:
+        if business.updated_at:
+            updated_at = business.updated_at.isoformat()
+            if db_latest_updated_at is None or updated_at > db_latest_updated_at:
+                db_latest_updated_at = updated_at
+
+        campaign_keys: set[str] = set()
+        campaigns = (
+            db.query(Campaign)
+            .filter(Campaign.business_id == business.id)
+            .order_by(Campaign.id.asc())
+            .all()
+        )
+        for campaign in campaigns:
+            qualifier = campaign.campaign_key or ""
+            campaign_keys.add(f"{campaign.campaign_name}:{qualifier}")
+            if campaign.updated_at:
+                updated_at = campaign.updated_at.isoformat()
+                if db_latest_updated_at is None or updated_at > db_latest_updated_at:
+                    db_latest_updated_at = updated_at
+        db_businesses[business.display_name] = campaign_keys
+
     yaml_set = set(yaml_businesses)
     db_set = set(db_businesses)
 

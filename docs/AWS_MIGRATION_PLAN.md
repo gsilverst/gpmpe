@@ -32,12 +32,13 @@ The current implementation is tightly coupled to the `sqlite3` library. We will 
 - Several FastAPI endpoints now use SQLAlchemy sessions.
 - SQLAlchemy-owned route handlers now use SQLAlchemy-backed YAML export helpers for campaign write-back instead of reopening `connect_database()`.
 - The render API now builds PDF context and registers generated artifacts through the SQLAlchemy session path. The legacy renderer entry point remains available for local SQLite callers and direct tests.
-- Non-SQLite/RDS startup no longer opens the legacy SQLite connection. If the database has data and `DATA_DIR` is empty, startup can export database state to YAML through SQLAlchemy. If YAML data is present, startup reports reconciliation as pending until YAML import/compare helpers are migrated.
+- Non-SQLite/RDS startup no longer opens the legacy SQLite connection. If the database has data and `DATA_DIR` is empty, startup can export database state to YAML through SQLAlchemy. If YAML data is present and the database is empty, startup can import YAML into the database through SQLAlchemy. If both sides have data, startup can compare database and YAML state through SQLAlchemy and report reconciliation details.
 - Whole-database YAML export now has a SQLAlchemy-backed implementation.
+- YAML import/sync now has a SQLAlchemy-backed implementation, and the manual data sync and git-pull sync paths use it in RDS mode.
+- Database-to-YAML comparison now has a SQLAlchemy-backed implementation for startup reconciliation in RDS mode.
 - Read-only chatbot context/query commands now use SQLAlchemy session reads. Chat-driven campaign mutations still use the legacy mutation engine and remain guarded in RDS mode.
 - Legacy sync/edit endpoints that still require raw SQLite now return explicit `501 Not Implemented` responses in RDS mode instead of failing through `connect_database()`.
 - Legacy paths still depend on `connect_database()` and raw SQLite-style SQL:
-    - YAML import/reconciliation and database-to-YAML comparison
     - campaign clone/import flows
     - chat mutation helpers
     - LLM context building
