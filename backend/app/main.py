@@ -47,7 +47,7 @@ from .db import (
     initialize_database,
     is_sqlite_database_url,
 )
-from .git_store import GitStoreError, auto_commit_paths, pull_latest_changes
+from .git_store import GitStoreError, pull_latest_changes
 from .llm import translate_and_apply_session
 from .middleware import RequestIDMiddleware
 from .models import (
@@ -58,13 +58,10 @@ from .models import (
     CampaignComponentItem,
     CampaignOffer,
     CampaignTemplateBinding,
-    GeneratedArtifact,
     TemplateDefinition,
 )
-from .renderer import render_campaign_artifact_session
+from .routes.artifacts import router as artifacts_router
 from .schemas import (
-    ArtifactRenderRequest,
-    ArtifactResponse,
     BusinessCreate,
     BusinessResponse,
     BusinessUpdate,
@@ -72,7 +69,6 @@ from .schemas import (
     CampaignCloneRequest,
     CampaignCreate,
     CampaignOfferCreate,
-    CampaignSaveRequest,
     CampaignTemplateBindingCreate,
     CampaignUpdate,
     ChatMessageRequest,
@@ -83,10 +79,9 @@ from .schemas import (
     StartupResolveRequest,
     TemplateDefinitionCreate,
 )
+from .services.yaml_persistence import persist_campaign_yaml_session_or_raise
 from .yaml_store import (
-    campaign_yaml_paths_for_id_session,
     delete_yaml_state_for_campaign,
-    persist_yaml_state_for_campaign_session,
     write_all_to_data_dir,
     write_all_to_data_dir_session,
 )
@@ -248,20 +243,6 @@ def _campaign_row_to_dict(row: Any) -> dict[str, Any]:
 def _campaign_display_name(row: Any) -> str:
     details = json.loads(row["details_json"] or "{}") if "details_json" in row.keys() else {}
     return details.get("display_name") or row["campaign_name"]
-
-
-def _persist_campaign_yaml_session_or_raise(db: Session, config: Any, campaign_id: int) -> tuple[Path, Path]:
-    try:
-        return persist_yaml_state_for_campaign_session(db, config.data_dir, campaign_id)
-    except ValueError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
-
-
-def _campaign_yaml_paths_for_session_or_raise(db: Session, config: Any, campaign_id: int) -> tuple[Path, Path]:
-    try:
-        return campaign_yaml_paths_for_id_session(db, config.data_dir, campaign_id)
-    except ValueError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 def _resolve_component_session(db: Session, campaign_id: int, component_ref: str) -> CampaignComponent | None:
@@ -725,7 +706,7 @@ def create_app() -> FastAPI:
 
         config = resolve_config()
         for campaign in business.campaigns:
-            _persist_campaign_yaml_session_or_raise(db, config, campaign.id)
+            persist_campaign_yaml_session_or_raise(db, config, campaign.id)
 
         db.refresh(business)
         return _business_to_response(business)
@@ -802,7 +783,7 @@ def create_app() -> FastAPI:
         db.refresh(campaign)
 
         config = resolve_config()
-        _persist_campaign_yaml_session_or_raise(db, config, campaign.id)
+        persist_campaign_yaml_session_or_raise(db, config, campaign.id)
 
         return _campaign_row_to_dict(campaign.__dict__)
 
@@ -833,7 +814,7 @@ def create_app() -> FastAPI:
         db.refresh(campaign)
 
         config = resolve_config()
-        _persist_campaign_yaml_session_or_raise(db, config, campaign_id)
+        persist_campaign_yaml_session_or_raise(db, config, campaign_id)
 
         return _campaign_row_to_dict(campaign.__dict__)
 
@@ -970,7 +951,7 @@ def create_app() -> FastAPI:
         db.refresh(new_offer)
 
         config = resolve_config()
-        _persist_campaign_yaml_session_or_raise(db, config, campaign_id)
+        persist_campaign_yaml_session_or_raise(db, config, campaign_id)
 
         return {
             "id": new_offer.id,
@@ -1028,7 +1009,7 @@ def create_app() -> FastAPI:
         db.refresh(asset)
 
         config = resolve_config()
-        _persist_campaign_yaml_session_or_raise(db, config, campaign_id)
+        persist_campaign_yaml_session_or_raise(db, config, campaign_id)
 
         return {
             "id": asset.id,
@@ -1132,7 +1113,7 @@ def create_app() -> FastAPI:
         db.refresh(binding)
 
         config = resolve_config()
-        _persist_campaign_yaml_session_or_raise(db, config, campaign_id)
+        persist_campaign_yaml_session_or_raise(db, config, campaign_id)
 
         defaults = json.loads(template.default_values_json or "{}")
         overrides = payload.override_values or {}
@@ -1264,7 +1245,7 @@ def create_app() -> FastAPI:
         db.refresh(component)
 
         config = resolve_config()
-        _persist_campaign_yaml_session_or_raise(db, config, campaign_id)
+        persist_campaign_yaml_session_or_raise(db, config, campaign_id)
 
         return {"id": component.id, "campaign_id": campaign_id, **payload.model_dump()}
 
@@ -1296,7 +1277,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=409, detail="Component update conflicts with existing data") from exc
 
         config = resolve_config()
-        _persist_campaign_yaml_session_or_raise(db, config, campaign_id)
+        persist_campaign_yaml_session_or_raise(db, config, campaign_id)
 
         db.refresh(component)
         return {"id": component.id, "campaign_id": campaign_id, "updates": list(updates.keys())}
@@ -1316,7 +1297,7 @@ def create_app() -> FastAPI:
         db.commit()
 
         config = resolve_config()
-        _persist_campaign_yaml_session_or_raise(db, config, campaign_id)
+        persist_campaign_yaml_session_or_raise(db, config, campaign_id)
 
     @app.post("/campaigns/{campaign_id}/components/{component_id}/items", status_code=201)
     def create_component_item(campaign_id: int, component_id: int, payload: ComponentItemCreate, db: Session = Depends(get_db_session)) -> dict[str, Any]:
@@ -1347,7 +1328,7 @@ def create_app() -> FastAPI:
         db.refresh(item)
 
         config = resolve_config()
-        _persist_campaign_yaml_session_or_raise(db, config, campaign_id)
+        persist_campaign_yaml_session_or_raise(db, config, campaign_id)
 
         return {"id": item.id, "component_id": component_id, **payload.model_dump()}
 
@@ -1377,7 +1358,7 @@ def create_app() -> FastAPI:
         db.refresh(item)
 
         config = resolve_config()
-        _persist_campaign_yaml_session_or_raise(db, config, campaign_id)
+        persist_campaign_yaml_session_or_raise(db, config, campaign_id)
 
         return {"id": item.id, "component_id": component_id, "updates": list(updates.keys())}
 
@@ -1397,7 +1378,7 @@ def create_app() -> FastAPI:
         db.commit()
 
         config = resolve_config()
-        _persist_campaign_yaml_session_or_raise(db, config, campaign_id)
+        persist_campaign_yaml_session_or_raise(db, config, campaign_id)
 
     @app.post("/chat/sessions", status_code=201)
     def create_chat_session() -> dict[str, str]:
@@ -1625,7 +1606,7 @@ def create_app() -> FastAPI:
                             result.get("campaign_name"),
                         )
                     else:
-                        _persist_campaign_yaml_session_or_raise(db, config, payload.campaign_id)
+                        persist_campaign_yaml_session_or_raise(db, config, payload.campaign_id)
                 db.commit()
             except HTTPException:
                 raise
@@ -1651,7 +1632,7 @@ def create_app() -> FastAPI:
                             result.get("campaign_name"),
                         )
                     else:
-                        _persist_campaign_yaml_session_or_raise(db, config, payload.campaign_id)
+                        persist_campaign_yaml_session_or_raise(db, config, payload.campaign_id)
                 db.commit()
         else:
             # Regex-only path (no API key configured)
@@ -1674,7 +1655,7 @@ def create_app() -> FastAPI:
                         result.get("campaign_name"),
                     )
                 else:
-                    _persist_campaign_yaml_session_or_raise(db, config, payload.campaign_id)
+                    persist_campaign_yaml_session_or_raise(db, config, payload.campaign_id)
             db.commit()
 
         chat_store.append(session_id, "user", payload.message)
@@ -1709,159 +1690,6 @@ def create_app() -> FastAPI:
         if llm_warning:
             response["warning"] = llm_warning
         return response
-
-    @app.post("/campaigns/{campaign_id}/save")
-    def save_campaign(campaign_id: int, payload: CampaignSaveRequest | None = None, db: Session = Depends(get_db_session)) -> dict[str, Any]:
-        request = payload or CampaignSaveRequest()
-        config = resolve_config()
-
-        _require_campaign(db, campaign_id)
-
-        if not config.commit_on_save:
-            return {
-                "campaign_id": campaign_id,
-                "saved": False,
-                "reason": "commit_on_save_disabled",
-                "auto_commit": {"enabled": False, "performed": False, "commit_id": None},
-            }
-
-        if config.git_repo_path is None or not config.git_user_name or not config.git_user_email:
-            return {
-                "campaign_id": campaign_id,
-                "saved": False,
-                "reason": "git_config_incomplete",
-                "auto_commit": {"enabled": True, "performed": False, "commit_id": None},
-            }
-
-        business_file: Path
-        campaign_file: Path
-        business_file, campaign_file = _campaign_yaml_paths_for_session_or_raise(db, config, campaign_id)
-        repo_root = config.git_repo_path
-        default_message = f"Save campaign {campaign_id} YAML"
-        commit_message = (request.commit_message or default_message).strip()
-        if commit_message == "":
-            raise HTTPException(status_code=400, detail="commit_message cannot be empty")
-        try:
-            commit_id = auto_commit_paths(
-                repo_root,
-                [business_file, campaign_file],
-                commit_message,
-                user_name=config.git_user_name,
-                user_email=config.git_user_email,
-            )
-        except GitStoreError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-        auto_commit_performed = commit_id != ""
-
-        return {
-            "campaign_id": campaign_id,
-            "saved": auto_commit_performed,
-            "files": [str(business_file), str(campaign_file)],
-            "auto_commit": {
-                "enabled": True,
-                "performed": auto_commit_performed,
-                "commit_id": commit_id or None,
-            },
-        }
-
-    @app.post("/campaigns/{campaign_id}/render", status_code=201)
-    def render_artifact(
-        campaign_id: int,
-        payload: ArtifactRenderRequest | None = None,
-        db: Session = Depends(get_db_session)
-    ) -> list[ArtifactResponse]:
-        request = payload or ArtifactRenderRequest()
-        config = resolve_config()
-        _require_campaign(db, campaign_id)
-
-        try:
-            results = render_campaign_artifact_session(
-                db,
-                campaign_id,
-                config.output_dir,
-                artifact_type=request.artifact_type,
-                data_dir=config.data_dir,
-                images_per_page=config.images_per_page,
-                overwrite=request.overwrite,
-                custom_name=request.custom_name,
-            )
-            db.commit()
-        except ValueError as exc:
-            db.rollback()
-            raise HTTPException(status_code=409, detail={"reason": "file_exists", "message": str(exc)}) from exc
-        except Exception as exc:
-            db.rollback()
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-        response_items = []
-        for res in results:
-            artifact = db.get(GeneratedArtifact, res["id"])
-            if artifact:
-                response_items.append(ArtifactResponse(
-                    id=artifact.id,
-                    campaign_id=artifact.campaign_id,
-                    artifact_type=artifact.artifact_type,
-                    file_path=artifact.file_path,
-                    checksum=artifact.checksum,
-                    status=artifact.status,
-                    created_at=artifact.created_at.isoformat() if artifact.created_at else None
-                ))
-        return response_items
-
-    @app.get("/campaigns/{campaign_id}/artifacts")
-    def list_artifacts(campaign_id: int, db: Session = Depends(get_db_session)) -> dict[str, Any]:
-        _require_campaign(db, campaign_id)
-        artifacts = db.query(GeneratedArtifact).filter(
-            GeneratedArtifact.campaign_id == campaign_id
-        ).order_by(GeneratedArtifact.created_at.desc()).all()
-
-        return {
-            "items": [
-                {
-                    "id": a.id,
-                    "campaign_id": a.campaign_id,
-                    "artifact_type": a.artifact_type,
-                    "file_path": a.file_path,
-                    "checksum": a.checksum,
-                    "status": a.status,
-                    "created_at": a.created_at.isoformat() if a.created_at else None
-                }
-                for a in artifacts
-            ]
-        }
-
-    @app.get("/artifacts/{artifact_id}/download")
-    def download_artifact(artifact_id: int, db: Session = Depends(get_db_session)):
-        from fastapi.responses import FileResponse
-
-        artifact = db.get(GeneratedArtifact, artifact_id)
-        if artifact is None:
-            raise HTTPException(status_code=404, detail="Artifact not found")
-
-        file_path = Path(artifact.file_path)
-        if not file_path.exists():
-            raise HTTPException(status_code=404, detail="Artifact file missing")
-        filename = file_path.name
-        return FileResponse(
-            path=str(file_path),
-            media_type="application/pdf",
-            filename=filename,
-        )
-
-    @app.get("/artifacts/{artifact_id}/view")
-    def view_artifact(artifact_id: int, db: Session = Depends(get_db_session)):
-        from fastapi.responses import FileResponse
-
-        artifact = db.get(GeneratedArtifact, artifact_id)
-        if artifact is None:
-            raise HTTPException(status_code=404, detail="Artifact not found")
-
-        file_path = Path(artifact.file_path)
-        if not file_path.exists():
-            raise HTTPException(status_code=404, detail="Artifact file missing")
-
-        # Return inline PDF for iframe/browser preview.
-        return FileResponse(path=str(file_path), media_type="application/pdf")
 
     @app.post("/data/pull")
     def pull_yaml_data() -> dict[str, Any]:
@@ -1974,6 +1802,8 @@ def create_app() -> FastAPI:
             "business": _business_snapshot(db, business_name),
             "campaign": _campaign_snapshot(db, business_name, campaign_name, qualifier),
         }
+
+    app.include_router(artifacts_router)
 
     static_dir = Path(__file__).resolve().parent / "static"
     if static_dir.exists():
