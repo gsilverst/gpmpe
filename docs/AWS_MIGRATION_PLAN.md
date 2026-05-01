@@ -63,11 +63,12 @@ This refactor should happen after the current database migration slice is stable
     - Offer and asset endpoints have moved into `backend/app/routes/offers_assets.py`.
     - Template and template-binding endpoints have moved into `backend/app/routes/templates.py`.
     - Component and component-item endpoints have moved into `backend/app/routes/components.py`.
+    - Chat session and message endpoints have moved into `backend/app/routes/chat.py`.
     - API behavior is unchanged; route groups are now being split one domain at a time.
 - **Task 1.5.1: Split routes by domain**:
     - Business and campaign endpoints are complete.
     - Move offer, asset, template, component, artifact, chat, startup, data-sync, and data-manager endpoints into focused route modules.
-    - Artifact, business/campaign, component, data-manager, offer, asset, and template endpoints are complete; remaining route groups should continue in small slices with full test runs after each slice.
+    - Artifact, business/campaign, chat, component, data-manager, offer, asset, and template endpoints are complete; remaining route groups should continue in small slices with full test runs after each slice.
 - **Task 1.5.2: Introduce service-layer boundaries**:
     - Create service modules for campaign persistence, YAML sync/write-back, rendering/artifact registration, chat mutation, and data-manager snapshots.
     - Keep route handlers thin: validation, dependency injection, service call, response mapping.
