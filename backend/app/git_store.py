@@ -28,7 +28,17 @@ def _relative_repo_paths(repo_root: Path, paths: list[Path]) -> list[str]:
     return relative
 
 
-def auto_commit_paths(repo_root: Path, paths: list[Path], message: str, *, user_name: str, user_email: str) -> str:
+def auto_commit_paths(
+    repo_root: Path,
+    paths: list[Path],
+    message: str,
+    *,
+    user_name: str,
+    user_email: str,
+    push_enabled: bool = False,
+    remote: str = "origin",
+    branch: str = "HEAD",
+) -> str:
     if not (repo_root / ".git").exists():
         raise GitStoreError(f"No git repository found at '{repo_root}'")
 
@@ -41,18 +51,21 @@ def auto_commit_paths(repo_root: Path, paths: list[Path], message: str, *, user_
 
     _run_git(repo_root, ["commit", "-m", message], user_name=user_name, user_email=user_email)
     commit_id = _run_git(repo_root, ["rev-parse", "HEAD"], user_name=user_name, user_email=user_email)
-    
-    # Try to push if origin is configured
-    try:
-        _run_git(repo_root, ["push", "origin", "HEAD"], user_name=user_name, user_email=user_email)
-    except GitStoreError:
-        # Pushing might fail in local dev without network/creds, log and continue
-        pass
+
+    if push_enabled:
+        _run_git(repo_root, ["push", remote, branch], user_name=user_name, user_email=user_email)
         
     return commit_id
 
 
-def pull_latest_changes(repo_root: Path, *, user_name: str, user_email: str) -> bool:
+def pull_latest_changes(
+    repo_root: Path,
+    *,
+    user_name: str,
+    user_email: str,
+    remote: str = "origin",
+    branch: str = "HEAD",
+) -> bool:
     """Pull changes from origin and return True if anything changed."""
     if not (repo_root / ".git").exists():
         return False
@@ -60,7 +73,7 @@ def pull_latest_changes(repo_root: Path, *, user_name: str, user_email: str) -> 
     before = _run_git(repo_root, ["rev-parse", "HEAD"], user_name=user_name, user_email=user_email)
     
     try:
-        _run_git(repo_root, ["pull", "--rebase", "origin", "HEAD"], user_name=user_name, user_email=user_email)
+        _run_git(repo_root, ["pull", "--rebase", remote, branch], user_name=user_name, user_email=user_email)
     except GitStoreError as error:
         # If rebase fails due to conflicts, we might need manual intervention or forced resolution
         raise GitStoreError(f"Sync pull failed: {error}") from error

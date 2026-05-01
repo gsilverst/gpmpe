@@ -60,6 +60,9 @@ def save_campaign(
             commit_message,
             user_name=config.git_user_name,
             user_email=config.git_user_email,
+            push_enabled=config.git_push_enabled,
+            remote=config.git_remote,
+            branch=config.git_branch,
         )
     except GitStoreError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
@@ -73,6 +76,7 @@ def save_campaign(
             "enabled": True,
             "performed": auto_commit_performed,
             "commit_id": commit_id or None,
+            "push_enabled": config.git_push_enabled,
         },
     }
 

@@ -18,6 +18,9 @@ class AppConfig:
     git_repo_path: Path | None
     git_user_name: str | None
     git_user_email: str | None
+    git_push_enabled: bool = False
+    git_remote: str = "origin"
+    git_branch: str = "HEAD"
     openrouter_api_key: str | None = None
 
 
@@ -135,6 +138,9 @@ def resolve_config(
     git_repo_path = _resolve_path(git_repo_value, config_directory) if git_repo_value else None
     git_user_name = _config_value(values, "GIT_USER_NAME")
     git_user_email = _config_value(values, "GIT_USER_EMAIL")
+    git_push_enabled = _parse_bool(_config_value(values, "GIT_PUSH_ENABLED"), default=False)
+    git_remote = _config_value(values, "GIT_REMOTE") or "origin"
+    git_branch = _config_value(values, "GIT_BRANCH") or "HEAD"
 
     return AppConfig(
         config_path=config_path,
@@ -148,5 +154,8 @@ def resolve_config(
         git_repo_path=git_repo_path,
         git_user_name=git_user_name,
         git_user_email=git_user_email,
+        git_push_enabled=git_push_enabled,
+        git_remote=git_remote,
+        git_branch=git_branch,
         openrouter_api_key=_config_value(values, "OPENROUTER_API_KEY") or None,
     )

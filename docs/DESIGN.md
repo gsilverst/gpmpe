@@ -443,10 +443,13 @@ Runtime configuration lives in a `.config` file at the repo root using `KEY=VALU
 | `OUTPUT_DIR` | PDF artifact output directory | `./output` |
 | `OPENROUTER_API_KEY` | LLM translation (optional) | *(unset)* |
 | `IMAGES_PER_PAGE` | N-up PDF output (optional) | *(unset)* |
-| `COMMIT_ON_SAVE` | Auto git commit on save | `false` |
+| `COMMIT_ON_SAVE` | Auto git commit on save | `true` |
 | `GIT_REPO_PATH` | Repository path for git commits | *(unset)* |
 | `GIT_USER_NAME` | Git author name for commits | *(unset)* |
 | `GIT_USER_EMAIL` | Git author email for commits | *(unset)* |
+| `GIT_PUSH_ENABLED` | Push commits to the configured Git remote | `false` |
+| `GIT_REMOTE` | Git remote used for pull/push operations | `origin` |
+| `GIT_BRANCH` | Git branch/ref used for pull/push operations | `HEAD` |
 | `TEST_DATABASE_PATH` | Isolated test database path | *(unset)* |
 | `TEST_DATA_DIR` | Isolated test YAML tree | *(unset)* |
 

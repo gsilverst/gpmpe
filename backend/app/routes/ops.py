@@ -73,6 +73,8 @@ def create_ops_router(reconciliation: dict[str, Any]) -> APIRouter:
                 config.git_repo_path,
                 user_name=config.git_user_name,
                 user_email=config.git_user_email,
+                remote=config.git_remote,
+                branch=config.git_branch,
             )
 
             synced = None
@@ -95,6 +97,8 @@ def create_ops_router(reconciliation: dict[str, Any]) -> APIRouter:
                     "campaigns": synced.campaigns_synced,
                 } if synced else None,
                 "repo": str(config.git_repo_path),
+                "remote": config.git_remote,
+                "branch": config.git_branch,
             }
         except GitStoreError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error

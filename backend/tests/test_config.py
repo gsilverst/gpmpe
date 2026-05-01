@@ -105,6 +105,28 @@ def test_resolve_config_reads_commit_on_save_and_git_settings(tmp_path: Path) ->
     assert config.git_repo_path == repo_root.resolve()
     assert config.git_user_name == "Test User"
     assert config.git_user_email == "test@example.com"
+    assert config.git_push_enabled is False
+    assert config.git_remote == "origin"
+    assert config.git_branch == "HEAD"
+
+
+def test_resolve_config_reads_git_sync_settings(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    config_path = repo_root / ".config"
+    config_path.write_text(
+        "DATA_DIR=./tests/data\n"
+        "GIT_PUSH_ENABLED=true\n"
+        "GIT_REMOTE=upstream\n"
+        "GIT_BRANCH=main\n",
+        encoding="utf-8",
+    )
+
+    config = resolve_config(repo_root=repo_root, cwd=tmp_path)
+
+    assert config.git_push_enabled is True
+    assert config.git_remote == "upstream"
+    assert config.git_branch == "main"
 
 
 def test_resolve_config_reads_images_per_page(tmp_path: Path) -> None:

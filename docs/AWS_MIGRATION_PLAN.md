@@ -104,12 +104,27 @@ To satisfy the requirement of maintaining YAML files for version control without
 ## 6. Phase 3: Version Control & Data Synchronization
 Since YAML files in the repository are the authoritative source, we must synchronize them with the EFS volume in AWS.
 
-- **Task 3.1: Git-to-Cloud Sync**: Implement a "Git Sync" utility (running as a sidecar container or a Lambda hook).
-    - **Inbound**: When changes are pushed to the main repository, the worker performs a `git pull` into the EFS volume.
-    - **Trigger**: The application's existing `sync_data_directory` logic is triggered to reconcile the new YAML state into the RDS database.
+- **Current Status**:
+    - The application exposes `/data/pull` to pull from Git and then reconcile YAML into the active database.
+    - `backend/scripts/git_sync_worker.sh` can run as a polling sidecar and call `/data/pull`.
+    - Campaign saves can create Git commits when `COMMIT_ON_SAVE=true` and Git author/repository settings are configured.
+    - Git push is now explicit and disabled by default through `GIT_PUSH_ENABLED=false`, so local and staging environments can commit without requiring outbound repository credentials.
+- **Task 3.1: Git-to-Cloud Sync**: Deploy the Git sync worker as an ECS sidecar mounted to the same EFS data volume as the application.
+    - Configure `GPMPE_API_URL`, `SYNC_INTERVAL_SECONDS`, `GIT_REPO_PATH`, `GIT_USER_NAME`, `GIT_USER_EMAIL`, `GIT_REMOTE`, and `GIT_BRANCH` in the task environment.
+    - Inbound flow: the worker calls `/data/pull`; the backend runs `git pull --rebase` for the configured remote/branch and reconciles changed YAML into RDS.
+    - Add CloudWatch logs and alarms for pull failures, API reachability failures, and reconciliation conflicts.
 - **Task 3.2: Cloud-to-Git Write-Back**:
-    - When edits are made via Chat/GUI, the backend writes to YAML on EFS.
-    - The Git worker detects changes and performs a `git commit` and `git push` back to the repository using a machine user account.
+    - When edits are made via Chat/GUI, the backend writes YAML on EFS and can commit those changed YAML files through the existing save endpoint.
+    - Enable outbound repository pushes only after credentials are ready by setting `GIT_PUSH_ENABLED=true`.
+    - Store Git credentials in AWS Secrets Manager or ECS task secrets, preferably using a GitHub App, deploy key, or narrowly scoped machine-user token.
+    - Confirm the target branch strategy before enabling push in production. The initial default should be a protected integration branch rather than direct writes to `main`.
+- **Task 3.3: Sync Safety Controls**:
+    - Add an EFS-backed lock file or equivalent process lock before allowing multiple app/worker tasks to pull, commit, or push concurrently.
+    - Keep commit scope restricted to configured YAML/data paths so generated PDFs, database files, and unrelated files are never pushed.
+    - Define conflict behavior: surface a 409/error state, leave the repo in an inspectable state, and require admin intervention before retrying destructive resolution.
+- **Task 3.4: Verification**:
+    - Add GitStore tests with temporary repositories for commit-only, push-disabled, push-enabled failure, pull, and path-boundary behavior.
+    - Run a staging sync test where a Git commit updates YAML, `/data/pull` imports it into RDS, a chatbot edit writes YAML on EFS, and a save operation pushes a new commit back to the configured branch.
 - **Outcome**: Customers continue to use Git/YAML as their source of truth, while the AWS deployment stays perfectly in sync.
 
 ---
