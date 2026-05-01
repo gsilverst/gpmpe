@@ -12,10 +12,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.config import AppConfig
-from app.db import connect_database, initialize_database
+from app.db import connect_database, get_engine, get_session_factory, initialize_database
 from app.llm import (
     COMPONENT_EDITABLE_FIELDS,
     build_system_prompt,
+    build_system_prompt_session,
     dispatch_llm_action,
     parse_llm_response,
     translate_and_apply,
@@ -155,6 +156,23 @@ class TestBuildSystemPrompt:
         assert "Main Offer" in prompt
         assert "20%" in prompt
         conn.close()
+
+    def test_session_builder_contains_campaign_context(self, tmp_path):
+        config = _make_config(tmp_path)
+        conn = _make_db(config)
+        _, campaign_id = _seed(conn)
+        conn.close()
+
+        engine = get_engine(config)
+        session_factory = get_session_factory(engine)
+        with session_factory() as db:
+            prompt = build_system_prompt_session(db, campaign_id)
+
+        assert "summer-sale" in prompt
+        assert "Summer Sale" in prompt
+        assert "featured" in prompt
+        assert "#FF0000" in prompt
+        assert "Main Offer" in prompt
 
     def test_raises_for_unknown_campaign(self, tmp_path):
         config = _make_config(tmp_path)

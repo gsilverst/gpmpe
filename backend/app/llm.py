@@ -12,6 +12,10 @@ import logging
 import re
 from typing import Any
 
+from sqlalchemy.orm import Session
+
+from .models import Campaign
+
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -273,6 +277,99 @@ def build_system_prompt(connection: Any, campaign_id: int) -> str:
             lines.append(
                 f"  id={offer['id']} name={offer['offer_name']} type={offer['offer_type']} "
                 f"value={offer['offer_value']} {offer['start_date']}→{offer['end_date']}"
+            )
+
+    lines += ["", "=== INSTRUCTIONS ===", _ACTIONS]
+    return "\n".join(lines)
+
+
+def build_system_prompt_session(db: Session, campaign_id: int) -> str:
+    """Serialize current business + campaign state into the LLM system prompt using SQLAlchemy."""
+    campaign = db.get(Campaign, campaign_id)
+    if campaign is None:
+        raise ValueError(f"Campaign {campaign_id} not found")
+
+    business = campaign.business
+    theme = next((row for row in business.brand_themes if row.name == "default"), None)
+    location = next(iter(sorted(business.locations, key=lambda row: row.id)), None)
+    phone = next(
+        (
+            row.contact_value
+            for row in sorted(business.contacts, key=lambda row: (not row.is_primary, row.id))
+            if row.contact_type == "phone"
+        ),
+        None,
+    )
+    components = sorted(campaign.components, key=lambda row: (row.display_order, row.id))
+    offers = sorted(campaign.offers, key=lambda row: row.id)
+
+    lines: list[str] = [
+        "You are a campaign editing assistant for a marketing promotions engine.",
+        "Your job is to translate the user's natural-language request into a single",
+        "structured JSON edit command.  You never apply edits yourself.",
+        "",
+        "=== CURRENT CONTEXT ===",
+        "",
+        f"Business: {business.display_name} ({business.legal_name})",
+        f"  display_name: {business.display_name}",
+        f"  legal_name: {business.legal_name}",
+        f"  timezone: {business.timezone}",
+        f"  is_active: {bool(business.is_active)}",
+        f"  phone: {phone}",
+        f"  address_line1: {location.line1 if location else None}",
+        f"  address_line2: {location.line2 if location else None}",
+        f"  city: {location.city if location else None}",
+        f"  state: {location.state if location else None}",
+        f"  postal_code: {location.postal_code if location else None}",
+        f"  country: {location.country if location else None}",
+    ]
+
+    if theme:
+        lines += [
+            "Brand theme:",
+            f"  primary_color: {theme.primary_color}",
+            f"  secondary_color: {theme.secondary_color}",
+            f"  accent_color: {theme.accent_color}",
+            f"  font_family: {theme.font_family}",
+            f"  logo_path: {theme.logo_path}",
+        ]
+
+    lines += [
+        "",
+        f"Campaign: {campaign.campaign_name} (id={campaign.id})",
+        f"  title: {campaign.title}",
+        f"  objective: {campaign.objective}",
+        f"  status: {campaign.status}",
+        f"  start_date: {campaign.start_date}",
+        f"  end_date: {campaign.end_date}",
+        f"  footnote_text: {campaign.footnote_text}",
+    ]
+
+    if components:
+        lines.append("")
+        lines.append("Components (ordered):")
+        for component in components:
+            lines.append(
+                f"  [{component.component_key}] kind={component.component_kind} "
+                f"order={component.display_order}"
+            )
+            lines.append(f"    display_title: {component.display_title}")
+            lines.append(f"    subtitle: {component.subtitle}")
+            lines.append(f"    description_text: {component.description_text}")
+            lines.append(f"    footnote_text: {component.footnote_text}")
+            for item in sorted(component.items, key=lambda row: (row.display_order, row.id)):
+                lines.append(
+                    f"    item: {item.item_name} | {item.item_kind} | "
+                    f"{item.item_value} | {item.duration_label}"
+                )
+
+    if offers:
+        lines.append("")
+        lines.append("Offers:")
+        for offer in offers:
+            lines.append(
+                f"  id={offer.id} name={offer.offer_name} type={offer.offer_type} "
+                f"value={offer.offer_value} {offer.start_date}→{offer.end_date}"
             )
 
     lines += ["", "=== INSTRUCTIONS ===", _ACTIONS]
