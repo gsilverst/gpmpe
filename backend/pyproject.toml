@@ -17,6 +17,9 @@ dependencies = [
   "mysql-connector-python>=8.0.0",
 ]
 
+[tool.setuptools.packages.find]
+include = ["app*"]
+
 [dependency-groups]
 dev = [
   "httpx>=0.28.0,<1.0.0",
