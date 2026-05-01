@@ -35,8 +35,6 @@ from .dependencies import (
     get_db_session,
     require_business as _require_business,
     require_campaign as _require_campaign,
-    require_component as _require_component,
-    require_item as _require_item,
 )
 from .db import (
     connect_database,
@@ -56,15 +54,12 @@ from .models import (
 )
 from .routes.artifacts import router as artifacts_router
 from .routes.business_campaigns import router as business_campaigns_router
+from .routes.components import router as components_router
 from .routes.data_manager import router as data_manager_router
 from .routes.offers_assets import router as offers_assets_router
 from .routes.templates import router as templates_router
 from .schemas import (
     ChatMessageRequest,
-    ComponentCreate,
-    ComponentItemCreate,
-    ComponentItemUpdate,
-    ComponentUpdate,
     StartupResolveRequest,
 )
 from .services.yaml_persistence import persist_campaign_yaml_session_or_raise
@@ -241,222 +236,6 @@ def create_app() -> FastAPI:
         _reconciliation["needed"] = False
         _reconciliation["report"] = None
         return {"ok": True}
-
-    @app.get("/campaigns/{campaign_id}/components")
-    def list_campaign_components(campaign_id: int, db: Session = Depends(get_db_session)) -> dict[str, Any]:
-        campaign = _require_campaign(db, campaign_id)
-
-        # Sort components
-        sorted_components = sorted(campaign.components, key=lambda c: (c.display_order, c.id))
-
-        items_tree = []
-        for c in sorted_components:
-            # Sort items
-            sorted_items = sorted(c.items, key=lambda i: (i.display_order, i.id))
-            items_tree.append({
-                "id": c.id,
-                "component_key": c.component_key,
-                "component_kind": c.component_kind,
-                "render_region": c.render_region,
-                "render_mode": c.render_mode,
-                "style": json.loads(c.style_json or "{}"),
-                "display_title": c.display_title,
-                "subtitle": c.subtitle,
-                "description_text": c.description_text,
-                "footnote_text": c.footnote_text,
-                "background_color": c.background_color,
-                "header_accent_color": c.header_accent_color,
-                "display_order": c.display_order,
-                "items": [
-                    {
-                        "id": ir.id,
-                        "item_name": ir.item_name,
-                        "item_kind": ir.item_kind,
-                        "duration_label": ir.duration_label,
-                        "item_value": ir.item_value,
-                        "background_color": ir.background_color,
-                        "render_role": ir.render_role,
-                        "style": json.loads(ir.style_json or "{}"),
-                        "description_text": ir.description_text,
-                        "terms_text": ir.terms_text,
-                        "display_order": ir.display_order,
-                    }
-                    for ir in sorted_items
-                ]
-            })
-
-        return {
-            "campaign_id": campaign_id,
-            "items": items_tree,
-        }
-
-    @app.post("/campaigns/{campaign_id}/components", status_code=201)
-    def create_component(campaign_id: int, payload: ComponentCreate, db: Session = Depends(get_db_session)) -> dict[str, Any]:
-        _require_campaign(db, campaign_id)
-
-        # Check for duplicate key
-        duplicate = db.query(CampaignComponent).filter(
-            CampaignComponent.campaign_id == campaign_id,
-            CampaignComponent.component_key == payload.component_key.strip()
-        ).first()
-
-        if duplicate is not None:
-            raise HTTPException(status_code=409, detail="Component key already exists in this campaign")
-
-        component = CampaignComponent(
-            campaign_id=campaign_id,
-            component_key=payload.component_key.strip(),
-            component_kind=payload.component_kind.strip(),
-            render_region=payload.render_region,
-            render_mode=payload.render_mode,
-            style_json=json.dumps(payload.style or {}),
-            display_title=payload.display_title.strip(),
-            background_color=payload.background_color,
-            header_accent_color=payload.header_accent_color,
-            footnote_text=payload.footnote_text,
-            subtitle=payload.subtitle,
-            description_text=payload.description_text,
-            display_order=payload.display_order
-        )
-        db.add(component)
-        db.commit()
-        db.refresh(component)
-
-        config = resolve_config()
-        persist_campaign_yaml_session_or_raise(db, config, campaign_id)
-
-        return {"id": component.id, "campaign_id": campaign_id, **payload.model_dump()}
-
-    @app.patch("/campaigns/{campaign_id}/components/{component_id}")
-    def update_component(campaign_id: int, component_id: int, payload: ComponentUpdate, db: Session = Depends(get_db_session)) -> dict[str, Any]:
-        updates = payload.model_dump(exclude_none=True)
-        if not updates:
-            raise HTTPException(status_code=400, detail="No component fields provided")
-
-        _require_campaign(db, campaign_id)
-        component = db.query(CampaignComponent).filter(
-            CampaignComponent.id == component_id,
-            CampaignComponent.campaign_id == campaign_id
-        ).first()
-
-        if component is None:
-            raise HTTPException(status_code=404, detail="Component not found")
-
-        if "style" in updates:
-            updates["style_json"] = json.dumps(updates.pop("style"))
-
-        for field, value in updates.items():
-            setattr(component, field, value)
-
-        try:
-            db.commit()
-        except Exception as exc:
-            db.rollback()
-            raise HTTPException(status_code=409, detail="Component update conflicts with existing data") from exc
-
-        config = resolve_config()
-        persist_campaign_yaml_session_or_raise(db, config, campaign_id)
-
-        db.refresh(component)
-        return {"id": component.id, "campaign_id": campaign_id, "updates": list(updates.keys())}
-
-    @app.delete("/campaigns/{campaign_id}/components/{component_id}", status_code=204)
-    def delete_component(campaign_id: int, component_id: int, db: Session = Depends(get_db_session)) -> None:
-        _require_campaign(db, campaign_id)
-        component = db.query(CampaignComponent).filter(
-            CampaignComponent.id == component_id,
-            CampaignComponent.campaign_id == campaign_id
-        ).first()
-
-        if component is None:
-            raise HTTPException(status_code=404, detail="Component not found")
-
-        db.delete(component)
-        db.commit()
-
-        config = resolve_config()
-        persist_campaign_yaml_session_or_raise(db, config, campaign_id)
-
-    @app.post("/campaigns/{campaign_id}/components/{component_id}/items", status_code=201)
-    def create_component_item(campaign_id: int, component_id: int, payload: ComponentItemCreate, db: Session = Depends(get_db_session)) -> dict[str, Any]:
-        _require_campaign(db, campaign_id)
-        # Component must belong to this campaign
-        component = db.query(CampaignComponent).filter(
-            CampaignComponent.id == component_id,
-            CampaignComponent.campaign_id == campaign_id
-        ).first()
-        if component is None:
-            raise HTTPException(status_code=404, detail="Component not found")
-
-        item = CampaignComponentItem(
-            component_id=component_id,
-            item_name=payload.item_name.strip(),
-            item_kind=payload.item_kind.strip(),
-            render_role=payload.render_role,
-            style_json=json.dumps(payload.style or {}),
-            duration_label=payload.duration_label,
-            item_value=payload.item_value,
-            background_color=payload.background_color,
-            description_text=payload.description_text,
-            terms_text=payload.terms_text,
-            display_order=payload.display_order
-        )
-        db.add(item)
-        db.commit()
-        db.refresh(item)
-
-        config = resolve_config()
-        persist_campaign_yaml_session_or_raise(db, config, campaign_id)
-
-        return {"id": item.id, "component_id": component_id, **payload.model_dump()}
-
-    @app.patch("/campaigns/{campaign_id}/components/{component_id}/items/{item_id}")
-    def update_component_item(campaign_id: int, component_id: int, item_id: int, payload: ComponentItemUpdate, db: Session = Depends(get_db_session)) -> dict[str, Any]:
-        updates = payload.model_dump(exclude_none=True)
-        if not updates:
-            raise HTTPException(status_code=400, detail="No item fields provided")
-
-        _require_campaign(db, campaign_id)
-        item = db.query(CampaignComponentItem).join(CampaignComponent).filter(
-            CampaignComponentItem.id == item_id,
-            CampaignComponentItem.component_id == component_id,
-            CampaignComponent.campaign_id == campaign_id
-        ).first()
-
-        if item is None:
-            raise HTTPException(status_code=404, detail="Component item not found")
-
-        if "style" in updates:
-            updates["style_json"] = json.dumps(updates.pop("style"))
-
-        for field, value in updates.items():
-            setattr(item, field, value)
-
-        db.commit()
-        db.refresh(item)
-
-        config = resolve_config()
-        persist_campaign_yaml_session_or_raise(db, config, campaign_id)
-
-        return {"id": item.id, "component_id": component_id, "updates": list(updates.keys())}
-
-    @app.delete("/campaigns/{campaign_id}/components/{component_id}/items/{item_id}", status_code=204)
-    def delete_component_item(campaign_id: int, component_id: int, item_id: int, db: Session = Depends(get_db_session)) -> None:
-        _require_campaign(db, campaign_id)
-        item = db.query(CampaignComponentItem).join(CampaignComponent).filter(
-            CampaignComponentItem.id == item_id,
-            CampaignComponentItem.component_id == component_id,
-            CampaignComponent.campaign_id == campaign_id
-        ).first()
-
-        if item is None:
-            raise HTTPException(status_code=404, detail="Component item not found")
-
-        db.delete(item)
-        db.commit()
-
-        config = resolve_config()
-        persist_campaign_yaml_session_or_raise(db, config, campaign_id)
 
     @app.post("/chat/sessions", status_code=201)
     def create_chat_session() -> dict[str, str]:
@@ -828,6 +607,7 @@ def create_app() -> FastAPI:
 
     app.include_router(artifacts_router)
     app.include_router(business_campaigns_router)
+    app.include_router(components_router)
     app.include_router(data_manager_router)
     app.include_router(offers_assets_router)
     app.include_router(templates_router)
