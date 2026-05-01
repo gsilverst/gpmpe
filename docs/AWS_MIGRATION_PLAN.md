@@ -42,17 +42,19 @@ The current implementation is tightly coupled to the `sqlite3` library. We will 
 - LLM prompt-context building and LLM action dispatch now have SQLAlchemy-backed implementations in the FastAPI chat route.
 - Legacy raw SQLite helper entry points remain for local/direct tests, but the primary FastAPI runtime paths no longer depend on them for RDS mode.
 - `connect_database()` is intentionally guarded so it only runs in SQLite/local mode. If `DATABASE_URL` points to RDS, remaining legacy call paths fail loudly instead of silently writing to a separate local SQLite database.
-- Next Phase 1 work should verify full RDS runtime parity and identify any remaining direct helper callers that need service-level wrappers before moving into backend modularization.
+- RDS runtime parity has been audited after modularization. Remaining `connect_database()` usage in FastAPI routes is isolated to explicit SQLite/local branches in startup reconciliation and data sync operations.
+- Phase 1 is ready to proceed into storage/filesystem parity work, with one recommended staging validation: run the backend suite and core render/sync smoke tests against an actual RDS instance.
 
 ---
 
 ## 4. Phase 1.5: Backend Modularization
 
-`backend/app/main.py` is currently over 2,000 lines and combines API route definitions, business logic, persistence orchestration, YAML synchronization, chat handling, rendering orchestration, data-manager snapshots, and artifact delivery. This makes the AWS migration harder to reason about and increases the risk of regressions.
+`backend/app/main.py` previously exceeded 2,000 lines and combined API route definitions, business logic, persistence orchestration, YAML synchronization, chat handling, rendering orchestration, data-manager snapshots, and artifact delivery. That made the AWS migration harder to reason about and increased the risk of regressions.
 
-This refactor should happen after the current database migration slice is stable, unless `main.py` complexity becomes the primary blocker to finishing Phase 1. The goal is to move behavior into focused modules without changing API contracts.
+This refactor has been completed without changing API contracts. `backend/app/main.py` is now focused on app setup, middleware, lifespan startup, and route registration.
 
 - **Current Status**:
+    - Phase 1.5 is complete.
     - Database session dependency and entity lookup guards have moved into `backend/app/dependencies.py`.
     - Request ID middleware has moved into `backend/app/middleware.py`.
     - FastAPI request/response schemas have moved into `backend/app/schemas.py`.
@@ -65,17 +67,16 @@ This refactor should happen after the current database migration slice is stable
     - Component and component-item endpoints have moved into `backend/app/routes/components.py`.
     - Chat session and message endpoints have moved into `backend/app/routes/chat.py`.
     - Health, startup reconciliation, and data sync endpoints have moved into `backend/app/routes/ops.py`.
-    - API behavior is unchanged; route groups are now being split one domain at a time.
+    - API behavior is unchanged; all planned route groups have been split into focused modules.
 - **Task 1.5.1: Split routes by domain**:
     - Business and campaign endpoints are complete.
-    - Move offer, asset, template, component, artifact, chat, startup, data-sync, and data-manager endpoints into focused route modules.
     - Artifact, business/campaign, chat, component, data-manager, data-sync, offer, asset, startup, and template endpoints are complete.
 - **Task 1.5.2: Introduce service-layer boundaries**:
-    - Create service modules for campaign persistence, YAML sync/write-back, rendering/artifact registration, chat mutation, and data-manager snapshots.
-    - Keep route handlers thin: validation, dependency injection, service call, response mapping.
+    - Service modules now cover shared YAML persistence and data-manager snapshots.
+    - Additional service extraction can continue opportunistically, but it is no longer blocking the AWS migration.
 - **Task 1.5.3: Centralize database dependencies**:
-    - Keep SQLAlchemy session creation and legacy SQLite/local guards in one database dependency module.
-    - Remove ad hoc imports of `connect_database()` from route handlers as service modules are migrated.
+    - SQLAlchemy session creation and entity lookup helpers are centralized in `backend/app/dependencies.py`.
+    - Remaining `connect_database()` usage is limited to SQLite/local compatibility branches.
 - **Task 1.5.4: Preserve external behavior**:
     - Keep existing API paths and response shapes stable.
     - Run the full backend suite after each extracted slice.
