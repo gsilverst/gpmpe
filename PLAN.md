@@ -188,6 +188,15 @@ Objective:
 - Keep campaign version restore scoped to marketing campaigns only for regular users.
 - Add a similar administrator-only nice-to-have restore flow for business profiles, since only admins may add or modify business profiles.
 
+### Step 21c: Renderer Parameterization Expansion (TODO)
+Objective:
+- Continue moving rendering decisions out of hard-coded renderer branches and into database/YAML-controlled template, component, and item parameters.
+- Audit real campaign examples, including promotions where visually similar components display differently, to identify which differences come from `component_kind`, `render_region`, `render_mode`, style defaults, item roles, or renderer-only heuristics.
+- Expand structured template `layout_json`, template default values, component `style_json`, item `style_json`, `render_mode`, and `render_role` contracts so campaign-specific display behavior can be represented as data.
+- Preserve backwards compatibility by keeping renderer defaults for older data while allowing explicit database/YAML values to override those defaults.
+- Backfill explicit values into existing campaign data when renderer defaults are externalized, so historical campaigns keep rendering as close as practical to their prior output.
+- Document each newly externalized rendering parameter in `docs/DESIGN.md` and the user/admin documentation, including defaults and migration behavior.
+
 ## Phase 5: AWS Migration
 
 ### Step 23: Database Abstraction (SQLAlchemy) (COMPLETED)
@@ -218,9 +227,30 @@ Objective:
 - Keep application source control, deployment automation, and business/campaign data repositories separate.
 - Integrate the administrator-managed runtime credential model from Step 21a with AWS Secrets Manager or ECS task secrets.
 
-## Phase 6: Post-AWS Workspace Model
+## Phase 6: Post-AWS Data Model and Workspace Evolution
 
-### Step 27: Business-Scoped User Workspaces (POST-AWS TODO)
+### Step 27: Explicit Data Schema Versions (POST-AWS TODO)
+Objective:
+- Add explicit version fields for repository-facing YAML/business/campaign data, separate from the existing database migration `schema_version` stored in `app_meta`.
+- Version each business profile and campaign document so the application can identify which data contract produced it.
+- Add migration code that can upgrade older YAML/database records to newer data schema versions.
+- When renderer defaults are externalized into database/YAML parameters, migrate existing data by writing explicit values for the old defaults so rendering behavior is preserved even if future software defaults change.
+- Include schema-version metadata in YAML round-trip, import/export, startup reconciliation, and Git sync flows.
+- Add tests proving older schema versions load, migrate deterministically, preserve rendering intent, and write back using the current schema version.
+- Document the difference between database migration versioning and business/campaign data schema versioning.
+
+### Step 28: Backwards Compatibility and Release Evolution Policy (POST-AWS TODO)
+Objective:
+- Define a compatibility policy before the first open-source release so future contributors understand which contracts should remain stable and how breaking changes are handled.
+- Treat repository-facing YAML schemas, database migration paths, API response shapes, configuration keys, admin/runtime settings, and renderer data contracts as compatibility-sensitive surfaces.
+- Require explicit migration paths for database and YAML/data-schema changes whenever practical.
+- Require compatibility tests using older sample fixtures so future releases prove they can load, migrate, render, and save data created by earlier versions.
+- Define deprecation rules for renamed fields, changed defaults, renderer behavior changes, configuration keys, and API fields.
+- Document when a breaking change is allowed, how it should be announced, and what migration guidance must be provided.
+- Keep sample data versioned across representative schema generations so backwards compatibility can be tested without relying on private/proprietary campaigns.
+- Include a public release checklist item that confirms schema versioning, migration tests, compatibility notes, and upgrade documentation are in place.
+
+### Step 29: Business-Scoped User Workspaces (POST-AWS TODO)
 Objective:
 - After the AWS migration is complete and the application has been successfully deployed to AWS, add user-created workspaces under each business profile.
 - Workspaces are separate from the campaigns that live directly under the business profile.
