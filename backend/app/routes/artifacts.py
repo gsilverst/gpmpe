@@ -13,6 +13,7 @@ from ..git_store import GitStoreError, auto_commit_paths
 from ..models import GeneratedArtifact
 from ..renderer import render_campaign_artifact_session
 from ..schemas import ArtifactRenderRequest, ArtifactResponse, CampaignSaveRequest
+from ..services.runtime_settings import effective_git_settings
 from ..services.yaml_persistence import campaign_yaml_paths_for_session_or_raise
 
 router = APIRouter()
@@ -26,6 +27,7 @@ def save_campaign(
 ) -> dict[str, Any]:
     request = payload or CampaignSaveRequest()
     config = resolve_config()
+    git_settings = effective_git_settings(db, config)
 
     require_campaign(db, campaign_id)
 
@@ -37,7 +39,7 @@ def save_campaign(
             "auto_commit": {"enabled": False, "performed": False, "commit_id": None},
         }
 
-    if config.git_repo_path is None or not config.git_user_name or not config.git_user_email:
+    if git_settings.repo_path is None or not git_settings.user_name or not git_settings.user_email:
         return {
             "campaign_id": campaign_id,
             "saved": False,
@@ -48,7 +50,7 @@ def save_campaign(
     business_file: Path
     campaign_file: Path
     business_file, campaign_file = campaign_yaml_paths_for_session_or_raise(db, config, campaign_id)
-    repo_root = config.git_repo_path
+    repo_root = git_settings.repo_path
     default_message = f"Save campaign {campaign_id} YAML"
     commit_message = (request.commit_message or default_message).strip()
     if commit_message == "":
@@ -58,12 +60,12 @@ def save_campaign(
             repo_root,
             [business_file, campaign_file],
             commit_message,
-            user_name=config.git_user_name,
-            user_email=config.git_user_email,
-            push_enabled=config.git_push_enabled,
-            remote=config.git_remote,
-            branch=config.git_branch,
-            lock_timeout_seconds=config.git_lock_timeout_seconds,
+            user_name=git_settings.user_name,
+            user_email=git_settings.user_email,
+            push_enabled=git_settings.push_enabled,
+            remote=git_settings.remote,
+            branch=git_settings.branch,
+            lock_timeout_seconds=git_settings.lock_timeout_seconds,
         )
     except GitStoreError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
@@ -77,7 +79,8 @@ def save_campaign(
             "enabled": True,
             "performed": auto_commit_performed,
             "commit_id": commit_id or None,
-            "push_enabled": config.git_push_enabled,
+            "push_enabled": git_settings.push_enabled,
+            "settings_source": git_settings.source,
         },
     }
 

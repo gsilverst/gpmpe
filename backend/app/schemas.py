@@ -196,6 +196,43 @@ class StartupResolveRequest(BaseModel):
     direction: Literal["yaml_to_db", "db_to_yaml", "skip"]
 
 
+class RuntimeGitSettingsRequest(BaseModel):
+    repo_path: str | None = Field(default=None, max_length=1000)
+    remote_url: str | None = Field(default=None, max_length=1000)
+    remote_name: str = Field(default="origin", min_length=1, max_length=100)
+    branch: str = Field(default="HEAD", min_length=1, max_length=200)
+    user_name: str | None = Field(default=None, max_length=200)
+    user_email: str | None = Field(default=None, max_length=320)
+    push_enabled: bool = False
+    credential_provider: Literal["local", "aws"] = "local"
+    credential_reference: str | None = Field(default=None, max_length=1000)
+    credential_secret: str | None = Field(default=None, max_length=10000)
+
+
+class RuntimeGitSettingsResponse(BaseModel):
+    scope: str = "global"
+    repo_path: str | None = None
+    remote_url: str | None = None
+    remote_name: str
+    branch: str
+    user_name: str | None = None
+    user_email: str | None = None
+    push_enabled: bool
+    credential_provider: str
+    credential_reference: str | None = None
+    credential_configured: bool
+    updated_at: str | None = None
+
+
+class AdminAuditLogResponse(BaseModel):
+    id: int
+    actor: str
+    action: str
+    scope: str
+    metadata: dict[str, Any]
+    created_at: str | None = None
+
+
 class ArtifactResponse(BaseModel):
     id: int
     campaign_id: int

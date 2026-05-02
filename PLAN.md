@@ -163,6 +163,17 @@ Objective:
 - Enabled component-level style overrides (e.g., `border_radius`) via `style_json`.
 - Verified 100% parity and visual consistency across all rendering modes.
 
+### Step 21a: Administrator Settings & Credential Management Portal (TODO)
+Objective:
+- Add an administrator-only web interface for managing runtime settings and external service credentials in both local and AWS deployments.
+- Allow Primary Admin/Admin users to configure the business data repository remote URL, branch/ref, Git author identity, push policy, and credential reference used by the runtime Git sync worker.
+- Keep raw Git tokens, private keys, database passwords, API keys, and other sensitive values out of normal application tables; store only non-sensitive metadata and credential references in the application database.
+- Support local deployments with a local secret/reference mechanism and AWS deployments with AWS Secrets Manager or ECS task secrets.
+- Support credential create/update/rotation workflows without exposing secret values back to the browser after save.
+- Add audit logging for credential and repository configuration changes, including actor, timestamp, scope, repository metadata, and rotation timestamp.
+- Restrict credential administration to Primary Admin/Admin users; regular users must not be able to view or modify runtime credentials.
+- Start with global Git credentials shared across all business profiles; business-profile-specific credential overrides can follow after the global flow is validated.
+
 ## Phase 5: AWS Migration
 
 ### Step 23: Database Abstraction (SQLAlchemy) (COMPLETED)
@@ -188,8 +199,10 @@ Objective:
 
 ### Step 26: CI/CD Dual Build Infrastructure (TODO)
 Objective:
-- Setup GitHub Actions to build Docker images and deploy to Amazon ECR/ECS.
+- Provide deployment scaffolding that deployment owners can copy/adapt into their own deployment repository to build Docker images and deploy to Amazon ECR/ECS.
 - Support a `RUN_MODE=aws|local` toggle for environment-specific behaviors.
+- Keep application source control, deployment automation, and business/campaign data repositories separate.
+- Integrate the administrator-managed runtime credential model from Step 21a with AWS Secrets Manager or ECS task secrets.
 
 ## Phase 6: Post-AWS Workspace Model
 

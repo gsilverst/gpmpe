@@ -1,6 +1,10 @@
 .DS_Store
 .env
 .config
+.gpmpe-secrets.json
+.agents/
+skills-lock.json
+misc-data/
 .coverage
 .coverage.*
 .pytest_cache/

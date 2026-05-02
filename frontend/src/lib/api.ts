@@ -148,6 +148,43 @@ export type DataSyncResponse = {
   data_dir: string;
 };
 
+export type RuntimeGitSettings = {
+  scope: string;
+  repo_path: string | null;
+  remote_url: string | null;
+  remote_name: string;
+  branch: string;
+  user_name: string | null;
+  user_email: string | null;
+  push_enabled: boolean;
+  credential_provider: "local" | "aws" | string;
+  credential_reference: string | null;
+  credential_configured: boolean;
+  updated_at: string | null;
+};
+
+export type RuntimeGitSettingsPayload = {
+  repo_path?: string | null;
+  remote_url?: string | null;
+  remote_name: string;
+  branch: string;
+  user_name?: string | null;
+  user_email?: string | null;
+  push_enabled: boolean;
+  credential_provider: "local" | "aws";
+  credential_reference?: string | null;
+  credential_secret?: string | null;
+};
+
+export type AdminAuditLog = {
+  id: number;
+  actor: string;
+  action: string;
+  scope: string;
+  metadata: Record<string, unknown>;
+  created_at: string | null;
+};
+
 export function apiBaseUrl(): string {
   const configured = process.env.NEXT_PUBLIC_API_BASE_URL;
   if (configured && configured.trim() !== "") {
@@ -520,6 +557,45 @@ export async function postChatMessage(
 
 export async function syncYamlData(baseUrl = apiBaseUrl()): Promise<DataSyncResponse> {
   return postJson<DataSyncResponse>("/data/sync", {}, baseUrl);
+}
+
+export async function fetchRuntimeGitSettings(baseUrl = apiBaseUrl()): Promise<RuntimeGitSettings> {
+  return fetchJson<RuntimeGitSettings>("/admin/git-settings", baseUrl);
+}
+
+export async function updateRuntimeGitSettings(
+  payload: RuntimeGitSettingsPayload,
+  baseUrl = apiBaseUrl()
+): Promise<RuntimeGitSettings> {
+  const response = await fetch(`${baseUrl}/admin/git-settings`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "X-GPMPE-Actor": "admin-ui",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const errorData = await response.json();
+      if (typeof errorData?.detail === "string") {
+        detail = ` - ${errorData.detail}`;
+      }
+    } catch {
+      // Ignore JSON parse failures for non-JSON error responses.
+    }
+    throw new ApiError(response.status, `Request failed: ${response.status}${detail}`);
+  }
+
+  return (await response.json()) as RuntimeGitSettings;
+}
+
+export async function fetchAdminAuditLogs(baseUrl = apiBaseUrl()): Promise<AdminAuditLog[]> {
+  const payload = await fetchJson<{ items: AdminAuditLog[] }>("/admin/audit-logs", baseUrl);
+  return payload.items;
 }
 
 export type StartupStatusReport = {

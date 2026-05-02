@@ -95,6 +95,14 @@ small {
   text-decoration: underline;
 }
 
+.header-links {
+  display: flex;
+  gap: 0.85rem;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .error-text {
   color: #a1242f;
 }
@@ -127,12 +135,19 @@ small {
   background: #fff;
 }
 
+.stacked-label textarea,
 .stacked-label input:not([type="checkbox"]) {
   width: 100%;
   border: 1px solid #c9d8ef;
   border-radius: 10px;
   padding: 0.7rem 0.8rem;
   background: #fff;
+}
+
+.stacked-label textarea {
+  min-height: 120px;
+  resize: vertical;
+  font-family: inherit;
 }
 
 .stacked-label input[type="checkbox"] {
@@ -541,6 +556,33 @@ small {
   margin: 0.5rem 0;
 }
 
+.admin-settings-form {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.audit-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.audit-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 0.5rem;
+}
+
 .small-button {
   background: var(--brand-blue);
   color: white;
@@ -576,4 +618,3 @@ small {
   padding: 0.35rem 0.75rem;
   font-size: 0.85rem;
 }
-

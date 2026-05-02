@@ -924,9 +924,14 @@ export default function HomePage() {
           <h1>GPMPE</h1>
           <p>General Purpose Marketing Promotions Engine</p>
         </div>
-        <Link className="text-link" href="/data-manager">
-          Open GPMPE Data Manager
-        </Link>
+        <div className="header-links">
+          <Link className="text-link" href="/admin">
+            Admin Settings
+          </Link>
+          <Link className="text-link" href="/data-manager">
+            Open GPMPE Data Manager
+          </Link>
+        </div>
       </div>
 
       <section className="card">

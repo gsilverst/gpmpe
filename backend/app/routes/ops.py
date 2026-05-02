@@ -12,6 +12,7 @@ from ..dependencies import get_db_session
 from ..db import connect_database, get_engine, get_session_factory, is_sqlite_database_url
 from ..git_store import GitStoreError, pull_latest_changes
 from ..schemas import StartupResolveRequest
+from ..services.runtime_settings import effective_git_settings
 from ..yaml_store import write_all_to_data_dir, write_all_to_data_dir_session
 
 
@@ -63,19 +64,20 @@ def create_ops_router(reconciliation: dict[str, Any]) -> APIRouter:
         return {"ok": True}
 
     @router.post("/data/pull")
-    def pull_yaml_data() -> dict[str, Any]:
+    def pull_yaml_data(db: Session = Depends(get_db_session)) -> dict[str, Any]:
         config = resolve_config()
-        if config.git_repo_path is None or not config.git_user_name or not config.git_user_email:
+        git_settings = effective_git_settings(db, config)
+        if git_settings.repo_path is None or not git_settings.user_name or not git_settings.user_email:
             raise HTTPException(status_code=400, detail="Git configuration incomplete (GIT_REPO_PATH, GIT_USER_NAME, GIT_USER_EMAIL)")
 
         try:
             changed = pull_latest_changes(
-                config.git_repo_path,
-                user_name=config.git_user_name,
-                user_email=config.git_user_email,
-                remote=config.git_remote,
-                branch=config.git_branch,
-                lock_timeout_seconds=config.git_lock_timeout_seconds,
+                git_settings.repo_path,
+                user_name=git_settings.user_name,
+                user_email=git_settings.user_email,
+                remote=git_settings.remote,
+                branch=git_settings.branch,
+                lock_timeout_seconds=git_settings.lock_timeout_seconds,
             )
 
             synced = None
@@ -97,9 +99,10 @@ def create_ops_router(reconciliation: dict[str, Any]) -> APIRouter:
                     "businesses": synced.businesses_synced,
                     "campaigns": synced.campaigns_synced,
                 } if synced else None,
-                "repo": str(config.git_repo_path),
-                "remote": config.git_remote,
-                "branch": config.git_branch,
+                "repo": str(git_settings.repo_path),
+                "remote": git_settings.remote,
+                "branch": git_settings.branch,
+                "settings_source": git_settings.source,
             }
         except GitStoreError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error

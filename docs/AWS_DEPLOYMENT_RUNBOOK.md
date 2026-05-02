@@ -2,6 +2,16 @@
 
 This runbook describes the first AWS staging deployment for GPMPE. It assumes the application image is already Docker-ready and that local CI passes in SQLite mode.
 
+## Repository Boundaries
+
+GPMPE deployments should keep three repositories conceptually separate:
+
+- **Application source repository**: Contains the open-source GPMPE application code, tests, Dockerfile, and deployment examples. It must not contain customer business profiles, campaign YAML, generated PDFs, database files, or deployment secrets.
+- **Deployment repository**: Owned by the operator of a specific AWS deployment. It can contain that operator's infrastructure-as-code, copied or adapted GitHub Actions workflows, ECS task definitions, and environment-specific deployment documentation. For example, an operator might maintain a private `gpmpe-deployment` repository.
+- **Business data repository**: Owned and configured by the application administrator for a specific tenant/customer/deployment. This repository stores business profile and marketing campaign YAML files that are synchronized to EFS and RDS at runtime. It must be managed independently from the application source repository.
+
+The sample `.github/workflows/aws-deploy.yml` and `aws/ecs-task-definition.template.json` files are scaffolds for deployment owners. An open-source user should copy or adapt them into their own deployment repository rather than treating the upstream application source repository as the owner of their AWS deployment.
+
 ## Deployment Shape
 
 - **Compute**: ECS/Fargate service running the GPMPE container.
@@ -13,15 +23,15 @@ This runbook describes the first AWS staging deployment for GPMPE. It assumes th
 
 ## Required AWS Values
 
-Before running `.github/workflows/aws-deploy.yml`, collect these values:
+Before running an adapted deploy workflow from the deployment owner's repository, collect these values:
 
 | Value | Used By |
 |---|---|
 | AWS account ID | ECR image URI, IAM role ARNs, secret ARNs |
-| AWS region | GitHub workflow, ECR, ECS, CloudWatch, Secrets Manager |
-| ECR repository name | GitHub workflow image push |
-| ECS cluster name | GitHub workflow deploy step |
-| ECS service name | GitHub workflow deploy step |
+| AWS region | Deploy workflow, ECR, ECS, CloudWatch, Secrets Manager |
+| ECR repository name | Deploy workflow image push |
+| ECS cluster name | Deploy workflow deploy step |
+| ECS service name | Deploy workflow deploy step |
 | ECS task definition family | `aws/ecs-task-definition.template.json` |
 | ECS app container name | GitHub workflow render step; default `gpmpe-app` |
 | ECS execution role ARN | Pull image and read ECS secrets |
@@ -31,11 +41,11 @@ Before running `.github/workflows/aws-deploy.yml`, collect these values:
 | EFS filesystem ID | ECS task volume configuration |
 | EFS access point IDs | `/app/data` and `/app/output` mounts |
 | CloudWatch log group | ECS container logs |
-| GitHub OIDC deploy role ARN | `AWS_DEPLOY_ROLE_ARN` GitHub secret |
+| Deployment OIDC role ARN | `AWS_DEPLOY_ROLE_ARN` GitHub secret or equivalent CI setting |
 
-## GitHub Configuration
+## Deployment CI Configuration
 
-Create an `aws-staging` environment in GitHub and set:
+If the deployment owner uses GitHub Actions, create an `aws-staging` environment in the deployment repository and set:
 
 ### Environment Variables
 
@@ -48,7 +58,7 @@ Create an `aws-staging` environment in GitHub and set:
 
 - `AWS_DEPLOY_ROLE_ARN`
 
-The deploy workflow uses GitHub OIDC and assumes this role. Prefer OIDC over long-lived AWS access keys.
+The deploy workflow should use OIDC and assume this role. Prefer OIDC over long-lived AWS access keys. The OIDC trust policy should name the deployment repository, not the upstream application source repository, unless the same private repository intentionally owns both source and deployment.
 
 ## ECS Task Definition
 
@@ -77,7 +87,7 @@ The task definition contains two containers:
    - Git credentials if push/pull requires private repository authentication
 3. Clone or initialize the YAML data repository onto the EFS data access point.
 4. Update `aws/ecs-task-definition.template.json` with real AWS identifiers.
-5. Run the `Deploy to AWS` workflow manually with an image tag such as `staging-YYYYMMDD-HHMM`.
+5. Run the deployment owner's deploy workflow manually with an image tag such as `staging-YYYYMMDD-HHMM`.
 6. Wait for ECS service stability.
 7. Open the load balancer target and check `/health`.
 

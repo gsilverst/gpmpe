@@ -304,7 +304,7 @@ AWS deployment planning lives in:
 
 - `docs/AWS_MIGRATION_PLAN.md` for the migration roadmap
 - `docs/AWS_DEPLOYMENT_RUNBOOK.md` for the first ECS/Fargate deployment checklist
-- `.github/workflows/aws-deploy.yml` for the manual ECR/ECS deployment scaffold
+- `.github/workflows/aws-deploy.yml` for a manual ECR/ECS deployment scaffold that deployment owners can copy or adapt into their own deployment repository
 - `aws/ecs-task-definition.template.json` for the initial ECS task definition template
 
 Then open:

@@ -29,6 +29,7 @@ from .middleware import RequestIDMiddleware
 from .models import (
     Business,
 )
+from .routes.admin_settings import router as admin_settings_router
 from .routes.artifacts import router as artifacts_router
 from .routes.business_campaigns import router as business_campaigns_router
 from .routes.chat import create_chat_router
@@ -146,6 +147,7 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(RequestIDMiddleware)
 
+    app.include_router(admin_settings_router)
     app.include_router(artifacts_router)
     app.include_router(business_campaigns_router)
     app.include_router(create_chat_router(chat_store))

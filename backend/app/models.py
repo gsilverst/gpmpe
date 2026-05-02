@@ -28,6 +28,35 @@ class AppMeta(Base):
     value: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class RuntimeGitSettings(Base):
+    __tablename__ = "runtime_git_settings"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    scope: Mapped[str] = mapped_column(String(50), nullable=False, server_default="global")
+    repo_path: Mapped[str | None] = mapped_column(Text)
+    remote_url: Mapped[str | None] = mapped_column(Text)
+    remote_name: Mapped[str] = mapped_column(String(100), nullable=False, server_default="origin")
+    branch: Mapped[str] = mapped_column(String(200), nullable=False, server_default="HEAD")
+    user_name: Mapped[str | None] = mapped_column(String(200))
+    user_email: Mapped[str | None] = mapped_column(String(320))
+    push_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0")
+    credential_provider: Mapped[str] = mapped_column(String(50), nullable=False, server_default="local")
+    credential_reference: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=func.current_timestamp())
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
+
+    __table_args__ = (UniqueConstraint("scope", name="uix_runtime_git_settings_scope"),)
+
+
+class AdminAuditLog(Base):
+    __tablename__ = "admin_audit_logs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    actor: Mapped[str] = mapped_column(String(200), nullable=False, server_default="system")
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    scope: Mapped[str] = mapped_column(String(100), nullable=False, server_default="global")
+    metadata_json: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=func.current_timestamp())
+
+
 class Business(Base):
     __tablename__ = "businesses"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

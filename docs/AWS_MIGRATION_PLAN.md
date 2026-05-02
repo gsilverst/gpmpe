@@ -102,7 +102,7 @@ To satisfy the requirement of maintaining YAML files for version control without
 ---
 
 ## 6. Phase 3: Version Control & Data Synchronization
-Since YAML files in the repository are the authoritative source, we must synchronize them with the EFS volume in AWS.
+Since YAML files in the deployment owner's configured business data repository are the authoritative source, we must synchronize them with the EFS volume in AWS. This business data repository is separate from the GPMPE application source repository and must not store its customer/business/campaign YAML in the upstream project repository.
 
 - **Current Status**:
     - The application exposes `/data/pull` to pull from Git and then reconcile YAML into the active database.
@@ -112,19 +112,21 @@ Since YAML files in the repository are the authoritative source, we must synchro
     - Git pull/commit/push operations are guarded by an EFS-compatible `.gpmpe-git.lock` file with a configurable `GIT_LOCK_TIMEOUT_SECONDS` timeout.
 - **Task 3.1: Git-to-Cloud Sync**: Deploy the Git sync worker as an ECS sidecar mounted to the same EFS data volume as the application.
     - Configure `GPMPE_API_URL`, `SYNC_INTERVAL_SECONDS`, `GIT_REPO_PATH`, `GIT_USER_NAME`, `GIT_USER_EMAIL`, `GIT_REMOTE`, `GIT_BRANCH`, and `GIT_LOCK_TIMEOUT_SECONDS` in the task environment.
+    - Configure the remote repository outside the application source repo. The deployment administrator is responsible for selecting, creating, protecting, and granting runtime access to the business data repository.
     - Inbound flow: the worker calls `/data/pull`; the backend runs `git pull --rebase` for the configured remote/branch and reconciles changed YAML into RDS.
     - Add CloudWatch logs and alarms for pull failures, API reachability failures, and reconciliation conflicts.
 - **Task 3.2: Cloud-to-Git Write-Back**:
     - When edits are made via Chat/GUI, the backend writes YAML on EFS and can commit those changed YAML files through the existing save endpoint.
     - Enable outbound repository pushes only after credentials are ready by setting `GIT_PUSH_ENABLED=true`.
-    - Store Git credentials in AWS Secrets Manager or ECS task secrets, preferably using a GitHub App, deploy key, or narrowly scoped machine-user token.
+    - Store AWS-mode Git credentials in AWS Secrets Manager or ECS task secrets, preferably using a GitHub App, deploy key, or narrowly scoped machine-user token.
     - Treat the configured Git identity as an application/service identity, not the signed-in end user's personal Git credentials.
     - Confirm the target branch strategy before enabling push in production. The initial default should be a protected integration branch rather than direct writes to `main`.
-- **Task 3.2a: Global Git Credential Administration**:
-    - The AWS migration release will support global Git credentials only. These credentials apply to all business profiles and are administered by Primary Admin/Admin users.
-    - Do not store raw Git tokens or private keys in RDS. Store only secret references/metadata in application tables and keep secret material in AWS Secrets Manager or ECS task secrets.
-    - Admin users should be able to create/update/rotate global Git credential settings. Regular users should not be able to view or modify Git credentials.
-    - Audit all Git credential changes, including the admin user, scope (`global`), repository/branch metadata, and rotation timestamp.
+- **Task 3.2a: AWS Integration for Admin-Managed Git Credentials**:
+    - Assume the application provides an administrator interface for managing global Git credential settings in both local and AWS deployments.
+    - In AWS mode, map that administrator-managed credential reference to AWS Secrets Manager or ECS task secrets.
+    - Do not store raw Git tokens or private keys in RDS. Store only secret references/metadata in application tables and keep secret material in AWS-managed secrets.
+    - Validate that Primary Admin/Admin users can create/update/rotate global Git credential settings through the application interface and that regular users cannot view or modify Git credentials.
+    - Validate audit logging for Git credential changes, including the admin user, scope (`global`), repository/branch metadata, and rotation timestamp.
 - **Task 3.3: Sync Safety Controls**:
     - Validate the EFS-backed `.gpmpe-git.lock` behavior with the deployed ECS task count before scaling beyond one application task and one sync worker.
     - Keep commit scope restricted to configured YAML/data paths so generated PDFs, database files, and unrelated files are never pushed.
@@ -139,27 +141,56 @@ Since YAML files in the repository are the authoritative source, we must synchro
 
 ## 7. Phase 4: CI/CD and Dual Build
 - **Task 4.1**: Update `Dockerfile` to be environment-aware.
-- **Task 4.2**: Implement a GitHub Action or AWS CodePipeline that:
-    1. Runs the test suite using SQLite (Local mode).
-    2. Builds and pushes the Docker image to Amazon ECR.
-    3. Deploys to ECS/Fargate.
+- **Task 4.2**: Provide deployment scaffolding that a deployment owner can run from their own deployment repository, using GitHub Actions, AWS CodePipeline, or another CI/CD system to:
+    1. Run the test suite using SQLite (Local mode).
+    2. Build and push the Docker image to Amazon ECR.
+    3. Deploy to ECS/Fargate.
 - **Task 4.3**: Environment variable toggle `RUN_MODE=local|aws` to control specific behaviors (e.g., whether to use local `.config` or AWS Secrets Manager).
 - **Current Status**:
     - `RUN_MODE=local|aws` is parsed by application config, defaults to `local`, and can be supplied through environment variables.
     - The Docker image has local defaults for `RUN_MODE`, `DATA_DIR`, `OUTPUT_DIR`, and `DATABASE_PATH`, while allowing AWS/ECS task definitions to override them with RDS/EFS settings.
     - The runtime image includes Git/OpenSSH tooling required by the sync worker.
     - GitHub Actions CI runs backend tests, builds the frontend export, and validates the Docker image build.
-    - A manual GitHub Actions AWS deploy workflow scaffold now builds the image, pushes it to ECR, renders an ECS task definition, and deploys it to ECS/Fargate once account-specific values are supplied.
+    - A manual GitHub Actions AWS deploy workflow scaffold now builds the image, pushes it to ECR, renders an ECS task definition, and deploys it to ECS/Fargate once account-specific values are supplied. Open-source deployment owners should copy or adapt this scaffold into their own deployment repository, such as a private `gpmpe-deployment` repo.
     - `aws/ecs-task-definition.template.json` provides the initial app-plus-git-sync-sidecar task shape, including EFS mounts for `/app/data` and `/app/output`.
     - `docs/AWS_DEPLOYMENT_RUNBOOK.md` documents the AWS values, GitHub variables/secrets, first deploy flow, staging validation, and rollback steps.
-    - Actual ECR push and ECS deploy execution remain pending until AWS account identifiers, IAM roles, networking, RDS, EFS, and deployment targets are available.
+    - Actual ECR push and ECS deploy execution remain pending until AWS account identifiers, IAM roles, networking, RDS, EFS, deployment targets, and the deployment-owner CI/CD repository are available.
 
 ---
 
-## 8. Phase 5: User Authentication & Access Control
+## 8. Open Design Consideration: Repository Ownership & Deployment Control
+
+The AWS migration must clearly separate open-source application development, deployment ownership, and customer/business data ownership. The upstream GPMPE application repository can provide source code, examples, templates, and documentation, but it must not become the source of truth for any specific operator's AWS deployment or any customer's business/campaign YAML data.
+
+- **Issue**: The current deploy workflow scaffold lives in the application source repository, which is useful as an example but can imply that the upstream project owns deployment state.
+- **Issue**: The business data repository is administrator/customer controlled and may contain sensitive business profiles, marketing campaigns, and generated operational history. It must never be mixed into the application source repository.
+- **Issue**: The correct OIDC trust target depends on who owns deployment automation. For open-source users, that should usually be their own deployment repository, not the upstream GPMPE repository.
+
+### Resolution Tasks
+
+- **Task 4.4: Define deployment ownership model**:
+    - Decide whether the first hosted deployment is managed from a dedicated private deployment repository, such as `gpmpe-deployment`, or from another operator-controlled CI/CD system.
+    - Document that deployment owners are responsible for environment-specific AWS identifiers, task definition overlays, secrets references, and release promotion controls.
+- **Task 4.5: Convert deployment scaffold into portable template**:
+    - Treat `.github/workflows/aws-deploy.yml` and `aws/ecs-task-definition.template.json` as example scaffolds.
+    - Add documentation for copying/adapting those files into a deployment repository.
+    - Avoid hard-coding upstream repository names in AWS trust policies or deploy instructions.
+- **Task 4.6: Define business data repository contract**:
+    - Specify the required repository layout for business profile and campaign YAML data.
+    - Define how the application administrator interface configures the remote URL, branch, credentials reference, author identity, and push policy for the runtime Git sync worker in both local and AWS deployments.
+    - Confirm that generated PDFs, local SQLite files, AWS credentials, deployment secrets, and application source files are excluded from business data commits.
+- **Task 4.7: Define OIDC and runtime credential boundaries**:
+    - Use OIDC only for deployment automation from the deployment-owner repository or CI/CD system.
+    - Use separate runtime Git credentials for the business data repository, stored in AWS Secrets Manager or ECS task secrets.
+    - Ensure deployment credentials cannot read or write customer campaign data unless an operator explicitly chooses to combine those concerns in their own private environment.
+- **Outcome**: Open-source users can adopt GPMPE without coupling their AWS deployment or business data to the upstream project repository, while the first-party deployment remains reproducible and secure.
+
+---
+
+## 9. Phase 5: User Authentication & Access Control
 To secure the application in AWS and support multi-user workflows, we will implement a role-based access control (RBAC) system.
 
-### 7.1 User Roles & Hierarchy
+### 9.1 User Roles & Hierarchy
 - **Primary Admin**: The user associated with the AWS root login (or mapped identity) by default.
     - **Permissions**: Can add/delete all user types (Admin and Regular). Full access to all business profiles and campaigns.
 - **Admin User**:
@@ -169,7 +200,7 @@ To secure the application in AWS and support multi-user workflows, we will imple
     - **Permissions**: Can add and modify campaigns under business profiles they have been granted access to.
     - **Constraints**: Cannot create or modify business profiles. Cannot manage users.
 
-### 7.2 Implementation Tasks
+### 9.2 Implementation Tasks
 - **Task 5.1: Identity Integration**:
     - **AWS Mode**: Use **Amazon Cognito** for user identity management. Map Cognito groups to the application roles.
     - **Local Mode**: Implement a lightweight JWT-based authentication system backed by the local database for development parity.
@@ -182,14 +213,14 @@ To secure the application in AWS and support multi-user workflows, we will imple
 
 ---
 
-## 9. Phase 6: Verification & Parity
+## 10. Phase 6: Verification & Parity
 - **Parity Test**: Run the full backend test suite against an RDS instance in a staging VPC.
-- **Sync Test**: Verify that editing a campaign title via the AWS-hosted chatbot results in a new commit appearing in the GitHub repository.
+- **Sync Test**: Verify that editing a campaign title via the AWS-hosted chatbot results in a new commit appearing in the configured business data repository.
 - **Local Fallback**: Confirm that developers can still run `start.sh` on their laptops with zero AWS dependencies.
 
 ---
 
-## 10. Post-AWS Deployment Enhancements
+## 11. Post-AWS Deployment Enhancements
 These enhancements should be planned after the migration is complete and the application has been successfully deployed and validated in AWS.
 
 - **Business-Profile-Specific Git Credentials**:

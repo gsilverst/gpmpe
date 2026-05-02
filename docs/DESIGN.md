@@ -457,7 +457,7 @@ Runtime configuration lives in a `.config` file at the repo root using `KEY=VALU
 
 Test path overrides (`TEST_DATABASE_PATH` + `TEST_DATA_DIR`) must be set together or neither takes effect.
 
-Git settings currently represent global application/service credentials. They are not tied to the signed-in user's personal Git account. The AWS migration release will use global credentials only, administered by Primary Admin/Admin users. Business-profile-specific Git credential overrides are a planned post-AWS deployment enhancement. Future business-specific settings should store only repository metadata and secret references in the database; raw tokens or private keys should remain in AWS Secrets Manager or ECS task secrets.
+Git settings currently represent global application/service credentials. They are not tied to the signed-in user's personal Git account. The application should provide an administrator-only interface for managing global Git settings in both local and AWS deployments. Business-profile-specific Git credential overrides are planned after the global flow is validated. Future business-specific settings should store only repository metadata and credential references in the database; raw tokens or private keys should remain in the deployment's configured secret store, such as a local secret mechanism for local mode or AWS Secrets Manager/ECS task secrets for AWS mode.
 
 ---
 
