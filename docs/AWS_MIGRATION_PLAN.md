@@ -220,7 +220,29 @@ To secure the application in AWS and support multi-user workflows, we will imple
 
 ---
 
-## 11. Post-AWS Deployment Enhancements
+## 11. Final Step: AWS Deployment User Guide
+
+After the AWS deployment path is validated, add a detailed step-by-step AWS deployment section to the user guide. This should be written for deployment owners/administrators and should cover the complete setup flow, including:
+
+- AWS account bootstrap, region selection, root MFA, administrator access, and budget alerts.
+- ECR repository creation.
+- CloudWatch log group creation and retention settings.
+- Secrets Manager setup for database, LLM, Git author identity, and business data repository credentials.
+- IAM roles for ECS task execution, ECS task runtime access, and deployment automation.
+- Deployment repository ownership and OIDC trust setup for the deployment owner's CI/CD repository.
+- RDS provisioning, backup policy, security groups, and `DATABASE_URL` secret setup.
+- EFS provisioning, access points, mount targets, security groups, backup policy, and ECS mount configuration.
+- ECS/Fargate cluster, task definition, service, networking, and load balancer setup.
+- Business data repository setup, initial clone/seed into EFS, and administrator configuration through the application admin page.
+- Git sync worker configuration and validation.
+- First deployment from the deployment repository or selected CI/CD system.
+- Health checks, startup reconciliation, campaign edit/save validation, PDF render validation, CloudWatch log review, rollback, and production promotion checklist.
+
+This section should distinguish clearly between the GPMPE application source repository, the deployment owner's infrastructure/deployment repository, and the administrator-managed business data repository.
+
+---
+
+## 12. Post-AWS Deployment Enhancements
 These enhancements should be planned after the migration is complete and the application has been successfully deployed and validated in AWS.
 
 - **Business-Profile-Specific Git Credentials**:

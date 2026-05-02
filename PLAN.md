@@ -175,6 +175,7 @@ Objective:
 - Restrict credential administration to Primary Admin/Admin users; regular users must not be able to view or modify runtime credentials.
 - Start with global Git credentials shared across all business profiles; business-profile-specific credential overrides can follow after the global flow is validated.
 - Current status: a basic admin Git settings page, metadata model, local/AWS secret-provider abstraction, and audit-log endpoint exist. Full user management, authenticated admin-only enforcement, and complete credential administration UX are not yet implemented.
+- Update the user guide with a dedicated administrator section covering the admin page, user management, role assignment, business-profile access, runtime configuration, business data repository setup, credential rotation, and audit-log review.
 
 ### Step 21b: Version-Control-Aware Save and Restore UX (TODO)
 Objective:
