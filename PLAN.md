@@ -163,16 +163,29 @@ Objective:
 - Enabled component-level style overrides (e.g., `border_radius`) via `style_json`.
 - Verified 100% parity and visual consistency across all rendering modes.
 
-### Step 21a: Administrator Settings & Credential Management Portal (TODO)
+### Step 21a: Administrator Settings & Credential Management Portal (PARTIAL / TODO)
 Objective:
 - Add an administrator-only web interface for managing runtime settings and external service credentials in both local and AWS deployments.
 - Allow Primary Admin/Admin users to configure the business data repository remote URL, branch/ref, Git author identity, push policy, and credential reference used by the runtime Git sync worker.
+- Include administrator user management in the same administrative area, including adding users, assigning Primary Admin/Admin/Regular roles, and managing business-profile access.
 - Keep raw Git tokens, private keys, database passwords, API keys, and other sensitive values out of normal application tables; store only non-sensitive metadata and credential references in the application database.
 - Support local deployments with a local secret/reference mechanism and AWS deployments with AWS Secrets Manager or ECS task secrets.
 - Support credential create/update/rotation workflows without exposing secret values back to the browser after save.
 - Add audit logging for credential and repository configuration changes, including actor, timestamp, scope, repository metadata, and rotation timestamp.
 - Restrict credential administration to Primary Admin/Admin users; regular users must not be able to view or modify runtime credentials.
 - Start with global Git credentials shared across all business profiles; business-profile-specific credential overrides can follow after the global flow is validated.
+- Current status: a basic admin Git settings page, metadata model, local/AWS secret-provider abstraction, and audit-log endpoint exist. Full user management, authenticated admin-only enforcement, and complete credential administration UX are not yet implemented.
+
+### Step 21b: Version-Control-Aware Save and Restore UX (TODO)
+Objective:
+- Treat the promotion Save action as meaningful only when version control for the business data repository is configured.
+- Disable/grey out the campaign Save button when the administrator has not configured the required Git repository path, author identity, and credential reference/secret.
+- Surface a clear non-technical message that saving requires administrator-configured version control, without exposing Git implementation details to regular users.
+- Add a nice-to-have campaign-level version restore flow that lets a user choose an older marketing campaign version by date/time and restore it as the current campaign state.
+- Hide Git details such as commit IDs, branch names, and repository mechanics from regular campaign users.
+- When a restored campaign is modified and saved, commit it as a new linear version of the campaign rather than creating a branch.
+- Keep campaign version restore scoped to marketing campaigns only for regular users.
+- Add a similar administrator-only nice-to-have restore flow for business profiles, since only admins may add or modify business profiles.
 
 ## Phase 5: AWS Migration
 

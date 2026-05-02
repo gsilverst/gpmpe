@@ -138,6 +138,14 @@ On startup GPMPE compares both sides. If they differ, the user is presented with
 
 On every mutation, GPMPE writes the updated campaign back to the YAML tree so the YAML files always reflect current state.
 
+### Business Data Version Control
+
+The business data repository is administered through the application, not by regular campaign users. Primary Admin/Admin users should be able to manage the repository path/remote, branch or ref, Git author identity, push policy, and credential reference through an administrator page alongside other administrative functions such as adding users, assigning roles, and managing access. Raw credentials must remain write-only from the browser perspective and should be stored in the configured secret store rather than in normal application tables.
+
+The campaign Save action is only meaningful when version control is configured for the business data repository. If the administrator has not configured the required Git repository settings and credentials, the campaign Save button should be disabled/greyed out in the promotion-management interface and should explain that administrator-configured version control is required.
+
+As a future nice-to-have, campaign users should be able to restore a prior marketing campaign version from Git history without seeing Git-specific details. The UI should present prior campaign versions by date/time and user-facing description where available, not by commit ID or branch. Restoring an older version should make that version the current campaign state; if the user then modifies and saves it, the save should create a new linear version rather than a branch. This restore capability should be available at the marketing campaign level for campaign users. A similar administrator-only restore capability may be added for business profiles, since only administrators can add or modify business profiles.
+
 ### YAML Directory Layout
 
 ```
