@@ -54,6 +54,9 @@ Components are the sections of your flyer (e.g., "Featured Offers", "Weekday Spe
 *   **Visual Tuning:**
     *   `set component featured-offers background color to lightgreen`
     *   `set component featured-offers accent header color to #ff0000`
+    *   `delete the background color field for the weekday-specials component`
+
+The business brand theme includes a **primary color**, which is the main brand color used by the renderer. Components that do not specify their own `background_color` fall back to the theme's primary color when that component style uses a primary-color panel. Use a component-specific background color when a section needs to stand apart; delete that field when you want the section to return to the primary brand color.
 
 ---
 

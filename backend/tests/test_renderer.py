@@ -675,6 +675,78 @@ def test_render_flyer_uses_print_safe_featured_subtitle_style(monkeypatch) -> No
     assert color.rgb() == colors.HexColor("#181818").rgb()
 
 
+def test_render_flyer_uses_print_safe_header_subtitle_style(monkeypatch) -> None:
+    from app import renderer as renderer_module
+
+    centered: list[tuple[str, str, float, object]] = []
+    original_centered = renderer_module._draw_centered
+
+    def _capture_centered(pdf, text, x, y, font, size, color):
+        centered.append((text or "", font, size, color))
+        return original_centered(pdf, text, x, y, font, size, color)
+
+    monkeypatch.setattr(renderer_module, "_draw_centered", _capture_centered)
+
+    ctx = {
+        "campaign_id": 83,
+        "campaign_name": "header-subtitle",
+        "title": "Header Subtitle",
+        "objective": "Keep header subtitle readable on lighter primary colors",
+        "campaign_footnote_text": None,
+        "start_date": "2026-05-01",
+        "end_date": "2026-05-31",
+        "business_display_name": "ACME",
+        "business_legal_name": "ACME LLC",
+        "theme": {
+            "primary_color": "#5E3A82",
+            "secondary_color": "#6E4A8E",
+            "accent_color": "#E0559A",
+        },
+        "location": None,
+        "contacts": [],
+        "offers": [],
+        "components": [
+            {
+                "component_key": "featured",
+                "component_kind": "featured-offers",
+                "display_title": "Featured",
+                "subtitle": "Book by Friday",
+                "description_text": None,
+                "display_order": 0,
+                "items": [
+                    {
+                        "item_name": "A",
+                        "item_kind": "service",
+                        "duration_label": "60 min",
+                        "item_value": "$10",
+                        "description_text": None,
+                        "terms_text": None,
+                        "display_order": 0,
+                    }
+                ],
+            }
+        ],
+        "effective_values": {
+            "business_name": "ACME",
+            "business_subtitle": "ACME LLC",
+            "footer": "acme.example",
+            "legal": "Offer terms.",
+        },
+        "template_name": "flyer-standard",
+        "template": {"layout": {}},
+    }
+
+    pdf_bytes = render_flyer(ctx)
+
+    assert pdf_bytes.startswith(b"%PDF")
+    subtitle_rows = [row for row in centered if row[0] == "ACME LLC"]
+    assert subtitle_rows
+    _, font, size, color = subtitle_rows[0]
+    assert font == "Helvetica-BoldOblique"
+    assert size == 15.0
+    assert color.rgb() == colors.white.rgb()
+
+
 def test_render_flyer_uses_print_safe_featured_duration_style(monkeypatch) -> None:
     from app import renderer as renderer_module
 
@@ -827,6 +899,199 @@ def test_render_flyer_uses_print_safe_weekday_subtitle_and_duration_style(monkey
     detail_font, detail_color = strips[0]
     assert detail_font == "Helvetica-Bold"
     assert detail_color.rgb() == colors.HexColor("#181818").rgb()
+
+
+def test_render_flyer_uses_print_safe_discount_note_style(monkeypatch) -> None:
+    from app import renderer as renderer_module
+
+    centered: list[tuple[str, str, float, object]] = []
+    original_centered = renderer_module._draw_centered
+
+    def _capture_centered(pdf, text, x, y, font, size, color):
+        centered.append((text or "", font, size, color))
+        return original_centered(pdf, text, x, y, font, size, color)
+
+    monkeypatch.setattr(renderer_module, "_draw_centered", _capture_centered)
+
+    ctx = {
+        "campaign_id": 82,
+        "campaign_name": "discount-note",
+        "title": "Discount Note",
+        "objective": "Keep discount note readable in small-format print",
+        "campaign_footnote_text": None,
+        "start_date": "2026-05-01",
+        "end_date": "2026-05-31",
+        "business_display_name": "ACME",
+        "business_legal_name": "ACME LLC",
+        "theme": {
+            "primary_color": "#3E1C5C",
+            "secondary_color": "#6E4A8E",
+            "accent_color": "#E0559A",
+        },
+        "location": None,
+        "contacts": [],
+        "offers": [],
+        "components": [
+            {
+                "component_key": "weekday-specials",
+                "component_kind": "weekday-specials",
+                "display_title": "Weekday Specials",
+                "subtitle": "Wednesday-Friday",
+                "description_text": None,
+                "display_order": 0,
+                "items": [
+                    {
+                        "item_name": "Chair Massage",
+                        "item_kind": "service",
+                        "duration_label": "30 minutes",
+                        "item_value": "$40",
+                        "description_text": None,
+                        "terms_text": None,
+                        "display_order": 0,
+                    }
+                ],
+            },
+            {
+                "component_key": "discount-panel",
+                "component_kind": "discount-strip",
+                "display_title": "Discount Panel",
+                "subtitle": None,
+                "description_text": None,
+                "display_order": 1,
+                "items": [
+                    {
+                        "item_name": "Package Savings",
+                        "item_kind": "discount",
+                        "duration_label": None,
+                        "item_value": None,
+                        "description_text": "A short list of eligible services.",
+                        "terms_text": None,
+                        "display_order": 0,
+                    },
+                    {
+                        "item_name": "10% Off Multi-Session Packages",
+                        "item_kind": "discount",
+                        "duration_label": None,
+                        "item_value": None,
+                        "description_text": None,
+                        "terms_text": None,
+                        "display_order": 1,
+                    },
+                ],
+            },
+        ],
+        "effective_values": {
+            "business_name": "ACME",
+            "business_subtitle": "LLC",
+            "footer": "acme.example",
+            "legal": "Offer terms.",
+        },
+        "template_name": "flyer-standard",
+        "template": {"layout": {}},
+    }
+
+    pdf_bytes = render_flyer(ctx)
+
+    assert pdf_bytes.startswith(b"%PDF")
+    note_rows = [row for row in centered if row[0] == "10% Off Multi-Session Packages"]
+    assert note_rows
+    _, font, size, color = note_rows[0]
+    assert font == "Helvetica-BoldOblique"
+    assert size == 13.0
+    assert color.rgb() == colors.white.rgb()
+
+
+def test_render_flyer_uses_discount_item_price_color_for_description(monkeypatch) -> None:
+    from app import renderer as renderer_module
+
+    wrapped: list[tuple[str, str, float, float, object]] = []
+    original_wrapped = renderer_module._draw_wrapped_centered
+
+    def _capture_wrapped(pdf, text, cx, top_y, max_w, font, size, leading, color):
+        wrapped.append((text or "", font, size, leading, color))
+        return original_wrapped(pdf, text, cx, top_y, max_w, font, size, leading, color)
+
+    monkeypatch.setattr(renderer_module, "_draw_wrapped_centered", _capture_wrapped)
+
+    ctx = {
+        "campaign_id": 84,
+        "campaign_name": "discount-description",
+        "title": "Discount Description",
+        "objective": "Use discount price color for discount description",
+        "campaign_footnote_text": None,
+        "start_date": "2026-05-01",
+        "end_date": "2026-05-31",
+        "business_display_name": "ACME",
+        "business_legal_name": "ACME LLC",
+        "theme": {
+            "primary_color": "#3E1C5C",
+            "secondary_color": "#6E4A8E",
+            "accent_color": "#E0559A",
+        },
+        "location": None,
+        "contacts": [],
+        "offers": [],
+        "components": [
+            {
+                "component_key": "weekday-specials",
+                "component_kind": "weekday-specials",
+                "display_title": "Weekday Specials",
+                "subtitle": "Wednesday-Friday",
+                "description_text": None,
+                "display_order": 0,
+                "items": [
+                    {
+                        "item_name": "Chair Massage",
+                        "item_kind": "service",
+                        "duration_label": "30 minutes",
+                        "item_value": "$40",
+                        "description_text": None,
+                        "terms_text": None,
+                        "display_order": 0,
+                    }
+                ],
+            },
+            {
+                "component_key": "discount-panel",
+                "component_kind": "discount-strip",
+                "display_title": "Discount Panel",
+                "style": {"item_price_color": "#3E1C5C"},
+                "subtitle": None,
+                "description_text": None,
+                "display_order": 1,
+                "items": [
+                    {
+                        "item_name": "Package Savings",
+                        "item_kind": "discount",
+                        "duration_label": None,
+                        "item_value": None,
+                        "description_text": "A short list of eligible services.",
+                        "terms_text": None,
+                        "display_order": 0,
+                    }
+                ],
+            },
+        ],
+        "effective_values": {
+            "business_name": "ACME",
+            "business_subtitle": "LLC",
+            "footer": "acme.example",
+            "legal": "Offer terms.",
+        },
+        "template_name": "flyer-standard",
+        "template": {"layout": {}},
+    }
+
+    pdf_bytes = render_flyer(ctx)
+
+    assert pdf_bytes.startswith(b"%PDF")
+    desc_rows = [row for row in wrapped if row[0] == "A short list of eligible services."]
+    assert desc_rows
+    _, font, size, leading, color = desc_rows[0]
+    assert font == "Helvetica"
+    assert size == 10.0
+    assert leading == 12.0
+    assert color.rgb() == colors.HexColor("#3E1C5C").rgb()
 
 
 def test_render_flyer_supports_multi_component_context() -> None:

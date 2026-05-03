@@ -92,9 +92,9 @@ _OFFER_FIELD_ALIASES: dict[str, str] = {
     "terms_text": "terms_text", "terms": "terms_text",
 }
 _BRAND_FIELD_ALIASES: dict[str, str] = {
-    "primary_color": "primary_color", "primary": "primary_color",
-    "secondary_color": "secondary_color", "secondary": "secondary_color",
-    "accent_color": "accent_color", "accent": "accent_color",
+    "primary_color": "primary_color", "primary color": "primary_color", "primary": "primary_color",
+    "secondary_color": "secondary_color", "secondary color": "secondary_color", "secondary": "secondary_color",
+    "accent_color": "accent_color", "accent color": "accent_color", "accent": "accent_color",
     "font_family": "font_family", "font": "font_family",
     "logo_path": "logo_path", "logo": "logo_path",
 }
@@ -239,6 +239,15 @@ COMPONENT_ITEM_CHANGE_ALL_PATTERN = re.compile(
     r"\s+for\s+all\s+items"
     r"(?:\s+in\s+(?:the\s+)?(?P<component>.+?)\s+components?)?"
     r"[.!?]?$",
+    re.IGNORECASE,
+)
+COMPONENT_ITEM_CHANGE_ALL_OF_COMPONENT_PATTERN = re.compile(
+    r"^(?:change|set|update)\s+(?:the\s+)?"
+    r"(?P<field>" + _ITEM_FIELD_RE + r")"
+    r"(?:\s+field)?"
+    r"\s+of\s+(?:the\s+)?items"
+    r"\s+(?:of|in)\s+(?:the\s+)?(?P<component>.+?)\s+components?"
+    r"\s+to\s+(?P<value>.+?)[.!?]?$",
     re.IGNORECASE,
 )
 COMPONENT_CHANGE_ALL_PATTERN = re.compile(
@@ -588,6 +597,22 @@ def parse_chat_command(message: str) -> ParsedCommand:
         value = component_rename_match.group(2).strip()
         return ParsedCommand(target="component", field="component_key", value=value, component_ref=component_ref)
 
+    component_item_change_all_of_component_match = COMPONENT_ITEM_CHANGE_ALL_OF_COMPONENT_PATTERN.match(text)
+    if component_item_change_all_of_component_match:
+        raw_field = component_item_change_all_of_component_match.group("field").lower().strip()
+        canonical = _normalize_field(raw_field, _ITEM_FIELD_ALIASES)
+        if canonical is None:
+            raise HTTPException(status_code=400, detail=f"Unrecognised item field: '{raw_field}'")
+        component_ref = component_item_change_all_of_component_match.group("component").strip().strip("\"'")
+        value = component_item_change_all_of_component_match.group("value").strip().rstrip(".!?")
+        return ParsedCommand(
+            target="component_item",
+            field=canonical,
+            value=value,
+            component_ref=component_ref,
+            item_ref="__all__",
+        )
+
     component_change_field_match = COMPONENT_CHANGE_FIELD_PATTERN.match(text)
     if component_change_field_match:
         component_ref = component_change_field_match.group("component").strip().strip("\"'")
@@ -890,7 +915,7 @@ def _normalize_item_ref(value: str) -> str:
 
 
 def resolve_component(connection: Any, campaign_id: int, component_ref: str) -> Any | None:
-    return connection.execute(
+    component = connection.execute(
         """
         SELECT id, campaign_id, component_key, component_kind, display_title, background_color, header_accent_color, footnote_text, subtitle, description_text, display_order, style_json
         FROM campaign_components
@@ -901,6 +926,21 @@ def resolve_component(connection: Any, campaign_id: int, component_ref: str) -> 
         """,
         (campaign_id, component_ref, component_ref),
     ).fetchone()
+    if component is not None:
+        return component
+
+    matches = connection.execute(
+        """
+        SELECT id, campaign_id, component_key, component_kind, display_title, background_color, header_accent_color, footnote_text, subtitle, description_text, display_order, style_json
+        FROM campaign_components
+        WHERE campaign_id = ? AND LOWER(component_kind) = LOWER(?)
+        ORDER BY id ASC;
+        """,
+        (campaign_id, component_ref),
+    ).fetchall()
+    if len(matches) == 1:
+        return matches[0]
+    return None
 
 
 def _resolve_item_selector_index(item_ref: str, item_count: int) -> int | None:
@@ -1048,7 +1088,7 @@ def _component_item_payload_session(item: CampaignComponentItem) -> dict[str, An
 
 
 def _resolve_component_session(db: Session, campaign_id: int, component_ref: str) -> CampaignComponent | None:
-    return (
+    component = (
         db.query(CampaignComponent)
         .filter(CampaignComponent.campaign_id == campaign_id)
         .filter(
@@ -1058,6 +1098,19 @@ def _resolve_component_session(db: Session, campaign_id: int, component_ref: str
         .order_by(CampaignComponent.id.asc())
         .first()
     )
+    if component is not None:
+        return component
+
+    matches = (
+        db.query(CampaignComponent)
+        .filter(CampaignComponent.campaign_id == campaign_id)
+        .filter(CampaignComponent.component_kind.ilike(component_ref))
+        .order_by(CampaignComponent.id.asc())
+        .all()
+    )
+    if len(matches) == 1:
+        return matches[0]
+    return None
 
 
 def _find_component_item_session(

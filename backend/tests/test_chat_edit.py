@@ -640,6 +640,46 @@ def test_chat_message_can_update_background_for_all_items_in_active_component(mo
     assert [r["background_color"] for r in rows] == ["light purple", "light purple"]
 
 
+def test_chat_message_can_update_background_of_items_of_component(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+    _seed_component_items_for_campaign(campaign_id)
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={
+            "campaign_id": campaign_id,
+            "message": "set the background color of the items of the community-appreciation component to white",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["target"] == "component_item"
+    assert payload["result"]["field"] == "background_color"
+    assert payload["result"]["scope"] == "all_items"
+    assert payload["result"]["updated_count"] == 2
+
+    config = resolve_config()
+    with connect_database(config) as connection:
+        rows = connection.execute(
+            """
+            SELECT item_name, background_color
+            FROM campaign_component_items
+            WHERE component_id = (
+              SELECT id FROM campaign_components
+              WHERE campaign_id = ? AND component_key = 'community-appreciation'
+            )
+            ORDER BY display_order ASC, id ASC;
+            """,
+            (campaign_id,),
+        ).fetchall()
+
+    assert [r["background_color"] for r in rows] == ["white", "white"]
+
+
 def test_chat_message_can_update_background_for_all_components(monkeypatch, tmp_path: Path) -> None:
     config_path = _write_config(tmp_path)
     client = _make_client(monkeypatch, config_path)
@@ -1020,6 +1060,14 @@ def test_chat_message_short_field_aliases(monkeypatch, tmp_path: Path) -> None:
     )
     assert r.status_code == 200
     assert r.json()["result"]["brand_theme"]["primary_color"] == "#aabbcc"
+
+    # Brand alias: "primary color" → "primary_color"
+    r = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={"campaign_id": campaign_id, "message": "set brand primary color to #bbccdd"},
+    )
+    assert r.status_code == 200
+    assert r.json()["result"]["brand_theme"]["primary_color"] == "#bbccdd"
 
     # Item alias: "value" → "item_value" with "set ... of ... item to" phrasing
     r = client.post(
@@ -1433,6 +1481,39 @@ def test_chat_message_can_update_component_style(monkeypatch, tmp_path: Path) ->
     assert response.json()["result"]["target"] == "component"
     assert response.json()["result"]["field"] == "style_json"
     assert response.json()["result"]["style"]["border_radius"] == "20"
+
+
+def test_chat_message_can_update_component_style_by_unique_kind(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_campaign(client)
+
+    config = resolve_config()
+    with connect_database(config) as connection:
+        connection.execute(
+            """
+            INSERT INTO campaign_components (
+              campaign_id, component_key, component_kind, display_title, display_order
+            )
+            VALUES (?, 'discount-panel', 'discount-strip', 'Discount Panel', 1);
+            """,
+            (campaign_id,),
+        )
+        connection.commit()
+
+    session_id = client.post("/chat/sessions").json()["session_id"]
+
+    response = client.post(
+        f"/chat/sessions/{session_id}/messages",
+        json={"campaign_id": campaign_id, "message": "set discount-strip style item_price_color to #181818"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["result"]["target"] == "component"
+    assert payload["result"]["field"] == "style_json"
+    assert payload["result"]["component_key"] == "discount-panel"
+    assert payload["result"]["style"]["item_price_color"] == "#181818"
+
 
 def test_chat_message_can_manage_offers(monkeypatch, tmp_path: Path) -> None:
     config_path = _write_config(tmp_path)

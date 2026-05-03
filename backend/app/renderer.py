@@ -108,6 +108,19 @@ _DEFAULT_RENDER_LAYOUT: dict[str, Any] = {
             "duration_font": "Helvetica-Bold",
             "duration_color": "#181818",
         },
+        "discount": {
+            "description_font": "Helvetica",
+            "description_size": 10.0,
+            "description_leading": 12.0,
+            "note_font": "Helvetica-BoldOblique",
+            "note_size": 13.0,
+            "note_color": "#FFFFFF",
+        },
+        "header": {
+            "business_subtitle_font": "Helvetica-BoldOblique",
+            "business_subtitle_size": 15.0,
+            "business_subtitle_color": "#FFFFFF",
+        },
         "footnotes": {"marker": "**", "max_campaign_notes": 2},
     },
 }
@@ -491,9 +504,17 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
                    biz_name_style.get("size", 22.0), palette["white"])
     
     biz_sub_style = typography.get("business_subtitle", {})
+    biz_sub_font = _style(layout, "header", "business_subtitle_font", fallback=None) or biz_sub_style.get("font", "Times-Italic")
+    biz_sub_size = float(
+        _style(layout, "header", "business_subtitle_size", fallback=None) or biz_sub_style.get("size", 16.0)
+    )
+    biz_sub_color = _hex(
+        ev.get("business_subtitle_color") or _style(layout, "header", "business_subtitle_color", fallback=None),
+        _string_hex(_COLOR_WHITE),
+    )
     _draw_centered(pdf, biz_sub, w / 2, header_region["y"] + 8,
-                   biz_sub_style.get("font", "Times-Italic"), 
-                   biz_sub_style.get("size", 16.0), palette["primary_light"])
+                   biz_sub_font,
+                   biz_sub_size, biz_sub_color)
 
     def title_with_marker(component: dict[str, Any] | None) -> str:
         if component is None:
@@ -733,6 +754,7 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
     # ----- Discount strip (services panel) -----
     if discount:
         ds_comp = discount[0]
+        ds_comp_style = ds_comp.get("style") or {}
         ds_items = ds_comp.get("items", [])
         services_panel_y = discount_region["y"]
         services_panel_h = discount_region["h"]
@@ -749,16 +771,56 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
                            "Helvetica-Bold", 17, palette["primary"])
             services_desc = it0.get("description_text") or ""
             if services_desc:
+                desc_style = it0.get("style") or {}
+                desc_font = (
+                    desc_style.get("description_font")
+                    or ds_comp_style.get("description_font")
+                    or _style(layout, "discount", "description_font", fallback="Helvetica")
+                )
+                desc_size = float(
+                    desc_style.get("description_size")
+                    or ds_comp_style.get("description_size")
+                    or _style(layout, "discount", "description_size", fallback=10.0)
+                )
+                desc_leading = float(
+                    desc_style.get("description_leading")
+                    or ds_comp_style.get("description_leading")
+                    or _style(layout, "discount", "description_leading", fallback=12.0)
+                )
+                desc_color = _hex(
+                    desc_style.get("description_color")
+                    or ds_comp_style.get("description_color")
+                    or desc_style.get("item_price_color")
+                    or ds_comp_style.get("item_price_color"),
+                    _string_hex(_COLOR_INK),
+                )
                 _draw_wrapped_centered(pdf, services_desc, w / 2,
                                        services_panel_y + 24, w - 160,
-                                       "Helvetica", 10, 12, _COLOR_INK)
+                                       desc_font, desc_size, desc_leading, desc_color)
 
             # Item 2+ → below panel as italic text
             if len(ds_items) > 1:
                 it1 = ds_items[1]
+                note_style = it1.get("style") or {}
+                note_font = (
+                    note_style.get("note_font")
+                    or ds_comp_style.get("note_font")
+                    or _style(layout, "discount", "note_font", fallback="Helvetica-BoldOblique")
+                )
+                note_size = float(
+                    note_style.get("note_size")
+                    or ds_comp_style.get("note_size")
+                    or _style(layout, "discount", "note_size", fallback=13.0)
+                )
+                note_color = _hex(
+                    note_style.get("note_color")
+                    or ds_comp_style.get("note_color")
+                    or _style(layout, "discount", "note_color", fallback=None),
+                    _string_hex(_COLOR_WHITE),
+                )
                 _draw_centered(pdf, it1.get("item_name") or "", w / 2,
                                services_panel_y - 16,
-                               "Times-Italic", 14, palette["accent"])
+                               note_font, note_size, note_color)
 
     # ----- Footer contact line (inside weekday panel, very bottom) -----
     footer_text = ev.get("footer") or ""

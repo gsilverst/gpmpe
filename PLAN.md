@@ -206,6 +206,15 @@ Objective:
 - Keep advanced explicit commands such as `set <component> style <key> to <value>` available for power users and debugging.
 - Add neutral tests and user-guide examples for common print-readability adjustments without relying on proprietary campaign data.
 
+### Step 21e: Component Type Model Review (TODO)
+Objective:
+- Review the current component kinds (`featured-offers`, `weekday-specials`, `other-offers`, `secondary-offers`, `discount-strip`, `legal-note`) and decide which represent content semantics versus visual layout behavior.
+- Identify component kinds that exist mainly because of the original promotion design and should be replaced by more flexible render modes, region bindings, roles, or style parameters.
+- Define a clearer component taxonomy that supports reusable promotion sections without forcing campaign-specific visual assumptions into `component_kind`.
+- Decide how `component_kind`, `render_region`, `render_mode`, `render_role`, and component/item `style_json` should work together without overlapping responsibilities.
+- Preserve backwards compatibility by mapping existing component kinds to the new model and writing explicit migration/default values where needed.
+- Update the user guide, design documentation, sample data, chatbot commands, and tests once the revised component model is chosen.
+
 ## Phase 5: AWS Migration
 
 ### Step 23: Database Abstraction (SQLAlchemy) (COMPLETED)
