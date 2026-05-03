@@ -16,7 +16,7 @@ You can update your business details using "set business" commands.
     *   `set business timezone to America/Los_Angeles`
 *   **Contact & Address:**
     *   `set business phone to 555-1212`
-    *   `set business street address to 123 Main St`
+    *   `set business street address to 123 Market St`
     *   `set business city to Los Angeles`
     *   `set business zip code to 90001`
 
@@ -34,7 +34,7 @@ Campaigns are the top-level containers for your promotions.
     *   `set the title to Autumn Refresh Specials`
     *   `set the objective to Increase weekday bookings in September`
     *   `set the start date to 2026-09-01`
-    *   `set the footnote to Valid only at our Main St location.`
+    *   `set the footnote to Valid only at our Market St location.`
 *   **Clearing Fields:**
     *   `delete the campaign footnote`
     *   `delete the campaign objective`
@@ -47,7 +47,7 @@ Components are the sections of your flyer (e.g., "Featured Offers", "Weekday Spe
 *   **Context Setting:**
     *   If you want to edit items in a specific section, tell the chatbot: `I am working on the featured-offers component.`
 *   **Renaming Sections:**
-    *   `rename the featured-offers component to main-street-appreciation`
+    *   `rename the featured-offers component to community-appreciation`
     *   `change the display title of the weekday-specials component to Monthly Highlights`
 *   **Changing Layouts:**
     *   `set component featured-offers type to weekday-specials` (This changes the visual style to a list format).

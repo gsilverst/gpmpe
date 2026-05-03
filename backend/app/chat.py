@@ -561,7 +561,7 @@ def parse_chat_command(message: str) -> ParsedCommand:
             field="message",
             value=(
                 "I can do that. Please provide the new component-key, for example: "
-                "'change the name of mothers-day-specials component to main-street-appreciation-month'."
+                "'change the name of mothers-day-specials component to community-appreciation-month'."
             ),
         )
 
@@ -578,7 +578,7 @@ def parse_chat_command(message: str) -> ParsedCommand:
             value=(
                 "I can do that. Please provide the new component-key, for example: "
                 "'change the component-key field of mothers-day-specials component "
-                "to main-street-appreciation-month'."
+                "to community-appreciation-month'."
             ),
         )
 
@@ -739,7 +739,7 @@ def parse_chat_command(message: str) -> ParsedCommand:
             "'change the component-key field of <component> component to <new_component_key>', "
             "'change the item_value field of the first item in <component> component to <value>', "
             "'delete the second item', "
-            "'delete the Signature Facial item in the main-street-appreciation component', "
+            "'delete the Signature Facial item in the community-appreciation component', "
             "or 'create a new item like the Swedish Massage item called Lymphatic Drainage and add it between the Swedish Massage and the Deep Tissue items'."
         ),
     )
@@ -1451,7 +1451,7 @@ def apply_chat_command_session(
         if component_ref is None:
             return {
                 "target": "clarify",
-                "message": "Please tell me which component you are working on first, for example: 'I am working on the main-street-appreciation component'.",
+                "message": "Please tell me which component you are working on first, for example: 'I am working on the community-appreciation component'.",
             }
 
         value = command.value.strip()
@@ -2168,7 +2168,7 @@ def apply_chat_command(
         if component_ref is None:
             return {
                 "target": "clarify",
-                "message": "Please tell me which component you are working on first, for example: 'I am working on the main-street-appreciation component'.",
+                "message": "Please tell me which component you are working on first, for example: 'I am working on the community-appreciation component'.",
             }
 
         value = command.value.strip()

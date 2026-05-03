@@ -4,7 +4,7 @@ set -euo pipefail
 # Run GPMPE against a project-owned data/config directory.
 #
 # Typical use from a sibling project:
-#   cd ../merci_promos
+#   cd ../private_customer_data
 #   ../gpmpe/start-project.sh
 #
 # The project directory owns .config, DATA_DIR, DATABASE_PATH, OUTPUT_DIR, and

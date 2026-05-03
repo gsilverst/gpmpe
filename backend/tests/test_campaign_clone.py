@@ -20,13 +20,13 @@ from .conftest import make_test_client, write_isolated_config
 
 def test_parse_clone_natural_language():
     msg = (
-        "I want to create a new campaign for merci by cloning the "
-        "merci-may-sales2 promotion and renaming it to main-street-appreciation."
+        "I want to create a new campaign for acme by cloning the "
+        "spring-sale promotion and renaming it to community-appreciation."
     )
     result = parse_clone_command(msg)
     assert result is not None
-    assert result.source_campaign_name == "merci-may-sales2"
-    assert result.new_campaign_name == "main-street-appreciation"
+    assert result.source_campaign_name == "spring-sale"
+    assert result.new_campaign_name == "community-appreciation"
 
 
 def test_parse_clone_short_form():
@@ -121,12 +121,12 @@ def test_clone_generates_title_from_slug(tmp_path):
         conn,
         data_dir,
         source_campaign_name="mothersday",
-        new_campaign_name="main-street-appreciation",
+        new_campaign_name="community-appreciation",
     )
     conn.commit()
 
-    payload = yaml.safe_load((data_dir / "acme" / "main-street-appreciation" / "main-street-appreciation.yaml").read_text())
-    assert payload["title"] == "Main Street Appreciation"
+    payload = yaml.safe_load((data_dir / "acme" / "community-appreciation" / "community-appreciation.yaml").read_text())
+    assert payload["title"] == "Community Appreciation"
 
     conn.close()
 

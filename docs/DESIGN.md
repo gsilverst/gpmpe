@@ -264,7 +264,7 @@ set start to 2026-05-01
 #### Business profile field edits
 
 ```
-set business display name to Merci Wellness
+set business display name to Acme Wellness
 set business active to false
 change business city to Teaneck
 set business postal code to 07666
@@ -307,7 +307,7 @@ Items can be referenced by **name** or by **ordinal** (`first`, `second`, `last`
 
 ```
 set the value of the Swedish Massage item to $85
-change the price of the second item in the main-street-appreciation component to $80
+change the price of the second item in the community-appreciation component to $80
 change the duration of the Express Facial item to 45 min
 change the description of the Hot Stone item to Heated stone therapy
 ```
@@ -326,7 +326,7 @@ The `add item` command is highly flexible. You can specify a name (optional, def
 ```
 add a new item called "Deep Tissue" to featured-offers after "Swedish Massage"
 create an item like Swedish Massage before Hot Stone
-add an item Body Sculpting to main-street-appreciation
+add an item Body Sculpting to community-appreciation
 ```
 
 Supported syntax: `add/create [a/an/the] [new] item [called <name>] [like <source>] [to/in/into <component>] [before/after <relative>]`
@@ -341,9 +341,9 @@ create a new item like the Swedish Massage item called Lymphatic Drainage and ad
 #### Component item delete
 
 ```
-delete the second item in the main-street-appreciation component
-delete the last item in the main-street-appreciation component
-delete the Swedish Massage item in the main-street-appreciation component
+delete the second item in the community-appreciation component
+delete the last item in the community-appreciation component
+delete the Swedish Massage item in the community-appreciation component
 delete the Swedish Massage item
 ```
 
@@ -369,7 +369,7 @@ list the items
 #### Campaign clone (via chat)
 
 ```
-clone merci-may-sales and rename it to main-street-appreciation
+clone spring-sale and rename it to community-appreciation
 cloning the summer-sale promotion and renaming it to fall-clearance
 ```
 
@@ -381,7 +381,7 @@ Normally set automatically, but can be declared explicitly:
 
 ```
 I am working on the weekday-specials component
-use the main-street-appreciation component
+use the community-appreciation component
 ```
 
 ### Parser Routing Order

@@ -77,7 +77,7 @@ Before making the repository public, review all tracked and publishable files fo
 Current guidance:
 
 - Keep generic demo data, such as `data/solara-wellness`, if it is fictional and safe to publish.
-- Do not publish sibling project data such as `../merci_promos` unless explicit permission exists and the data has been scrubbed.
+- Do not publish sibling project data such as `../private_customer_data` unless explicit permission exists and the data has been scrubbed.
 - Do not publish local/generated outputs, SQLite databases, API keys, personal paths, or proprietary reference PDFs.
 - Publish `.config.example`, not `.config`.
 

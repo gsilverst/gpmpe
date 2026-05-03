@@ -59,8 +59,8 @@ def test_write_all_to_data_dir_session_exports_yaml(tmp_path: Path) -> None:
 
     with session_factory() as db:
         business = Business(
-            legal_name="Main Street LLC",
-            display_name="main-street",
+            legal_name="Town Center LLC",
+            display_name="town-center",
             timezone="America/New_York",
             is_active=True,
         )
@@ -80,7 +80,7 @@ def test_write_all_to_data_dir_session_exports_yaml(tmp_path: Path) -> None:
     with session_factory() as db:
         write_all_to_data_dir_session(db, config.data_dir)
 
-    assert (config.data_dir / "main-street" / "main-street.yaml").exists()
-    campaign_file = config.data_dir / "main-street" / "spring-sale" / "spring-sale.yaml"
+    assert (config.data_dir / "town-center" / "town-center.yaml").exists()
+    campaign_file = config.data_dir / "town-center" / "spring-sale" / "spring-sale.yaml"
     assert campaign_file.exists()
     assert "campaign_name: spring-sale" in campaign_file.read_text(encoding="utf-8")

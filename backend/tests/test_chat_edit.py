@@ -97,7 +97,7 @@ def _seed_component_items_for_campaign(campaign_id: int) -> None:
             INSERT INTO campaign_components (
                 campaign_id, component_key, component_kind, display_title, display_order
             )
-            VALUES (?, 'main-street-appreciation', 'featured-offers', 'Main Street Appreciation', 1)
+            VALUES (?, 'community-appreciation', 'featured-offers', 'Town Center Appreciation', 1)
             RETURNING id;
             """,
             (campaign_id,),
@@ -124,7 +124,7 @@ def _seed_massage_component_items_for_campaign(campaign_id: int) -> None:
             INSERT INTO campaign_components (
                 campaign_id, component_key, component_kind, display_title, display_order
             )
-            VALUES (?, 'main-street-appreciation', 'featured-offers', 'Main Street Appreciation', 1)
+            VALUES (?, 'community-appreciation', 'featured-offers', 'Town Center Appreciation', 1)
             RETURNING id;
             """,
             (campaign_id,),
@@ -314,7 +314,7 @@ def test_chat_message_can_rename_component_by_natural_language(monkeypatch, tmp_
         f"/chat/sessions/{session_id}/messages",
         json={
             "campaign_id": campaign_id,
-            "message": "change the name of the mothers-day-specials component to main-street-appreciation-month",
+            "message": "change the name of the mothers-day-specials component to community-appreciation-month",
         },
     )
 
@@ -322,7 +322,7 @@ def test_chat_message_can_rename_component_by_natural_language(monkeypatch, tmp_
     payload = response.json()
     assert payload["result"]["target"] == "component"
     assert payload["result"]["field"] == "component_key"
-    assert payload["result"]["component"]["component_key"] == "main-street-appreciation-month"
+    assert payload["result"]["component"]["component_key"] == "community-appreciation-month"
     assert payload["result"]["component"]["display_title"] == "Mothers Day Specials"
 
 
@@ -337,7 +337,7 @@ def test_chat_message_can_rename_component_by_display_title(monkeypatch, tmp_pat
         f"/chat/sessions/{session_id}/messages",
         json={
             "campaign_id": campaign_id,
-            "message": "set component mothers-day-specials display_title to Main Street Appreciation Month",
+            "message": "set component mothers-day-specials display_title to Town Center Appreciation Month",
         },
     )
 
@@ -345,7 +345,7 @@ def test_chat_message_can_rename_component_by_display_title(monkeypatch, tmp_pat
     payload = response.json()
     assert payload["result"]["target"] == "component"
     assert payload["result"]["field"] == "display_title"
-    assert payload["result"]["component"]["display_title"] == "Main Street Appreciation Month"
+    assert payload["result"]["component"]["display_title"] == "Town Center Appreciation Month"
 
 
 def test_chat_message_component_rename_without_new_name_returns_helpful_error(monkeypatch, tmp_path: Path) -> None:
@@ -380,7 +380,7 @@ def test_chat_message_can_rename_component_key_with_component_key_field_phrase(m
         f"/chat/sessions/{session_id}/messages",
         json={
             "campaign_id": campaign_id,
-            "message": "change the component-key field of the mothers-day-specials component to main-street-appreciation-month",
+            "message": "change the component-key field of the mothers-day-specials component to community-appreciation-month",
         },
     )
 
@@ -388,7 +388,7 @@ def test_chat_message_can_rename_component_key_with_component_key_field_phrase(m
     payload = response.json()
     assert payload["result"]["target"] == "component"
     assert payload["result"]["field"] == "component_key"
-    assert payload["result"]["component"]["component_key"] == "main-street-appreciation-month"
+    assert payload["result"]["component"]["component_key"] == "community-appreciation-month"
 
 
 def test_chat_message_component_key_field_phrase_without_new_name_returns_helpful_error(monkeypatch, tmp_path: Path) -> None:
@@ -423,7 +423,7 @@ def test_chat_message_can_update_component_item_field_by_ordinal(monkeypatch, tm
         f"/chat/sessions/{session_id}/messages",
         json={
             "campaign_id": campaign_id,
-            "message": "change the item_value field of the first item in the main-street-appreciation component to $45",
+            "message": "change the item_value field of the first item in the community-appreciation component to $45",
         },
     )
 
@@ -431,7 +431,7 @@ def test_chat_message_can_update_component_item_field_by_ordinal(monkeypatch, tm
     payload = response.json()
     assert payload["result"]["target"] == "component_item"
     assert payload["result"]["field"] == "item_value"
-    assert payload["result"]["component"]["component_key"] == "main-street-appreciation"
+    assert payload["result"]["component"]["component_key"] == "community-appreciation"
     assert payload["result"]["item"]["item_name"] == "Express Facial"
     assert payload["result"]["item"]["item_value"] == "$45"
 
@@ -447,7 +447,7 @@ def test_chat_message_component_item_field_update_rejects_missing_ordinal_target
         f"/chat/sessions/{session_id}/messages",
         json={
             "campaign_id": campaign_id,
-            "message": "change the item_value field of the fifth item in the main-street-appreciation component to $45",
+            "message": "change the item_value field of the fifth item in the community-appreciation component to $45",
         },
     )
 
@@ -466,7 +466,7 @@ def test_chat_message_can_update_component_item_field_by_item_name(monkeypatch, 
         f"/chat/sessions/{session_id}/messages",
         json={
             "campaign_id": campaign_id,
-            "message": "change the item_value field of the Signature Facial item in the main-street-appreciation component to $45",
+            "message": "change the item_value field of the Signature Facial item in the community-appreciation component to $45",
         },
     )
 
@@ -489,7 +489,7 @@ def test_chat_message_can_update_component_item_field_with_item_first_phrase(mon
         f"/chat/sessions/{session_id}/messages",
         json={
             "campaign_id": campaign_id,
-            "message": "change the Signature Facial item value in the main-street-appreciation component to $45",
+            "message": "change the Signature Facial item value in the community-appreciation component to $45",
         },
     )
 
@@ -579,7 +579,7 @@ def test_chat_message_can_update_component_item_background_color(monkeypatch, tm
         f"/chat/sessions/{session_id}/messages",
         json={
             "campaign_id": campaign_id,
-            "message": "change the Signature Facial item background color in the main-street-appreciation component to #cfeccf",
+            "message": "change the Signature Facial item background color in the community-appreciation component to #cfeccf",
         },
     )
 
@@ -603,7 +603,7 @@ def test_chat_message_can_update_background_for_all_items_in_active_component(mo
         f"/chat/sessions/{session_id}/messages",
         json={
             "campaign_id": campaign_id,
-            "message": "I am working on the main-street-appreciation component",
+            "message": "I am working on the community-appreciation component",
         },
     )
     assert context_response.status_code == 200
@@ -630,7 +630,7 @@ def test_chat_message_can_update_background_for_all_items_in_active_component(mo
             FROM campaign_component_items
             WHERE component_id = (
               SELECT id FROM campaign_components
-              WHERE campaign_id = ? AND component_key = 'main-street-appreciation'
+              WHERE campaign_id = ? AND component_key = 'community-appreciation'
             )
             ORDER BY display_order ASC, id ASC;
             """,
@@ -689,7 +689,7 @@ def test_chat_message_can_clone_component_item_with_new_name_between_neighbors(m
         f"/chat/sessions/{session_id}/messages",
         json={
             "campaign_id": campaign_id,
-            "message": "I am working on the main-street-appreciation component",
+            "message": "I am working on the community-appreciation component",
         },
     )
     assert context_response.status_code == 200
@@ -706,7 +706,7 @@ def test_chat_message_can_clone_component_item_with_new_name_between_neighbors(m
     payload = clone_response.json()
     assert payload["result"]["target"] == "component_item"
     assert payload["result"]["field"] == "clone"
-    assert payload["result"]["component"]["component_key"] == "main-street-appreciation"
+    assert payload["result"]["component"]["component_key"] == "community-appreciation"
     assert payload["result"]["item"]["item_name"] == "Lymphatic Drainage"
     assert payload["result"]["item"]["item_value"] == "$75"
     assert payload["result"]["item"]["display_order"] == 2
@@ -720,7 +720,7 @@ def test_chat_message_can_clone_component_item_with_new_name_between_neighbors(m
             WHERE component_id = (
                 SELECT id
                 FROM campaign_components
-                WHERE campaign_id = ? AND component_key = 'main-street-appreciation'
+                WHERE campaign_id = ? AND component_key = 'community-appreciation'
             )
             ORDER BY display_order ASC, id ASC;
             """,
@@ -747,7 +747,7 @@ def test_chat_message_can_delete_component_item_by_ordinal_with_context(monkeypa
         f"/chat/sessions/{session_id}/messages",
         json={
             "campaign_id": campaign_id,
-            "message": "I am working on the main-street-appreciation component",
+            "message": "I am working on the community-appreciation component",
         },
     )
     assert context_response.status_code == 200
@@ -776,7 +776,7 @@ def test_chat_message_can_delete_component_item_by_ordinal_with_context(monkeypa
             WHERE component_id = (
                 SELECT id
                 FROM campaign_components
-                WHERE campaign_id = ? AND component_key = 'main-street-appreciation'
+                WHERE campaign_id = ? AND component_key = 'community-appreciation'
             )
             ORDER BY display_order ASC, id ASC;
             """,
@@ -799,7 +799,7 @@ def test_chat_message_can_delete_component_item_by_name(monkeypatch, tmp_path: P
         f"/chat/sessions/{session_id}/messages",
         json={
             "campaign_id": campaign_id,
-            "message": "delete the Signature Facial item in the main-street-appreciation component",
+            "message": "delete the Signature Facial item in the community-appreciation component",
         },
     )
 
@@ -822,7 +822,7 @@ def test_chat_message_can_delete_component_by_name(monkeypatch, tmp_path: Path) 
         f"/chat/sessions/{session_id}/messages",
         json={
             "campaign_id": campaign_id,
-            "message": "delete the main-street-appreciation component",
+            "message": "delete the community-appreciation component",
         },
     )
 
@@ -831,7 +831,7 @@ def test_chat_message_can_delete_component_by_name(monkeypatch, tmp_path: Path) 
     assert payload["result"]["target"] == "component"
     assert payload["result"]["field"] == "delete"
     assert payload["result"]["deleted"] is True
-    assert payload["result"]["component"]["component_key"] == "main-street-appreciation"
+    assert payload["result"]["component"]["component_key"] == "community-appreciation"
 
     config = resolve_config()
     with connect_database(config) as connection:
@@ -839,7 +839,7 @@ def test_chat_message_can_delete_component_by_name(monkeypatch, tmp_path: Path) 
             """
             SELECT id
             FROM campaign_components
-            WHERE campaign_id = ? AND component_key = 'main-street-appreciation';
+            WHERE campaign_id = ? AND component_key = 'community-appreciation';
             """,
             (campaign_id,),
         ).fetchone()
@@ -858,7 +858,7 @@ def test_chat_message_component_item_field_update_rejects_missing_named_target(m
         f"/chat/sessions/{session_id}/messages",
         json={
             "campaign_id": campaign_id,
-            "message": "change the item_value field of the Deluxe Facial item in the main-street-appreciation component to $45",
+            "message": "change the item_value field of the Deluxe Facial item in the community-appreciation component to $45",
         },
     )
 
@@ -878,13 +878,13 @@ def test_chat_message_can_set_active_component_context_and_edit_item_without_com
         f"/chat/sessions/{session_id}/messages",
         json={
             "campaign_id": campaign_id,
-            "message": "I am working on the main-street-appreciation component",
+            "message": "I am working on the community-appreciation component",
         },
     )
     assert context_response.status_code == 200
     context_payload = context_response.json()
     assert context_payload["result"]["target"] == "context"
-    assert context_payload["result"]["component"]["component_key"] == "main-street-appreciation"
+    assert context_payload["result"]["component"]["component_key"] == "community-appreciation"
 
     edit_response = client.post(
         f"/chat/sessions/{session_id}/messages",
@@ -897,7 +897,7 @@ def test_chat_message_can_set_active_component_context_and_edit_item_without_com
     assert edit_response.status_code == 200
     edit_payload = edit_response.json()
     assert edit_payload["result"]["target"] == "component_item"
-    assert edit_payload["result"]["component"]["component_key"] == "main-street-appreciation"
+    assert edit_payload["result"]["component"]["component_key"] == "community-appreciation"
     assert edit_payload["result"]["item"]["item_name"] == "Signature Facial"
     assert edit_payload["result"]["item"]["item_value"] == "$45"
 
@@ -935,7 +935,7 @@ def test_component_rename_updates_active_component_context_automatically(monkeyp
         f"/chat/sessions/{session_id}/messages",
         json={
             "campaign_id": campaign_id,
-            "message": "change the name of the main-street-appreciation component to other-services",
+            "message": "change the name of the community-appreciation component to other-services",
         },
     )
     assert rename_response.status_code == 200
@@ -977,7 +977,7 @@ def test_changing_campaign_clears_stale_component_context(monkeypatch, tmp_path:
         f"/chat/sessions/{session_id}/messages",
         json={
             "campaign_id": first_campaign_id,
-            "message": "change the item_value field of the Signature Facial item in the main-street-appreciation component to $45",
+            "message": "change the item_value field of the Signature Facial item in the community-appreciation component to $45",
         },
     )
     assert context_response.status_code == 200
@@ -1026,7 +1026,7 @@ def test_chat_message_short_field_aliases(monkeypatch, tmp_path: Path) -> None:
         f"/chat/sessions/{session_id}/messages",
         json={
             "campaign_id": campaign_id,
-            "message": "set the value of the Express Facial item in the main-street-appreciation component to $40",
+            "message": "set the value of the Express Facial item in the community-appreciation component to $40",
         },
     )
     assert r.status_code == 200
@@ -1040,7 +1040,7 @@ def test_chat_message_short_field_aliases(monkeypatch, tmp_path: Path) -> None:
         f"/chat/sessions/{session_id}/messages",
         json={
             "campaign_id": campaign_id,
-            "message": "change the price of the Signature Facial item in the main-street-appreciation component to $80",
+            "message": "change the price of the Signature Facial item in the community-appreciation component to $80",
         },
     )
     assert r.status_code == 200
@@ -1053,7 +1053,7 @@ def test_chat_message_short_field_aliases(monkeypatch, tmp_path: Path) -> None:
         f"/chat/sessions/{session_id}/messages",
         json={
             "campaign_id": campaign_id,
-            "message": "change the duration of the Express Facial item in the main-street-appreciation component to 45 min",
+            "message": "change the duration of the Express Facial item in the community-appreciation component to 45 min",
         },
     )
     assert r.status_code == 200
@@ -1131,8 +1131,8 @@ def test_chat_message_can_update_business_profile_fields(monkeypatch, tmp_path: 
         f"/businesses/{business_id}",
         json={
             "phone": "(201) 555-0100",
-            "address_line1": "263 Main St.",
-            "city": "Hackensack",
+            "address_line1": "263 Market St.",
+            "city": "Springfield",
             "state": "NJ",
             "postal_code": "07601",
             "country": "US",
@@ -1144,11 +1144,11 @@ def test_chat_message_can_update_business_profile_fields(monkeypatch, tmp_path: 
 
     response = client.post(
         f"/chat/sessions/{session_id}/messages",
-        json={"campaign_id": campaign_id, "message": "set business display name to Merci Wellness"},
+        json={"campaign_id": campaign_id, "message": "set business display name to Acme Wellness"},
     )
     assert response.status_code == 200
     assert response.json()["result"]["target"] == "business"
-    assert response.json()["result"]["business"]["display_name"] == "Merci Wellness"
+    assert response.json()["result"]["business"]["display_name"] == "Acme Wellness"
 
     response = client.post(
         f"/chat/sessions/{session_id}/messages",
@@ -1167,7 +1167,7 @@ def test_chat_message_can_update_business_profile_fields(monkeypatch, tmp_path: 
     business = client.get(f"/businesses/{business_id}")
     assert business.status_code == 200
     business_payload = business.json()
-    assert business_payload["display_name"] == "Merci Wellness"
+    assert business_payload["display_name"] == "Acme Wellness"
     assert business_payload["is_active"] is False
     assert business_payload["city"] == "Teaneck"
 
@@ -1191,9 +1191,9 @@ def test_chat_message_can_list_components_of_current_promotion(monkeypatch, tmp_
     assert result["query_type"] == "list_components"
     keys = [c["component_key"] for c in result["components"]]
     assert "mothers-day-specials" in keys
-    assert "main-street-appreciation" in keys
+    assert "community-appreciation" in keys
     assert "mothers-day-specials" in result["message"]
-    assert "main-street-appreciation" in result["message"]
+    assert "community-appreciation" in result["message"]
 
 
 def test_chat_message_can_list_items_of_active_component(monkeypatch, tmp_path: Path) -> None:
@@ -1207,7 +1207,7 @@ def test_chat_message_can_list_items_of_active_component(monkeypatch, tmp_path: 
     # Establish active component context
     client.post(
         f"/chat/sessions/{session_id}/messages",
-        json={"campaign_id": campaign_id, "message": "I am working on the main-street-appreciation component"},
+        json={"campaign_id": campaign_id, "message": "I am working on the community-appreciation component"},
     )
 
     response = client.post(
@@ -1219,7 +1219,7 @@ def test_chat_message_can_list_items_of_active_component(monkeypatch, tmp_path: 
     result = payload["result"]
     assert result["target"] == "query"
     assert result["query_type"] == "list_items"
-    assert result["component_key"] == "main-street-appreciation"
+    assert result["component_key"] == "community-appreciation"
     item_names = [it["item_name"] for it in result["items"]]
     assert "Express Facial" in item_names
     assert "Signature Facial" in item_names
@@ -1370,7 +1370,7 @@ def test_chat_message_can_add_new_item_with_an_item_and_no_name(monkeypatch, tmp
         f"/chat/sessions/{session_id}/messages",
         json={
             "campaign_id": campaign_id,
-            "message": "add an item to the main-street-appreciation component after the Swedish Massage item",
+            "message": "add an item to the community-appreciation component after the Swedish Massage item",
         },
     )
 

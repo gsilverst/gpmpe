@@ -14,7 +14,7 @@ contacts:
     is_primary: false
 locations:
   - label: main
-    line1: 123 Main Street
+    line1: 123 Town Center
     line2: Suite 100
     city: Raleigh
     state: NC

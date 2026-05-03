@@ -197,6 +197,15 @@ Objective:
 - Backfill explicit values into existing campaign data when renderer defaults are externalized, so historical campaigns keep rendering as close as practical to their prior output.
 - Document each newly externalized rendering parameter in `docs/DESIGN.md` and the user/admin documentation, including defaults and migration behavior.
 
+### Step 21d: Friendly Chatbot Renderer-Style Commands (TODO)
+Objective:
+- Upgrade the chatbot from explicit style-key edits toward natural style intent commands such as "make the featured subtitle darker", "make the item durations bolder", or "increase the subtitle size".
+- Map friendly visual intents to approved renderer parameters in `style_json`, `layout_json`, or template override values while keeping the stored data explicit.
+- Support both component-level style edits and item-level style edits, including typography controls such as subtitle font, subtitle size, subtitle color, duration font, duration color, and related print-readability settings.
+- Add validation and helpful error messages for supported font names, numeric sizes, color values, and style scopes so users do not need to know internal JSON keys.
+- Keep advanced explicit commands such as `set <component> style <key> to <value>` available for power users and debugging.
+- Add neutral tests and user-guide examples for common print-readability adjustments without relying on proprietary campaign data.
+
 ## Phase 5: AWS Migration
 
 ### Step 23: Database Abstraction (SQLAlchemy) (COMPLETED)

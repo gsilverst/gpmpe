@@ -105,7 +105,7 @@ Examples:
 | `country` | `country` |
 
 Examples:
-- `set business display name to Merci Wellness`
+- `set business display name to Acme Wellness`
 - `set business active to false`
 - `change business city to Teaneck`
 
@@ -168,7 +168,7 @@ Items can be referenced by **name** or by **ordinal** (`first`, `second`, `last`
 
 Examples:
 - `set the value of the Swedish Massage item to $85`
-- `change the price of the second item in the main-street-appreciation component to $80`
+- `change the price of the second item in the community-appreciation component to $80`
 - `change the duration of the Express Facial item to 45 min`
 - `change the item_value field of the second item to $85`
 
@@ -187,9 +187,9 @@ Clone an existing item (optionally with a new name) and insert it at a specific 
 
 Delete an item by ordinal or name. The component name can be omitted when an active component context is already established:
 
-- `delete the second item in the main-street-appreciation component`
-- `delete the last item in the main-street-appreciation component`
-- `delete the Swedish Massage item in the main-street-appreciation component`
+- `delete the second item in the community-appreciation component`
+- `delete the last item in the community-appreciation component`
+- `delete the Swedish Massage item in the community-appreciation component`
 - `delete the Swedish Massage item` *(uses active component context)*
 
 After deletion, GPMPE resequences the remaining items so display order stays contiguous (1, 2, 3 …).
@@ -212,8 +212,8 @@ When you're happy with the content, you click to generate the PDF. GPMPE combine
 
 Optional: if `IMAGES_PER_PAGE` is set in `.config` (for example `IMAGES_PER_PAGE=4`), GPMPE also generates an additional N-up PDF for flyers. Example output names:
 
-- `merci-may-sales.pdf` (standard single image per page)
-- `merci-may-sales-4p.pdf` (4 images per page)
+- `spring-sale.pdf` (standard single image per page)
+- `spring-sale-4p.pdf` (4 images per page)
 
 ## Where Your Data Lives
 
