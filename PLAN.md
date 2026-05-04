@@ -167,6 +167,7 @@ Objective:
 Objective:
 - Add an administrator-only web interface for managing runtime settings and external service credentials in both local and AWS deployments.
 - Allow Primary Admin/Admin users to configure the business data repository remote URL, branch/ref, Git author identity, push policy, and credential reference used by the runtime Git sync worker.
+- Require administrators to configure a runtime Git credential, such as a fine-grained Git token, GitHub App credential, deploy key, or equivalent provider-specific secret, before enabling automated pull/push against private business data repositories.
 - Include administrator user management in the same administrative area, including adding users, assigning Primary Admin/Admin/Regular roles, and managing business-profile access.
 - Keep raw Git tokens, private keys, database passwords, API keys, and other sensitive values out of normal application tables; store only non-sensitive metadata and credential references in the application database.
 - Support local deployments with a local secret/reference mechanism and AWS deployments with AWS Secrets Manager or ECS task secrets.
