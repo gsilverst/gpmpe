@@ -131,6 +131,29 @@ def test_clone_generates_title_from_slug(tmp_path):
     conn.close()
 
 
+def test_clone_uses_promotions_directory_when_present(tmp_path):
+    data_dir = _setup_data_dir(tmp_path)
+    business_dir = data_dir / "acme"
+    promotions_dir = business_dir / "promotions"
+    promotions_dir.mkdir()
+    (business_dir / "mothersday").rename(promotions_dir / "mothersday")
+    conn = _make_db(tmp_path)
+
+    clone_campaign_directory(
+        conn,
+        data_dir,
+        source_campaign_name="mothersday",
+        new_campaign_name="fathersday",
+        business_name="acme",
+    )
+    conn.commit()
+
+    assert (promotions_dir / "fathersday" / "fathersday.yaml").exists()
+    assert not (business_dir / "fathersday").exists()
+
+    conn.close()
+
+
 def test_clone_accepts_explicit_title(tmp_path):
     data_dir = _setup_data_dir(tmp_path)
     conn = _make_db(tmp_path)

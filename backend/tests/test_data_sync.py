@@ -135,6 +135,22 @@ def test_discover_data_directory_ignores_non_campaign_subdirectories(tmp_path: P
     assert records[0].campaigns[0].directory_name == "mothersday"
 
 
+def test_discover_data_directory_reads_promotions_subdirectory(tmp_path: Path) -> None:
+    _write_business_tree(tmp_path, "acme", "Acme Promotions LLC", "mothersday", "Mother's Day Sale")
+    business_dir = tmp_path / "acme"
+    promotions_dir = business_dir / "promotions"
+    promotions_dir.mkdir()
+    campaign_dir = business_dir / "mothersday"
+    campaign_dir.rename(promotions_dir / "mothersday")
+    (business_dir / "business_cards" / "one-sided-low-ink").mkdir(parents=True)
+
+    records = discover_data_directory(tmp_path)
+
+    assert len(records) == 1
+    assert [record.directory_name for record in records[0].campaigns] == ["mothersday"]
+    assert records[0].campaigns[0].file_path == promotions_dir / "mothersday" / "mothersday.yaml"
+
+
 def test_sync_data_directory_populates_database(monkeypatch, tmp_path: Path) -> None:
     config_path = _write_config(tmp_path, _sample_data_dir())
     enable_test_paths(monkeypatch, config_path)

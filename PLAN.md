@@ -215,6 +215,16 @@ Objective:
 - Preserve backwards compatibility by mapping existing component kinds to the new model and writing explicit migration/default values where needed.
 - Update the user guide, design documentation, sample data, chatbot commands, and tests once the revised component model is chosen.
 
+### Step 21f: Business Card Artifact Support (TODO)
+Objective:
+- Add business-card design support as a first-class artifact type alongside flyers and posters.
+- Store business-card content and design data in the deployment-owned business data repository, not in the open-source application repository.
+- Reuse business profile data where practical: business name, practitioner names/titles, logo, brand colors, address, phone, email, website, and service categories.
+- Add a business-card data model that can support front/back designs, card dimensions, bleed/safe areas, typography, logo placement, QR/contact options, and template/style overrides.
+- Add renderer support for print-ready business card outputs, including separate filenames such as `<business>-business-card-front.pdf`, `<business>-business-card-back.pdf`, or a printer-ready combined sheet as appropriate.
+- Add GUI and chatbot workflows for creating, previewing, editing, and generating business card artifacts without exposing raw implementation details to regular users.
+- Document how business-card designs relate to business profiles and brand themes, including how deployment owners manage private business-card data.
+
 ## Phase 5: AWS Migration
 
 ### Step 23: Database Abstraction (SQLAlchemy) (COMPLETED)

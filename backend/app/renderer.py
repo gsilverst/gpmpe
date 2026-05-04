@@ -95,6 +95,10 @@ _DEFAULT_RENDER_LAYOUT: dict[str, Any] = {
             "subtitle_color": "#181818",
             "duration_font": "Helvetica-Bold",
             "duration_color": "#181818",
+            "price_badge_fill": "#FFE66D",
+            "price_badge_color": "#181818",
+            "price_badge_padding_x": 9.0,
+            "price_badge_height": 15.0,
             "footnote_offset": 12.0,
         },
         "secondary": {
@@ -400,7 +404,10 @@ def _draw_compact_offer_card(pdf: Any, x: float, y: float, w: float, h: float,
                               title_color: Any = None, price_color: Any = None,
                               radius: float = 12.0,
                               duration_font: str = "Helvetica",
-                              duration_color: Any = None) -> None:
+                              duration_color: Any = None,
+                              price_badge_fill: Any = None,
+                              price_badge_padding_x: float = 0.0,
+                              price_badge_height: float = 0.0) -> None:
     """Compact card for featured offers - fits 3 per row with symmetrical spacing and standardized fonts."""
     _draw_rounded_panel(pdf, x, y, w, h, fill, accent, radius=radius, stroke_w=1.5)
     
@@ -424,6 +431,11 @@ def _draw_compact_offer_card(pdf: Any, x: float, y: float, w: float, h: float,
     
     _draw_centered(pdf, title, x + w / 2, title_y, "Helvetica-Bold", font_size if h >= 52 else 10, title_color or _COLOR_WHITE)
     _draw_centered(pdf, duration, x + w / 2, duration_y, duration_font, font_size, duration_color or text_color)
+    if price and price_badge_fill and price_badge_height > 0:
+        badge_w = stringWidth(price, "Helvetica-Bold", font_size) + (price_badge_padding_x * 2)
+        badge_x = x + (w - badge_w) / 2
+        badge_y = price_y - 4
+        _draw_rounded_panel(pdf, badge_x, badge_y, badge_w, price_badge_height, price_badge_fill, price_badge_fill, radius=price_badge_height / 2, stroke_w=0)
     _draw_centered(pdf, price, x + w / 2, price_y, "Helvetica-Bold", font_size, price_color or accent)
 
 
@@ -620,6 +632,22 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
                     # Priority: item-style -> component-style -> derived/default
                     item_title_color = _hex(item_style.get("title_color") or comp_style.get("item_title_color"), None)
                     item_price_color = _hex(item_style.get("price_color") or comp_style.get("item_price_color"), None)
+                    price_badge_fill = _hex(
+                        item_style.get("price_badge_fill")
+                        or comp_style.get("price_badge_fill")
+                        or _style(layout, "featured", "price_badge_fill", fallback=None),
+                        "#FFE66D",
+                    )
+                    price_badge_padding_x = float(
+                        item_style.get("price_badge_padding_x")
+                        or comp_style.get("price_badge_padding_x")
+                        or _style(layout, "featured", "price_badge_padding_x", fallback=9.0)
+                    )
+                    price_badge_height = float(
+                        item_style.get("price_badge_height")
+                        or comp_style.get("price_badge_height")
+                        or _style(layout, "featured", "price_badge_height", fallback=15.0)
+                    )
                     item_duration_font = (
                         item_style.get("duration_font")
                         or comp_style.get("item_duration_font")
@@ -647,7 +675,10 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
                                             title_color=item_title_color, price_color=item_price_color,
                                             radius=card_radius,
                                             duration_font=item_duration_font,
-                                            duration_color=item_duration_color)
+                                            duration_color=item_duration_color,
+                                            price_badge_fill=price_badge_fill,
+                                            price_badge_padding_x=price_badge_padding_x,
+                                            price_badge_height=price_badge_height)
 
         comp_note = (comp.get("footnote_text") or "").strip()
         if comp_note:

@@ -150,6 +150,34 @@ def test_render_with_images_per_page_creates_additional_pdf(monkeypatch, tmp_pat
     assert nup_path.read_bytes().startswith(b"%PDF")
 
 
+def test_render_poster_uses_poster_filename_suffix(monkeypatch, tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    client = _make_client(monkeypatch, config_path)
+    _, campaign_id = _seed_full_campaign(client)
+
+    with client:
+        pass
+
+    from app.config import resolve_config
+    from app.db import connect_database
+
+    config = resolve_config()
+    with connect_database(config) as connection:
+        artifacts = render_campaign_artifact(
+            connection,
+            campaign_id,
+            config.output_dir,
+            artifact_type="poster",
+        )
+        connection.commit()
+
+    assert len(artifacts) == 1
+    poster_path = Path(artifacts[0]["file_path"])
+    assert poster_path.exists()
+    assert poster_path.name == "testco-summer-poster.pdf"
+    assert poster_path.read_bytes().startswith(b"%PDF")
+
+
 def test_list_artifacts_returns_rendered_items(monkeypatch, tmp_path: Path) -> None:
     config_path = _write_config(tmp_path)
     client = _make_client(monkeypatch, config_path)
@@ -817,6 +845,76 @@ def test_render_flyer_uses_print_safe_featured_duration_style(monkeypatch) -> No
     assert font == "Helvetica-Bold"
     assert size == 11.0
     assert color.rgb() == colors.HexColor("#181818").rgb()
+
+
+def test_render_flyer_uses_featured_price_badge_defaults(monkeypatch) -> None:
+    from app import renderer as renderer_module
+
+    cards: list[dict[str, object]] = []
+    original_card = renderer_module._draw_compact_offer_card
+
+    def _capture_card(pdf, x, y, w, h, title, duration, price, fill, accent, text_color, **kwargs):
+        cards.append(kwargs)
+        return original_card(pdf, x, y, w, h, title, duration, price, fill, accent, text_color, **kwargs)
+
+    monkeypatch.setattr(renderer_module, "_draw_compact_offer_card", _capture_card)
+
+    ctx = {
+        "campaign_id": 85,
+        "campaign_name": "featured-price-badge",
+        "title": "Featured Price Badge",
+        "objective": "Make featured prices stand out",
+        "campaign_footnote_text": None,
+        "start_date": "2026-05-01",
+        "end_date": "2026-05-31",
+        "business_display_name": "ACME",
+        "business_legal_name": "ACME LLC",
+        "theme": {
+            "primary_color": "#3E1C5C",
+            "secondary_color": "#6E4A8E",
+            "accent_color": "#E0559A",
+        },
+        "location": None,
+        "contacts": [],
+        "offers": [],
+        "components": [
+            {
+                "component_key": "featured",
+                "component_kind": "featured-offers",
+                "display_title": "Featured",
+                "subtitle": "Book by Friday",
+                "description_text": None,
+                "display_order": 0,
+                "items": [
+                    {
+                        "item_name": "A",
+                        "item_kind": "service",
+                        "duration_label": "60 min",
+                        "item_value": "$10",
+                        "description_text": None,
+                        "terms_text": None,
+                        "display_order": 0,
+                    }
+                ],
+            }
+        ],
+        "effective_values": {
+            "business_name": "ACME",
+            "business_subtitle": "LLC",
+            "footer": "acme.example",
+            "legal": "Offer terms.",
+        },
+        "template_name": "flyer-standard",
+        "template": {"layout": {}},
+    }
+
+    pdf_bytes = render_flyer(ctx)
+
+    assert pdf_bytes.startswith(b"%PDF")
+    assert cards
+    assert cards[0]["price_badge_fill"].rgb() == colors.HexColor("#FFE66D").rgb()
+    assert cards[0]["price_badge_padding_x"] == 9.0
+    assert cards[0]["price_badge_height"] == 15.0
 
 
 def test_render_flyer_uses_print_safe_weekday_subtitle_and_duration_style(monkeypatch) -> None:

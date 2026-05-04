@@ -135,7 +135,10 @@ def discover_data_directory(data_dir: Path) -> list[BusinessYamlRecord]:
         business_payload = _load_yaml_file(business_yaml)
 
         campaign_records: list[CampaignYamlRecord] = []
-        for campaign_dir in sorted(path for path in business_dir.iterdir() if path.is_dir()):
+        campaign_root = business_dir / "promotions"
+        if not campaign_root.exists():
+            campaign_root = business_dir
+        for campaign_dir in sorted(path for path in campaign_root.iterdir() if path.is_dir()):
             campaign_name = campaign_dir.name
             campaign_yaml = campaign_dir / f"{campaign_name}.yaml"
             if not campaign_yaml.exists():
@@ -871,10 +874,14 @@ def clone_campaign_directory(
     # Locate source directory
     source_dir: Path | None = None
     source_business_dir: Path | None = None
+    source_campaign_root: Path | None = None
     for business_dir in sorted(p for p in data_dir.iterdir() if p.is_dir()):
         if business_name and business_dir.name.lower() != business_name.lower():
             continue
-        candidate = business_dir / source_campaign_name
+        campaign_root = business_dir / "promotions"
+        if not campaign_root.exists():
+            campaign_root = business_dir
+        candidate = campaign_root / source_campaign_name
         candidate_yaml = candidate / f"{source_campaign_name}.yaml"
         if candidate.is_dir() and candidate_yaml.exists():
             if source_campaign_key is not None:
@@ -884,15 +891,16 @@ def clone_campaign_directory(
                     continue
             source_dir = candidate
             source_business_dir = business_dir
+            source_campaign_root = campaign_root
             break
 
-    if source_dir is None or source_business_dir is None:
+    if source_dir is None or source_business_dir is None or source_campaign_root is None:
         raise ValueError(
             f"Source campaign '{source_campaign_name}' not found under '{data_dir}'"
             + (f" for business '{business_name}'" if business_name else "")
         )
 
-    dest_dir = source_business_dir / destination_directory
+    dest_dir = source_campaign_root / destination_directory
     if dest_dir.exists():
         raise ValueError(f"Destination '{dest_dir}' already exists")
 
@@ -955,10 +963,14 @@ def clone_campaign_directory_session(
 
     source_dir: Path | None = None
     source_business_dir: Path | None = None
+    source_campaign_root: Path | None = None
     for business_dir in sorted(p for p in data_dir.iterdir() if p.is_dir()):
         if business_name and business_dir.name.lower() != business_name.lower():
             continue
-        candidate = business_dir / source_campaign_name
+        campaign_root = business_dir / "promotions"
+        if not campaign_root.exists():
+            campaign_root = business_dir
+        candidate = campaign_root / source_campaign_name
         candidate_yaml = candidate / f"{source_campaign_name}.yaml"
         if candidate.is_dir() and candidate_yaml.exists():
             if source_campaign_key is not None:
@@ -968,15 +980,16 @@ def clone_campaign_directory_session(
                     continue
             source_dir = candidate
             source_business_dir = business_dir
+            source_campaign_root = campaign_root
             break
 
-    if source_dir is None or source_business_dir is None:
+    if source_dir is None or source_business_dir is None or source_campaign_root is None:
         raise ValueError(
             f"Source campaign '{source_campaign_name}' not found under '{data_dir}'"
             + (f" for business '{business_name}'" if business_name else "")
         )
 
-    dest_dir = source_business_dir / destination_directory
+    dest_dir = source_campaign_root / destination_directory
     if dest_dir.exists():
         raise ValueError(f"Destination '{dest_dir}' already exists")
 

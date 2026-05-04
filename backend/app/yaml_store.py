@@ -15,6 +15,10 @@ from .models import Business, Campaign, CampaignTemplateBinding
 SAFE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
+def _campaign_root_for_business(business_dir: Path) -> Path:
+    return business_dir / "promotions"
+
+
 def _filesystem_name(name: str) -> str:
     stripped = name.strip()
     if stripped == "":
@@ -276,7 +280,7 @@ def _campaign_yaml_paths(connection: sqlite3.Connection, data_dir: Path, campaig
     campaign_path_name = _filesystem_name(campaign["campaign_name"])
 
     business_dir = data_dir / business_path_name
-    campaign_dir = business_dir / campaign_path_name
+    campaign_dir = _campaign_root_for_business(business_dir) / campaign_path_name
     business_file = business_dir / f"{business_path_name}.yaml"
     campaign_file = campaign_dir / f"{campaign_path_name}.yaml"
     return business_file, campaign_file, int(campaign["business_id"])
@@ -291,7 +295,7 @@ def _campaign_yaml_paths_for_session(db: Session, data_dir: Path, campaign_id: i
     campaign_path_name = _filesystem_name(campaign.campaign_name)
 
     business_dir = data_dir / business_path_name
-    campaign_dir = business_dir / campaign_path_name
+    campaign_dir = _campaign_root_for_business(business_dir) / campaign_path_name
     business_file = business_dir / f"{business_path_name}.yaml"
     campaign_file = campaign_dir / f"{campaign_path_name}.yaml"
     return business_file, campaign_file, int(campaign.business_id)
@@ -512,7 +516,7 @@ def delete_yaml_state_for_campaign(data_dir: Path, business_display_name: str, c
     business_path_name = _filesystem_name(business_display_name)
     campaign_path_name = _filesystem_name(campaign_name)
 
-    campaign_dir = data_dir / business_path_name / campaign_path_name
+    campaign_dir = _campaign_root_for_business(data_dir / business_path_name) / campaign_path_name
     if campaign_dir.exists() and campaign_dir.is_dir():
         shutil.rmtree(campaign_dir)
 

@@ -81,6 +81,6 @@ def test_write_all_to_data_dir_session_exports_yaml(tmp_path: Path) -> None:
         write_all_to_data_dir_session(db, config.data_dir)
 
     assert (config.data_dir / "town-center" / "town-center.yaml").exists()
-    campaign_file = config.data_dir / "town-center" / "spring-sale" / "spring-sale.yaml"
+    campaign_file = config.data_dir / "town-center" / "promotions" / "spring-sale" / "spring-sale.yaml"
     assert campaign_file.exists()
     assert "campaign_name: spring-sale" in campaign_file.read_text(encoding="utf-8")
