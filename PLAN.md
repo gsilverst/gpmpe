@@ -225,6 +225,15 @@ Objective:
 - Add GUI and chatbot workflows for creating, previewing, editing, and generating business card artifacts without exposing raw implementation details to regular users.
 - Document how business-card designs relate to business profiles and brand themes, including how deployment owners manage private business-card data.
 
+### Step 21g: Documentation Refresh Gates (TODO)
+Objective:
+- Add explicit documentation refresh checkpoints at natural breaking points, including completion of the AWS migration, completion of major user-facing features such as business-card artifacts, the first open-source publication, and every release thereafter.
+- Keep `README.md` current as the project overview, quickstart, architecture summary, and entry point into deeper documentation.
+- Keep `docs/AWS_DEPLOYMENT_RUNBOOK.md` current with the deployment steps, console setup details, AWS service configuration, validation checks, rollback notes, and lessons learned during the migration.
+- Keep `docs/USER_GUIDE_CHAT.md` current for chatbot workflows, supported natural-language commands, editing examples, limitations, and troubleshooting.
+- Add a full `docs/USER_GUIDE.md` that describes the complete application experience, including high-level concepts, normal user workflows, administrator workflows, business profiles, promotions, generated artifacts, configuration, and references to `docs/USER_GUIDE_CHAT.md` and `docs/AWS_DEPLOYMENT_RUNBOOK.md`.
+- Require a documentation review before public open-source availability and before each release so new features, compatibility notes, setup changes, and operational procedures are reflected in user-facing docs.
+
 ## Phase 5: AWS Migration
 
 ### Step 23: Database Abstraction (SQLAlchemy) (COMPLETED)
