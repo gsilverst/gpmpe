@@ -2,6 +2,8 @@
 
 This runbook describes the first AWS staging deployment for GPMPE. It assumes the application image is already Docker-ready and that local CI passes in SQLite mode.
 
+For a concrete worked example based on the first successful staging deployment, see `docs/AWS_STAGING_DEPLOYMENT_EXAMPLE.md`. That example includes non-secret resource names, validation checks, limitations, and troubleshooting lessons learned. This runbook remains the general deployment reference.
+
 ## Repository Boundaries
 
 GPMPE deployments should keep three repositories conceptually separate:

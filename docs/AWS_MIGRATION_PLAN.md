@@ -250,6 +250,7 @@ After the AWS deployment path is validated, add a detailed step-by-step AWS depl
 - Git sync worker configuration and validation.
 - First deployment from the deployment repository or selected CI/CD system.
 - Health checks, startup reconciliation, campaign edit/save validation, PDF render validation, CloudWatch log review, rollback, and production promotion checklist.
+- A detailed worked staging deployment example based on the successful first deployment, including concrete non-secret resource names, the chosen low-cost architecture, bootstrap/import flow, confirmed capabilities, known limitations, and troubleshooting lessons learned.
 
 This section should distinguish clearly between the GPMPE application source repository, the deployment owner's infrastructure/deployment repository, and the administrator-managed business data repository.
 
