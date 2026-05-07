@@ -122,14 +122,17 @@ Since YAML files in the deployment owner's configured business data repository a
     - Treat the configured Git identity as an application/service identity, not the signed-in end user's personal Git credentials.
     - Confirm the target branch strategy before enabling push in production. The initial default should be a protected integration branch rather than direct writes to `main`.
 - **Task 3.2a: AWS Integration for Admin-Managed Git Credentials**:
-    - Assume the application provides an administrator interface for managing global Git credential settings in both local and AWS deployments.
-    - In AWS mode, map that administrator-managed credential reference to AWS Secrets Manager or ECS task secrets.
+    - Assume the application provides an administrator interface for managing global Git defaults and business-profile-specific Git settings in both local and AWS deployments.
+    - Store business-profile repository name/URL, branch/ref, push policy, and credential reference as administrator-only business profile fields so each business can be backed by its own Git repository.
+    - In AWS mode, map each administrator-managed credential reference to AWS Secrets Manager or ECS task secrets.
     - Do not store raw Git tokens or private keys in RDS. Store only secret references/metadata in application tables and keep secret material in AWS-managed secrets.
-    - Validate that Primary Admin/Admin users can create/update/rotate global Git credential settings through the application interface and that regular users cannot view or modify Git credentials.
-    - Validate audit logging for Git credential changes, including the admin user, scope (`global`), repository/branch metadata, and rotation timestamp.
+    - Validate that Primary Admin/Admin users can create/update/rotate global and business-profile Git credential settings through the application interface and that regular users cannot view or modify Git credentials.
+    - Validate audit logging for Git credential changes, including the admin user, scope (`global` or business profile), repository/branch metadata, and rotation timestamp.
 - **Task 3.2b: Administrator Business ZIP Import for Bootstrap**:
     - Add an administrator-only bootstrap/import path that operates on one business directory at a time, rather than the full `DATA_DIR`.
     - Support a ZIP package containing exactly one business root directory from a deployment-owned business data repository.
+    - Support importing from a configured business-specific Git repository by checking out the selected branch/ref into temporary space, packaging the checked-out business directory as a ZIP, and passing it through the same preview/import validation as uploaded ZIP files.
+    - Preserve the runtime EFS layout as one configured `DATA_DIR` with one child directory per business, even when each child business directory is sourced from a separate Git repository.
     - In AWS mode, allow the administrator to point to an S3 object URI or equivalent external object reference for the ZIP, with direct upload as a possible local/admin convenience.
     - Treat the S3 bucket as an import-package staging area only. It should store ZIP objects such as `merci.zip`, not a `data/` directory mirror, and it should not be presented as the runtime data store or source-of-truth business data repository.
     - Validate package structure, data schema version, path safety, and existing-business conflicts before writing anything to EFS or RDS.

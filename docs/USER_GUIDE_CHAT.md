@@ -58,6 +58,10 @@ Components are the sections of your flyer (e.g., "Featured Offers", "Weekday Spe
 
 The business brand theme includes a **primary color**, which is the main brand color used by the renderer. Components that do not specify their own `background_color` fall back to the theme's primary color when that component style uses a primary-color panel. Use a component-specific background color when a section needs to stand apart; delete that field when you want the section to return to the primary brand color.
 
+Planned color-name support: the application should provide a visible named-color palette so users do not need to remember hex values. Users should be able to ask for color families, for example `show me all available shades of green`, review swatches with names, and then use those names in commands such as `change the background color to deep forest` or `set the accent color to emerald`. After choosing a named color, users should also be able to make relative shade changes such as `make the background a lighter shade of green`, `make it one shade darker`, or `make the accent two shades lighter`. Explicit hex values will remain available for advanced users.
+
+When this feature is implemented, this guide should include a full named-color section with many examples, including palette lookup, direct named-color edits, relative lighter/darker shade changes, and the confirmation messages users should expect.
+
 ---
 
 ## 5. Managing Items

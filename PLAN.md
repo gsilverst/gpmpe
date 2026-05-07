@@ -166,7 +166,8 @@ Objective:
 ### Step 21a: Administrator Settings & Credential Management Portal (PARTIAL / TODO)
 Objective:
 - Add an administrator-only web interface for managing runtime settings and external service credentials in both local and AWS deployments.
-- Allow Primary Admin/Admin users to configure the business data repository remote URL, branch/ref, Git author identity, push policy, and credential reference used by the runtime Git sync worker.
+- Allow Primary Admin/Admin users to configure global runtime defaults and business-profile-specific repository settings used by the runtime Git sync worker.
+- Store business-profile Git repository metadata on the business profile as administrator-only fields, including repository name/URL, branch/ref, push policy, and credential reference. These fields must be visible and modifiable only by Primary Admin/Admin users.
 - Require administrators to configure a runtime Git credential, such as a fine-grained Git token, GitHub App credential, deploy key, or equivalent provider-specific secret, before enabling automated pull/push against private business data repositories.
 - Include administrator user management in the same administrative area, including adding users, assigning Primary Admin/Admin/Regular roles, and managing business-profile access.
 - Keep raw Git tokens, private keys, database passwords, API keys, and other sensitive values out of normal application tables; store only non-sensitive metadata and credential references in the application database.
@@ -174,7 +175,7 @@ Objective:
 - Support credential create/update/rotation workflows without exposing secret values back to the browser after save.
 - Add audit logging for credential and repository configuration changes, including actor, timestamp, scope, repository metadata, and rotation timestamp.
 - Restrict credential administration to Primary Admin/Admin users; regular users must not be able to view or modify runtime credentials.
-- Start with global Git credentials shared across all business profiles; business-profile-specific credential overrides can follow after the global flow is validated.
+- Prefer business-profile-specific Git repositories and credentials as the long-term source-control model. Global Git settings may remain as defaults or bootstrap settings, but each business should be managed independently in Git so repository ownership aligns with business ownership.
 - Current status: a basic admin Git settings page, metadata model, local/AWS secret-provider abstraction, and audit-log endpoint exist. Full user management, authenticated admin-only enforcement, and complete credential administration UX are not yet implemented.
 - Update the user guide with a dedicated administrator section covering the admin page, user management, role assignment, business-profile access, runtime configuration, business data repository setup, credential rotation, and audit-log review.
 
@@ -203,9 +204,16 @@ Objective:
 - Upgrade the chatbot from explicit style-key edits toward natural style intent commands such as "make the featured subtitle darker", "make the item durations bolder", or "increase the subtitle size".
 - Map friendly visual intents to approved renderer parameters in `style_json`, `layout_json`, or template override values while keeping the stored data explicit.
 - Support both component-level style edits and item-level style edits, including typography controls such as subtitle font, subtitle size, subtitle color, duration font, duration color, and related print-readability settings.
+- Add a shared named-color catalog with canonical names, color families, hex values, and optional aliases so users can say "deep forest" or "emerald" instead of memorizing hex codes.
+- Display common colors as visible swatches in the chat/promotion editing interface, with the user-facing color names shown beside or under the swatches.
+- Support color-discovery chat queries such as "show me all available shades of green" or "what purple colors can I use", returning a palette/list of named colors with visible swatches and canonical names that can be reused in later commands.
+- Support relative shade commands such as "make the background a lighter shade of green", "make it one shade darker", or "make the accent two shades lighter" by moving through the ordered palette within the relevant color family.
+- Define deterministic behavior for relative shade changes: identify the current named color or nearest catalog color, move the requested number of steps lighter/darker within the family, clamp or clarify at palette boundaries, and confirm the resulting color name.
+- Normalize named color choices to stored canonical values while preserving the user-facing color name in responses where helpful, so users can remember what they selected.
 - Add validation and helpful error messages for supported font names, numeric sizes, color values, and style scopes so users do not need to know internal JSON keys.
 - Keep advanced explicit commands such as `set <component> style <key> to <value>` available for power users and debugging.
 - Add neutral tests and user-guide examples for common print-readability adjustments without relying on proprietary campaign data.
+- Update `docs/USER_GUIDE_CHAT.md` with a detailed named-color section, including palette discovery examples, direct named-color edits, relative lighter/darker shade examples, boundary/clarification behavior, and before/after-style confirmations.
 
 ### Step 21e: Component Type Model Review (TODO)
 Objective:
@@ -240,6 +248,8 @@ Objective:
 - Add an administrator-only import workflow for bootstrapping or adding one business profile at a time from a packaged business data directory.
 - Treat the business directory, not the entire `DATA_DIR`, as the import unit so administrators operate at the same business-profile level used by permissions and ownership.
 - Support importing from a ZIP file containing exactly one business directory, for example a checked-out business data repository path such as `<business-display-name>/...` zipped by the administrator.
+- Support importing directly from a business-specific Git repository after credentials are configured. The Git import flow should check out the requested repository/branch into temporary space, package the checked-out business directory as a ZIP, and pass it through the same validation/preview/import path as an uploaded ZIP.
+- Keep local runtime layout unchanged: `.config` still points to one local `DATA_DIR`, and that `DATA_DIR` still contains one subdirectory per business. The difference is that each business directory may be sourced from and synchronized with its own Git repository rather than from one multi-business Git repository.
 - Allow the administrator to provide the ZIP either by uploading it through the admin page or by entering a configured external object location such as an S3 object URI or HTTPS URL.
 - Treat S3 and other object stores as import-package staging locations only, not as mirrors of the local `DATA_DIR` structure and not as replacements for the administrator-managed business data repository.
 - Keep S3 object organization intentionally simple and separate from local/runtime data layout, for example `s3://<bucket>/merci.zip`, so administrators are not led to treat the bucket as a live `data/` tree.
