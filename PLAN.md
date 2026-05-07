@@ -235,6 +235,22 @@ Objective:
 - Add a full `docs/USER_GUIDE.md` that describes the complete application experience, including high-level concepts, normal user workflows, administrator workflows, business profiles, promotions, generated artifacts, configuration, and references to `docs/USER_GUIDE_CHAT.md` and `docs/AWS_DEPLOYMENT_RUNBOOK.md`.
 - Require a documentation review before public open-source availability and before each release so new features, compatibility notes, setup changes, and operational procedures are reflected in user-facing docs.
 
+### Step 21h: Administrator Business Import and Bootstrap (PARTIAL / TODO)
+Objective:
+- Add an administrator-only import workflow for bootstrapping or adding one business profile at a time from a packaged business data directory.
+- Treat the business directory, not the entire `DATA_DIR`, as the import unit so administrators operate at the same business-profile level used by permissions and ownership.
+- Support importing from a ZIP file containing exactly one business directory, for example a checked-out business data repository path such as `<business-display-name>/...` zipped by the administrator.
+- Allow the administrator to provide the ZIP either by uploading it through the admin page or by entering a configured external object location such as an S3 object URI or HTTPS URL.
+- Treat S3 and other object stores as import-package staging locations only, not as mirrors of the local `DATA_DIR` structure and not as replacements for the administrator-managed business data repository.
+- Keep S3 object organization intentionally simple and separate from local/runtime data layout, for example `s3://<bucket>/merci.zip`, so administrators are not led to treat the bucket as a live `data/` tree.
+- Validate the package before import: one business root, expected business YAML, promotion/business-card subdirectories where present, no path traversal, no generated artifacts unless explicitly supported, and compatible data schema version.
+- Show an import preview with the business name, campaigns, business-card designs, and any conflicts with existing business profiles before the administrator confirms.
+- Write accepted business data into the configured `DATA_DIR`/EFS data directory and run the existing YAML-to-database sync for that business only.
+- Define conflict choices for existing businesses, starting with safe options such as reject, replace after confirmation, or import as a new business key/name; avoid silent overwrites.
+- Store an audit-log entry for each import, including actor, source type, business name, package checksum, import result, and timestamp.
+- Document the feature as a bootstrap/add-business workflow, separate from regular campaign editing and regular Git synchronization.
+- Current status: backend raw-ZIP preview/import endpoints exist for local testing, including one-business package validation, path traversal/symlink rejection, reject/replace conflict handling, business-scoped YAML-to-database sync, and audit logging. Admin UI, S3 object selection, authenticated admin-only enforcement, schema-version checks, import-as-new conflict handling, and polished documentation remain TODO.
+
 ## Phase 5: AWS Migration
 
 ### Step 23: Database Abstraction (SQLAlchemy) (COMPLETED)

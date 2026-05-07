@@ -54,7 +54,7 @@ def test_env_configured_storage_paths_support_sync_mutation_clone_and_render(mon
             json={"title": updated_title},
         )
         assert mutation.status_code == 200, mutation.text
-        mothersday_yaml = data_dir / "acme" / "mothersday" / "mothersday.yaml"
+        mothersday_yaml = data_dir / "acme" / "promotions" / "mothersday" / "mothersday.yaml"
         assert yaml.safe_load(mothersday_yaml.read_text(encoding="utf-8"))["title"] == updated_title
 
         session_id = client.post("/chat/sessions").json()["session_id"]
@@ -63,7 +63,7 @@ def test_env_configured_storage_paths_support_sync_mutation_clone_and_render(mon
             json={"message": "clone mothersday and rename it to efs-smoke"},
         )
         assert clone.status_code == 200, clone.text
-        assert (data_dir / "acme" / "efs-smoke" / "efs-smoke.yaml").exists()
+        assert (data_dir / "acme" / "promotions" / "efs-smoke" / "efs-smoke.yaml").exists()
 
         render = client.post(
             f"/campaigns/{mothersday['id']}/render",

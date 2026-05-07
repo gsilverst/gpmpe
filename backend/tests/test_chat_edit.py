@@ -255,7 +255,7 @@ def test_chat_edit_persists_updates_to_yaml_on_mutation(monkeypatch, tmp_path: P
     assert update_brand.status_code == 200
 
     business_yaml = tmp_path / "yaml-data-test" / "Acme" / "Acme.yaml"
-    campaign_yaml = tmp_path / "yaml-data-test" / "Acme" / "Summer" / "Summer.yaml"
+    campaign_yaml = tmp_path / "yaml-data-test" / "Acme" / "promotions" / "Summer" / "Summer.yaml"
 
     assert business_yaml.exists()
     assert campaign_yaml.exists()
@@ -298,7 +298,7 @@ def test_chat_message_can_update_template_footer_font_size(monkeypatch, tmp_path
     assert row is not None
     assert yaml.safe_load(row["override_values_json"])["footer_font_size"] == 14
 
-    campaign_yaml = tmp_path / "yaml-data-test" / "Acme" / "Summer" / "Summer.yaml"
+    campaign_yaml = tmp_path / "yaml-data-test" / "Acme" / "promotions" / "Summer" / "Summer.yaml"
     campaign_payload = yaml.safe_load(campaign_yaml.read_text(encoding="utf-8"))
     assert campaign_payload["template_binding"]["override_values"]["footer_font_size"] == 14
 

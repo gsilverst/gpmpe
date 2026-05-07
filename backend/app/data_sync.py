@@ -166,6 +166,44 @@ def discover_data_directory(data_dir: Path) -> list[BusinessYamlRecord]:
     return businesses
 
 
+def discover_business_directory(business_dir: Path) -> BusinessYamlRecord:
+    """Load and validate one business directory from a DATA_DIR-style tree."""
+    if not business_dir.is_dir():
+        raise ValueError(f"Business directory does not exist: {business_dir}")
+
+    business_name = business_dir.name
+    business_yaml = business_dir / f"{business_name}.yaml"
+    if not business_yaml.exists():
+        raise ValueError(f"Missing business YAML file: {business_yaml}")
+    _ensure_safe_name(business_name, "business")
+    business_payload = _load_yaml_file(business_yaml)
+
+    campaign_records: list[CampaignYamlRecord] = []
+    campaign_root = business_dir / "promotions"
+    if not campaign_root.exists():
+        campaign_root = business_dir
+    for campaign_dir in sorted(path for path in campaign_root.iterdir() if path.is_dir()):
+        campaign_name = campaign_dir.name
+        campaign_yaml = campaign_dir / f"{campaign_name}.yaml"
+        if not campaign_yaml.exists():
+            continue
+        _ensure_safe_name(campaign_name, "campaign")
+        campaign_records.append(
+            CampaignYamlRecord(
+                directory_name=campaign_name,
+                file_path=campaign_yaml,
+                payload=_load_yaml_file(campaign_yaml),
+            )
+        )
+
+    return BusinessYamlRecord(
+        directory_name=business_name,
+        file_path=business_yaml,
+        payload=business_payload,
+        campaigns=campaign_records,
+    )
+
+
 def _sync_business(connection: sqlite3.Connection, record: BusinessYamlRecord) -> int:
     payload = record.payload
     display_name = _required_string(payload, "display_name", record.file_path)
@@ -844,6 +882,19 @@ def sync_data_directory_session(db: Session, data_dir: Path) -> SyncSummary:
     _reconcile_businesses_session(db, records)
     _delete_orphaned_template_definitions_session(db)
     return SyncSummary(businesses_synced=len(records), campaigns_synced=campaigns_synced)
+
+
+def sync_business_directory_session(db: Session, business_dir: Path) -> SyncSummary:
+    """Sync one business directory without reconciling/deleting other businesses."""
+    record = discover_business_directory(business_dir)
+    business_id = _sync_business_session(db, record)
+    _reconcile_campaigns_session(db, business_id, record.campaigns)
+    campaigns_synced = 0
+    for campaign_record in record.campaigns:
+        _sync_campaign_session(db, business_id, campaign_record)
+        campaigns_synced += 1
+    _delete_orphaned_template_definitions_session(db)
+    return SyncSummary(businesses_synced=1, campaigns_synced=campaigns_synced)
 
 
 def clone_campaign_directory(

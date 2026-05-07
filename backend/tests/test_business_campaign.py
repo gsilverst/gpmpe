@@ -255,7 +255,7 @@ def test_campaign_create_and_update_persist_to_yaml(monkeypatch, tmp_path: Path)
     )
     assert updated.status_code == 200
 
-    campaign_yaml = tmp_path / "yaml-data-test" / "Acme" / "Summer" / "Summer.yaml"
+    campaign_yaml = tmp_path / "yaml-data-test" / "Acme" / "promotions" / "Summer" / "Summer.yaml"
     assert campaign_yaml.exists()
 
     payload = yaml.safe_load(campaign_yaml.read_text(encoding="utf-8"))

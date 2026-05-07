@@ -119,6 +119,8 @@ def test_git_sync_flow_pulls_yaml_to_db_and_pushes_saved_edits(monkeypatch, tmp_
         assert save.json()["auto_commit"]["push_enabled"] is True
 
     _git(tmp_path, "clone", "--branch", "main", str(remote), str(verify_repo))
-    remote_yaml = yaml.safe_load((verify_repo / "acme" / "mothersday" / "mothersday.yaml").read_text(encoding="utf-8"))
+    remote_yaml = yaml.safe_load(
+        (verify_repo / "acme" / "promotions" / "mothersday" / "mothersday.yaml").read_text(encoding="utf-8")
+    )
     assert remote_yaml["title"] == outbound_title
     assert _git(verify_repo, "log", "-1", "--pretty=%B") == "Save campaign from AWS sync flow"

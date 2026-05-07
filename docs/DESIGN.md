@@ -146,6 +146,14 @@ The campaign Save action is only meaningful when version control is configured f
 
 As a future nice-to-have, campaign users should be able to restore a prior marketing campaign version from Git history without seeing Git-specific details. The UI should present prior campaign versions by date/time and user-facing description where available, not by commit ID or branch. Restoring an older version should make that version the current campaign state; if the user then modifies and saves it, the save should create a new linear version rather than a branch. This restore capability should be available at the marketing campaign level for campaign users. A similar administrator-only restore capability may be added for business profiles, since only administrators can add or modify business profiles.
 
+### Administrator Business Import
+
+Administrators should be able to bootstrap or add business data by importing one packaged business directory at a time. The import unit is a single business directory, not the full `DATA_DIR`, because business profiles are the natural unit for ownership, permissions, conflict review, and audit logging.
+
+The preferred package format is a ZIP file containing exactly one business root directory. An administrator might create this package by checking out a deployment-owned business data repository, zipping one business directory, and importing that ZIP into the application. In AWS deployments, the package may also be selected by reference to an external object location such as S3; local deployments may use direct file upload. S3 is only an import-package staging location, not a mirror of the local/runtime `DATA_DIR` and not the source-of-truth business data repository. Bucket organization should therefore remain intentionally different and simple, such as `s3://<bucket>/merci.zip`, to avoid confusing users into treating object storage as a live `data/` tree.
+
+Before import, the application should validate the package structure, reject path traversal, confirm the expected business YAML is present, detect optional promotion and business-card subdirectories, check the data schema version, and show a preview of the business profile and child records that will be imported. If the business already exists, the administrator must choose an explicit conflict action, such as reject, replace after confirmation, or import under a new business key/name. Accepted imports are written into the configured YAML data directory and then synchronized into the runtime database for that business only. Each import should be recorded in the audit log with the actor, source type, business name, package checksum, result, and timestamp.
+
 ### YAML Directory Layout
 
 ```

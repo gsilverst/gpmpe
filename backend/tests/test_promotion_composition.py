@@ -199,7 +199,7 @@ def test_offer_asset_and_template_updates_persist_to_yaml(monkeypatch, tmp_path:
     )
     assert binding.status_code == 201
 
-    campaign_yaml = tmp_path / "yaml-data-test" / "Acme" / "Summer" / "Summer.yaml"
+    campaign_yaml = tmp_path / "yaml-data-test" / "Acme" / "promotions" / "Summer" / "Summer.yaml"
     assert campaign_yaml.exists()
 
     payload = yaml.safe_load(campaign_yaml.read_text(encoding="utf-8"))

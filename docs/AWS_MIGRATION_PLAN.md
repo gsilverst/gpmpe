@@ -127,6 +127,16 @@ Since YAML files in the deployment owner's configured business data repository a
     - Do not store raw Git tokens or private keys in RDS. Store only secret references/metadata in application tables and keep secret material in AWS-managed secrets.
     - Validate that Primary Admin/Admin users can create/update/rotate global Git credential settings through the application interface and that regular users cannot view or modify Git credentials.
     - Validate audit logging for Git credential changes, including the admin user, scope (`global`), repository/branch metadata, and rotation timestamp.
+- **Task 3.2b: Administrator Business ZIP Import for Bootstrap**:
+    - Add an administrator-only bootstrap/import path that operates on one business directory at a time, rather than the full `DATA_DIR`.
+    - Support a ZIP package containing exactly one business root directory from a deployment-owned business data repository.
+    - In AWS mode, allow the administrator to point to an S3 object URI or equivalent external object reference for the ZIP, with direct upload as a possible local/admin convenience.
+    - Treat the S3 bucket as an import-package staging area only. It should store ZIP objects such as `merci.zip`, not a `data/` directory mirror, and it should not be presented as the runtime data store or source-of-truth business data repository.
+    - Validate package structure, data schema version, path safety, and existing-business conflicts before writing anything to EFS or RDS.
+    - Show a preview of the business profile, promotions, business-card designs, and conflict action before import confirmation.
+    - After confirmation, extract the accepted business directory into the EFS-backed `DATA_DIR` and run business-scoped YAML-to-RDS synchronization.
+    - Record each import in the audit log with actor, source type, business name, package checksum, result, and timestamp.
+    - Current status: local/raw-ZIP backend preview and import endpoints exist. AWS S3 object retrieval and the administrator UI flow remain pending.
 - **Task 3.3: Sync Safety Controls**:
     - Validate the EFS-backed `.gpmpe-git.lock` behavior with the deployed ECS task count before scaling beyond one application task and one sync worker.
     - Keep commit scope restricted to configured YAML/data paths so generated PDFs, database files, and unrelated files are never pushed.
@@ -233,7 +243,7 @@ After the AWS deployment path is validated, add a detailed step-by-step AWS depl
 - RDS provisioning, backup policy, security groups, and `DATABASE_URL` secret setup.
 - EFS provisioning, access points, mount targets, security groups, backup policy, and ECS mount configuration.
 - ECS/Fargate cluster, task definition, service, networking, and load balancer setup.
-- Business data repository setup, initial clone/seed into EFS, and administrator configuration through the application admin page.
+- Business data repository setup, administrator configuration through the application admin page, and initial business-level bootstrap by importing one zipped business directory at a time, including the S3-backed ZIP import path for AWS deployments.
 - Git sync worker configuration and validation.
 - First deployment from the deployment repository or selected CI/CD system.
 - Health checks, startup reconciliation, campaign edit/save validation, PDF render validation, CloudWatch log review, rollback, and production promotion checklist.
