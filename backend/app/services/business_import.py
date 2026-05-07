@@ -6,6 +6,7 @@ import json
 from pathlib import Path, PurePosixPath
 import shutil
 import tempfile
+from urllib.parse import unquote, urlparse
 import zipfile
 
 from sqlalchemy.orm import Session
@@ -29,6 +30,43 @@ class BusinessImportPreview:
     directory_exists: bool
     database_business_exists: bool
     checksum: str
+
+
+def _s3_client_factory():
+    try:
+        import boto3
+    except ImportError as exc:
+        raise BusinessImportError("S3 imports require boto3 to be installed") from exc
+    return boto3.client("s3")
+
+
+def _parse_s3_uri(s3_uri: str) -> tuple[str, str]:
+    parsed = urlparse(s3_uri.strip())
+    if parsed.scheme != "s3" or not parsed.netloc:
+        raise BusinessImportError("s3_uri must use the format s3://bucket/key.zip")
+    key = unquote(parsed.path.lstrip("/"))
+    if not key:
+        raise BusinessImportError("s3_uri must include an object key")
+    return parsed.netloc, key
+
+
+def fetch_s3_import_zip(s3_uri: str) -> bytes:
+    bucket, key = _parse_s3_uri(s3_uri)
+    try:
+        response = _s3_client_factory().get_object(Bucket=bucket, Key=key)
+        body = response.get("Body")
+        if body is None or not hasattr(body, "read"):
+            raise BusinessImportError("S3 object response did not include a readable body")
+        payload = body.read()
+    except BusinessImportError:
+        raise
+    except Exception as exc:
+        raise BusinessImportError(f"Unable to read S3 import package: s3://{bucket}/{key}") from exc
+    if not isinstance(payload, bytes):
+        raise BusinessImportError("S3 object body must be bytes")
+    if not payload:
+        raise BusinessImportError("S3 import package is empty")
+    return payload
 
 
 def _is_zip_symlink(info: zipfile.ZipInfo) -> bool:
@@ -135,6 +173,7 @@ def _audit_import(
     actor: str,
     preview: BusinessImportPreview,
     source_type: str,
+    source_reference: str | None,
     conflict_action: str,
     result: str,
 ) -> None:
@@ -148,6 +187,7 @@ def _audit_import(
                     "business_directory": preview.business_directory,
                     "display_name": preview.display_name,
                     "source_type": source_type,
+                    "source_reference": source_reference,
                     "conflict_action": conflict_action,
                     "checksum": preview.checksum,
                     "campaigns": preview.campaigns,
@@ -168,6 +208,7 @@ def import_business_zip(
     actor: str,
     conflict_action: str = "reject",
     source_type: str = "upload",
+    source_reference: str | None = None,
 ) -> tuple[BusinessImportPreview, dict[str, int]]:
     if conflict_action not in {"reject", "replace"}:
         raise BusinessImportError("conflict_action must be 'reject' or 'replace'")
@@ -191,6 +232,7 @@ def import_business_zip(
             actor=actor,
             preview=preview,
             source_type=source_type,
+            source_reference=source_reference,
             conflict_action=conflict_action,
             result="imported",
         )
@@ -199,3 +241,26 @@ def import_business_zip(
             "businesses_synced": summary.businesses_synced,
             "campaigns_synced": summary.campaigns_synced,
         }
+
+
+def preview_business_s3_zip(db: Session, config: AppConfig, s3_uri: str) -> BusinessImportPreview:
+    return preview_business_zip(db, config, fetch_s3_import_zip(s3_uri))
+
+
+def import_business_s3_zip(
+    db: Session,
+    config: AppConfig,
+    s3_uri: str,
+    *,
+    actor: str,
+    conflict_action: str = "reject",
+) -> tuple[BusinessImportPreview, dict[str, int]]:
+    return import_business_zip(
+        db,
+        config,
+        fetch_s3_import_zip(s3_uri),
+        actor=actor,
+        conflict_action=conflict_action,
+        source_type="s3",
+        source_reference=s3_uri,
+    )

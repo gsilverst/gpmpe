@@ -6,6 +6,8 @@ import zipfile
 
 import yaml
 
+from app.services import business_import
+
 from .conftest import make_test_client, write_isolated_config
 
 
@@ -184,3 +186,76 @@ def test_admin_business_import_rejects_unsafe_zip(monkeypatch, tmp_path: Path) -
 
     assert response.status_code == 400
     assert "parent path" in response.json()["detail"]
+
+
+class _FakeBody:
+    def __init__(self, payload: bytes) -> None:
+        self.payload = payload
+
+    def read(self) -> bytes:
+        return self.payload
+
+
+class _FakeS3Client:
+    def __init__(self, payloads: dict[tuple[str, str], bytes]) -> None:
+        self.payloads = payloads
+        self.requests: list[tuple[str, str]] = []
+
+    def get_object(self, *, Bucket: str, Key: str) -> dict[str, object]:
+        self.requests.append((Bucket, Key))
+        return {"Body": _FakeBody(self.payloads[(Bucket, Key)])}
+
+
+def test_admin_business_import_from_s3(monkeypatch, tmp_path: Path) -> None:
+    data_dir = tmp_path / "data-dir"
+    config_path = write_isolated_config(tmp_path, test_data_dir=data_dir)
+    package = _business_zip("merci", include_card_theme=True)
+    fake_s3 = _FakeS3Client({
+        ("gpmpe-433249887797-us-east-2-staging-imports", "merci.zip"): package,
+    })
+    monkeypatch.setattr(business_import, "_s3_client_factory", lambda: fake_s3)
+
+    s3_uri = "s3://gpmpe-433249887797-us-east-2-staging-imports/merci.zip"
+    with make_test_client(monkeypatch, config_path) as client:
+        preview_response = client.post(
+            "/admin/business-imports/s3/preview",
+            json={"s3_uri": s3_uri},
+        )
+        import_response = client.post(
+            "/admin/business-imports/s3",
+            json={"s3_uri": s3_uri},
+            headers={"X-GPMPE-Actor": "admin-user"},
+        )
+        audit_response = client.get("/admin/audit-logs")
+
+    assert preview_response.status_code == 200
+    assert preview_response.json()["display_name"] == "merci"
+    assert preview_response.json()["source_type"] == "s3"
+    assert preview_response.json()["source_reference"] == s3_uri
+
+    assert import_response.status_code == 200
+    assert import_response.json()["ok"] is True
+    assert import_response.json()["source_reference"] == s3_uri
+    assert (data_dir / "merci" / "merci.yaml").exists()
+    assert fake_s3.requests == [
+        ("gpmpe-433249887797-us-east-2-staging-imports", "merci.zip"),
+        ("gpmpe-433249887797-us-east-2-staging-imports", "merci.zip"),
+    ]
+
+    audit = audit_response.json()["items"][0]
+    assert audit["actor"] == "admin-user"
+    assert audit["metadata"]["source_type"] == "s3"
+    assert audit["metadata"]["source_reference"] == s3_uri
+
+
+def test_admin_business_import_from_s3_rejects_invalid_uri(monkeypatch, tmp_path: Path) -> None:
+    data_dir = tmp_path / "data-dir"
+    config_path = write_isolated_config(tmp_path, test_data_dir=data_dir)
+
+    with make_test_client(monkeypatch, config_path) as client:
+        response = client.post(
+            "/admin/business-imports/s3/preview",
+            json={"s3_uri": "https://example.com/merci.zip"},
+        )
+
+    assert response.status_code == 422

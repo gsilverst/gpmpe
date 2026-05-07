@@ -209,6 +209,19 @@ class RuntimeGitSettingsRequest(BaseModel):
     credential_secret: str | None = Field(default=None, max_length=10000)
 
 
+class BusinessImportS3Request(BaseModel):
+    s3_uri: str = Field(min_length=1, max_length=2000)
+    conflict_action: Literal["reject", "replace"] = "reject"
+
+    @field_validator("s3_uri")
+    @classmethod
+    def validate_s3_uri(cls, value: str) -> str:
+        parsed = urlparse(value.strip())
+        if parsed.scheme != "s3" or not parsed.netloc or not parsed.path.strip("/"):
+            raise ValueError("s3_uri must use the format s3://bucket/key.zip")
+        return value.strip()
+
+
 class RuntimeGitSettingsResponse(BaseModel):
     scope: str = "global"
     repo_path: str | None = None

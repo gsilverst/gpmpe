@@ -259,7 +259,7 @@ Objective:
 - Define conflict choices for existing businesses, starting with safe options such as reject, replace after confirmation, or import as a new business key/name; avoid silent overwrites.
 - Store an audit-log entry for each import, including actor, source type, business name, package checksum, import result, and timestamp.
 - Document the feature as a bootstrap/add-business workflow, separate from regular campaign editing and regular Git synchronization.
-- Current status: backend raw-ZIP preview/import endpoints exist for local testing, including one-business package validation, path traversal/symlink rejection, reject/replace conflict handling, business-scoped YAML-to-database sync, and audit logging. Admin UI, S3 object selection, authenticated admin-only enforcement, schema-version checks, import-as-new conflict handling, and polished documentation remain TODO.
+- Current status: backend raw-ZIP preview/import endpoints and S3 URI preview/import endpoints exist for local testing, including one-business package validation, path traversal/symlink rejection, reject/replace conflict handling, business-scoped YAML-to-database sync, S3 object retrieval through the runtime AWS role, and audit logging. Admin UI, authenticated admin-only enforcement, schema-version checks, import-as-new conflict handling, and polished documentation remain TODO.
 
 ## Phase 5: AWS Migration
 

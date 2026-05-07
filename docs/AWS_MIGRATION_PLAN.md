@@ -139,7 +139,7 @@ Since YAML files in the deployment owner's configured business data repository a
     - Show a preview of the business profile, promotions, business-card designs, and conflict action before import confirmation.
     - After confirmation, extract the accepted business directory into the EFS-backed `DATA_DIR` and run business-scoped YAML-to-RDS synchronization.
     - Record each import in the audit log with actor, source type, business name, package checksum, result, and timestamp.
-    - Current status: local/raw-ZIP backend preview and import endpoints exist. AWS S3 object retrieval and the administrator UI flow remain pending.
+    - Current status: local/raw-ZIP and S3 URI backend preview/import endpoints exist. The AWS bucket, lifecycle rule, and ECS task-role read policy have been created for staging. The administrator UI flow remains pending.
 - **Task 3.3: Sync Safety Controls**:
     - Validate the EFS-backed `.gpmpe-git.lock` behavior with the deployed ECS task count before scaling beyond one application task and one sync worker.
     - Keep commit scope restricted to configured YAML/data paths so generated PDFs, database files, and unrelated files are never pushed.
