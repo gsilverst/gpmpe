@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .chat import ChatSessionStore
@@ -159,6 +160,14 @@ def create_app() -> FastAPI:
 
     static_dir = Path(__file__).resolve().parent / "static"
     if static_dir.exists():
+        @app.get("/admin", include_in_schema=False)
+        def admin_frontend() -> FileResponse:
+            return FileResponse(static_dir / "admin.html")
+
+        @app.get("/data-manager", include_in_schema=False)
+        def data_manager_frontend() -> FileResponse:
+            return FileResponse(static_dir / "data-manager.html")
+
         app.mount("/", StaticFiles(directory=static_dir, html=True), name="frontend-static")
 
     return app
