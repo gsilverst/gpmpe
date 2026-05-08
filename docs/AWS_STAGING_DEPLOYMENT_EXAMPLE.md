@@ -337,6 +337,7 @@ Future work:
 - Local backend tests cover raw ZIP and mocked S3 business import flows.
 - The staging ECS image was rebuilt and redeployed with S3 import support on May 8, 2026.
 - A real S3-backed business import smoke test succeeded from preview through import, RDS sync, EFS write, business/campaign API reads, data-manager reads, and audit-log recording.
+- A deployment-owned business package was then imported as a separate business, confirming that previously built campaigns can be selected in the browser, rendered, and viewed in the flyer previewer after import. Proprietary package names, campaign details, and ZIP contents are intentionally kept out of this public example.
 
 ## Current Limitations
 
