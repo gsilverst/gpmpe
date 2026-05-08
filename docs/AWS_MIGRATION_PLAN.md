@@ -124,8 +124,10 @@ Since YAML files in the deployment owner's configured business data repository a
 - **Task 3.2a: AWS Integration for Admin-Managed Git Credentials**:
     - Assume the application provides an administrator interface for managing global Git defaults and business-profile-specific Git settings in both local and AWS deployments.
     - Store business-profile repository name/URL, branch/ref, push policy, and credential reference as administrator-only business profile fields so each business can be backed by its own Git repository.
+    - Prefer one administrator-managed service credential per business repository. Provide optional global/default Git credential settings only as a fallback for deployments that intentionally share credentials across businesses.
     - In AWS mode, map each administrator-managed credential reference to AWS Secrets Manager or ECS task secrets.
     - Do not store raw Git tokens or private keys in RDS. Store only secret references/metadata in application tables and keep secret material in AWS-managed secrets.
+    - Do not use individual signed-in user credentials for Git repository authentication. Git operations should use the configured business or global service credential, while the signed-in user's email/user ID is recorded as object version metadata.
     - Validate that Primary Admin/Admin users can create/update/rotate global and business-profile Git credential settings through the application interface and that regular users cannot view or modify Git credentials.
     - Validate audit logging for Git credential changes, including the admin user, scope (`global` or business profile), repository/branch metadata, and rotation timestamp.
 - **Task 3.2b: Administrator Business ZIP Import for Bootstrap**:
@@ -201,10 +203,10 @@ The AWS migration must clearly separate open-source application development, dep
 ---
 
 ## 9. Phase 5: User Authentication & Access Control
-To secure the application in AWS and support multi-user workflows, we will implement a role-based access control (RBAC) system.
+To secure the application in AWS and support multi-user workflows, GPMPE should use AWS-native identity services first. The application should not manage passwords or become its own security provider. AWS Cognito should authenticate users and handle invite, password reset, MFA/session, and email-based login flows. The application database should store application data needed to apply business rules, such as role/profile mirrors, business access grants, audit logs, and version metadata.
 
 ### 9.1 User Roles & Hierarchy
-- **Primary Admin**: The user associated with the AWS root login (or mapped identity) by default.
+- **Primary Admin**: The first administrator user or users explicitly designated during first-run setup after the AWS deployer brings the stack online.
     - **Permissions**: Can add/delete all user types (Admin and Regular). Full access to all business profiles and campaigns.
 - **Admin User**:
     - **Permissions**: Can create/modify business profiles. Can add Regular users. Can grant Regular users access to specific business profiles.
@@ -214,15 +216,34 @@ To secure the application in AWS and support multi-user workflows, we will imple
     - **Constraints**: Cannot create or modify business profiles. Cannot manage users.
 
 ### 9.2 Implementation Tasks
-- **Task 5.1: Identity Integration**:
-    - **AWS Mode**: Use **Amazon Cognito** for user identity management. Map Cognito groups to the application roles.
-    - **Local Mode**: Implement a lightweight JWT-based authentication system backed by the local database for development parity.
-- **Task 5.2: Backend Authorization**:
-    - Implement FastAPI dependencies to enforce role-based access on all sensitive endpoints (e.g., `POST /businesses`, `PATCH /businesses`).
-    - Add user-to-business mapping tables in the database to manage campaign access for Regular users.
-- **Task 5.3: Admin Management Portal**:
+- **Task 5.1: First-Run Admin Handoff**:
+    - Add an explicit first-run setup page for AWS deployments so the deployer can hand off the running application to one or more Primary Admin users by email address.
+    - The deployer's responsibility is to provision and deploy the AWS stack; the application's first-run setup should make the administrator handoff obvious instead of hiding it in environment variables or secret edits.
+    - Protect first-run setup with a one-time bootstrap mechanism appropriate for AWS, such as a short-lived setup token or restricted deployer-only access path, then disable it after Primary Admin users are created.
+    - Use the Primary Admin email address as the user ID and invite the user through Cognito.
+- **Task 5.2: Cognito Identity Integration**:
+    - Use Amazon Cognito for AWS-mode user identity management, including email-based login, user invitations, password reset, MFA/session controls, and token validation.
+    - Allow Primary Admin/Admin users to create or invite other Admin and Regular users from the application admin dashboard, with the app calling Cognito APIs to create users and send invite emails.
+    - Decide whether broad role eligibility is represented in Cognito groups, app database records, or both. The preferred split is that Cognito handles authentication and optional coarse groups, while the app database stores application-specific roles, business access grants, and audit/version data.
+    - Defer the local-mode authentication design until the AWS flow is concrete. Local mode may use a lighter-weight approximation later, but the AWS security model should lead the design.
+- **Task 5.3: Backend Authorization**:
+    - Implement FastAPI dependencies that validate Cognito-issued identity tokens and enforce role/business access on sensitive endpoints.
+    - Add application data tables, or a logically separate authorization schema/database if desired, for user profile mirrors, app roles, business access grants, and audit metadata.
+    - Treat those tables as application data that Cognito-backed authorization uses; do not store user passwords or raw authentication secrets in the application database.
+- **Task 5.4: Admin Management Portal**:
     - Develop a web-based administrative dashboard within the frontend application.
-    - Features: User onboarding, role assignment, business profile permissions, and administrative audit logs.
+    - Features: Cognito-backed user onboarding/invites, role assignment, business profile permissions, global and business-specific Git credential references, and administrative audit logs.
+    - Let administrators manage business-specific Git repository settings and credential references as part of the business profile, with optional global/default Git credentials for shared-credential deployments.
+    - Store raw Git tokens, deploy keys, API keys, and database passwords only in AWS Secrets Manager/ECS task secrets. Store only references and non-sensitive metadata in RDS.
+
+### 9.3 AWS Multi-User Editing And Versioning
+- AWS deployments should support multiple users editing the same campaign, business profile, or future business card by using per-user/per-object draft workspaces rather than direct concurrent mutation of canonical database rows.
+- Draft workspaces should live on persistent AWS-backed storage, such as EFS or another shared working area, because Fargate task-local disk is ephemeral.
+- The canonical database should represent the latest saved/imported version of each object. Draft edits become canonical only when the user saves the object, the application writes YAML, commits through the configured business Git credential, records version metadata, and syncs the saved object back into RDS.
+- If another user saved a newer version of the same object after the current draft began, warn the user before saving. The warning should identify the other user in friendly terms and allow the current user to continue editing, compare previews where available, or save anyway as the next linear version.
+- Regular users should see app-level versions by date/time, user, object name, and version number. Git commit IDs, branches, and repository mechanics should be hidden from normal campaign workflows.
+- Version metadata should include the signed-in user's email/user ID, object type, object key/path, base version, resulting version, Git commit reference, timestamp, and summary. This metadata can be indexed in RDS for UI queries and written to the business repository in a business-level metadata ledger such as `<business>/.meta/versions.jsonl`.
+- Business cards should follow the same object-level draft/save/version model as campaigns when that feature is implemented.
 
 ---
 
@@ -241,12 +262,15 @@ After the AWS deployment path is validated, add a detailed step-by-step AWS depl
 - ECR repository creation.
 - CloudWatch log group creation and retention settings.
 - Secrets Manager setup for database, LLM, Git author identity, and business data repository credentials.
+- Cognito user pool setup, first-run Primary Admin handoff, admin user invites, regular user invites, and role/business-access administration.
 - IAM roles for ECS task execution, ECS task runtime access, and deployment automation.
 - Deployment repository ownership and OIDC trust setup for the deployment owner's CI/CD repository.
 - RDS provisioning, backup policy, security groups, and `DATABASE_URL` secret setup.
 - EFS provisioning, access points, mount targets, security groups, backup policy, and ECS mount configuration.
 - ECS/Fargate cluster, task definition, service, networking, and load balancer setup.
 - Business data repository setup, administrator configuration through the application admin page, and initial business-level bootstrap by importing one zipped business directory at a time, including the S3-backed ZIP import path for AWS deployments.
+- Business-specific Git credential configuration, optional global/default Git credential configuration, and version metadata expectations for object-level saves.
+- Multi-user editing behavior, including per-user draft workspaces, stale-base save warnings, and user-friendly version history/restore workflows.
 - Git sync worker configuration and validation.
 - First deployment from the deployment repository or selected CI/CD system.
 - Health checks, startup reconciliation, campaign edit/save validation, PDF render validation, CloudWatch log review, rollback, and production promotion checklist.

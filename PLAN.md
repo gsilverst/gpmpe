@@ -182,13 +182,17 @@ Objective:
 ### Step 21b: Version-Control-Aware Save and Restore UX (TODO)
 Objective:
 - Treat the promotion Save action as meaningful only when version control for the business data repository is configured.
-- Disable/grey out the campaign Save button when the administrator has not configured the required Git repository path, author identity, and credential reference/secret.
+- Disable/grey out the campaign Save button when the administrator has not configured the required business-specific Git repository path, author identity, and credential reference/secret. If a business does not have its own Git settings, allow administrators to configure global/default Git settings as a fallback for shared credentials across businesses.
 - Surface a clear non-technical message that saving requires administrator-configured version control, without exposing Git implementation details to regular users.
+- Treat Git credentials as administrator-managed service credentials, not signed-in user credentials. End-user authorship should be recorded as explicit version metadata associated with each object save.
 - Add a nice-to-have campaign-level version restore flow that lets a user choose an older marketing campaign version by date/time and restore it as the current campaign state.
 - Hide Git details such as commit IDs, branch names, and repository mechanics from regular campaign users.
 - When a restored campaign is modified and saved, commit it as a new linear version of the campaign rather than creating a branch.
 - Keep campaign version restore scoped to marketing campaigns only for regular users.
 - Add a similar administrator-only nice-to-have restore flow for business profiles, since only admins may add or modify business profiles.
+- Prefer object-level Save operations. Campaign saves, business-profile saves, and future business-card saves should be independent; regular users should not need a global business save operation.
+- If another user has saved a newer version of the same object since the current draft began, warn the saving user, identify the other user in friendly terms, and allow the user to continue editing, compare previews where available, or save anyway as the next linear version.
+- Allow same-user multiple browser sessions, including preview workflows in another browser, with a suppressible warning when the same user opens the same object for editing in more than one session.
 
 ### Step 21c: Renderer Parameterization Expansion (TODO)
 Objective:
@@ -233,6 +237,7 @@ Objective:
 - Add renderer support for print-ready business card outputs, including separate filenames such as `<business>-business-card-front.pdf`, `<business>-business-card-back.pdf`, or a printer-ready combined sheet as appropriate.
 - Add GUI and chatbot workflows for creating, previewing, editing, and generating business card artifacts without exposing raw implementation details to regular users.
 - Document how business-card designs relate to business profiles and brand themes, including how deployment owners manage private business-card data.
+- When business-card editing is implemented, use the same object-level draft, save, version metadata, restore, and Git-backed versioning model planned for campaigns.
 
 ### Step 21g: Documentation Refresh Gates (TODO)
 Objective:
@@ -261,6 +266,13 @@ Objective:
 - Store an audit-log entry for each import, including actor, source type, business name, package checksum, import result, and timestamp.
 - Document the feature as a bootstrap/add-business workflow, separate from regular campaign editing and regular Git synchronization.
 - Current status: backend raw-ZIP preview/import endpoints and S3 URI preview/import endpoints exist for local testing, including one-business package validation, path traversal/symlink rejection, reject/replace conflict handling, business-scoped YAML-to-database sync, S3 object retrieval through the runtime AWS role, and audit logging. Admin UI, authenticated admin-only enforcement, schema-version checks, import-as-new conflict handling, and polished documentation remain TODO.
+
+### Step 21z: Design Document Refactor and Renumbering (TODO)
+Objective:
+- After the AWS migration and related design additions settle, clean up and renumber `PLAN.md` and `docs/AWS_MIGRATION_PLAN.md` so related work is grouped coherently instead of accumulating many temporary substeps under Step 21.
+- Separate durable feature design from AWS-specific deployment details while keeping cross-references clear.
+- Collapse or regroup related Step 21 substeps into a smaller number of coherent implementation phases.
+- Preserve completed-history notes that are useful for understanding why the current architecture evolved, but move stale sequencing artifacts out of the primary plan.
 
 ## Phase 5: AWS Migration
 
@@ -339,6 +351,22 @@ Implementation considerations:
 - Update the UI to let users create, select, and manage workspaces within the active business profile.
 - Ensure chatbot campaign creation and evolution can target either the business-level campaign area or a selected workspace.
 - Include authorization tests for admin visibility, public workspace access, private workspace isolation, and multi-business-profile separation.
+
+### Step 30: Per-User Drafts and Git-Backed Object Versions (POST-AWS TODO)
+Objective:
+- Move campaign, business-profile, and future business-card editing away from immediate mutation of canonical database rows and toward per-user draft workspaces with object-level saves.
+- Treat the canonical database as the latest saved/imported version of each object, while drafts represent in-progress user edits that have not yet become the current saved version.
+- Support parallel drafts by different users on the same object. If User A and User B both start from version 10, User A can save version 11; User B should be warned that User A saved a newer version before choosing whether to continue editing or save as version 12.
+- Keep the version model linear by default. Do not require regular users to understand Git branches, merges, commit IDs, or conflict resolution.
+- Provide regular users with friendly version selection and restore views, including "my versions" and "all versions for this campaign" views identified by date/time, user, object name, and app-level version number.
+- Provide administrators with deeper version and Git context when useful, while still keeping the normal admin workflow focused on business profiles, campaigns, business cards, users, credentials, and audit logs.
+- Write version metadata to a business-level metadata ledger, such as `<business>/.meta/versions.jsonl`, so metadata aligns with the business Git repository while remaining filterable by object type, object key, user, timestamp, and version number.
+- Record end-user authorship in version metadata, not in Git authentication. Git commits should use the administrator-configured business service credential, while metadata records the signed-in application user who initiated the save.
+- Store or index version metadata in the application database as needed for fast UI queries, but keep the repository-facing metadata file as the durable, Git-versioned source for version history.
+- Represent each logical object save independently. Campaign saves, business-profile saves, and future business-card saves should produce object-specific metadata entries even when they share the same underlying Git commit.
+- Allow side-by-side preview comparison as a desirable enhancement when a user tries to save a draft based on a stale starting version.
+- Define user-session behavior so multiple sessions editing different objects are allowed, while multiple sessions editing the same object receive a soft, suppressible warning rather than a hard lock.
+- In AWS, place per-user/per-object draft workspaces on persistent shared storage such as EFS or another AWS-backed working area rather than relying on ephemeral container-local disk.
 
 ### Step 22: Detailed Requirements Documentation (COMPLETED)
 Objective:
