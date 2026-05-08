@@ -335,6 +335,8 @@ Future work:
 - The ALB can route public HTTP traffic to the ECS task.
 - The task role can be configured to read S3 import ZIPs.
 - Local backend tests cover raw ZIP and mocked S3 business import flows.
+- The staging ECS image was rebuilt and redeployed with S3 import support on May 8, 2026.
+- A real S3-backed business import smoke test succeeded from preview through import, RDS sync, EFS write, business/campaign API reads, data-manager reads, and audit-log recording.
 
 ## Current Limitations
 
@@ -343,7 +345,6 @@ Future work:
 - Authentication/RBAC/admin-only enforcement is not complete.
 - Git push/pull automation is not fully validated in AWS.
 - Business-specific Git repository settings are documented as the desired model but not fully implemented.
-- S3 import support exists in backend code, but a full AWS smoke test with a real uploaded ZIP should still be completed after the ECS image is rebuilt and redeployed.
 - The admin UI does not yet expose the import flow.
 - Database migrations are still lightweight; explicit business/campaign data schema versioning is planned.
 
