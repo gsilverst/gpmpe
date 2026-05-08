@@ -150,6 +150,7 @@ export type DataSyncResponse = {
 
 export type RuntimeGitSettings = {
   scope: string;
+  source: string;
   repo_path: string | null;
   remote_url: string | null;
   remote_name: string;
@@ -568,6 +569,44 @@ export async function updateRuntimeGitSettings(
   baseUrl = apiBaseUrl()
 ): Promise<RuntimeGitSettings> {
   const response = await fetch(`${baseUrl}/admin/git-settings`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "X-GPMPE-Actor": "admin-ui",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const errorData = await response.json();
+      if (typeof errorData?.detail === "string") {
+        detail = ` - ${errorData.detail}`;
+      }
+    } catch {
+      // Ignore JSON parse failures for non-JSON error responses.
+    }
+    throw new ApiError(response.status, `Request failed: ${response.status}${detail}`);
+  }
+
+  return (await response.json()) as RuntimeGitSettings;
+}
+
+export async function fetchBusinessGitSettings(
+  businessId: number,
+  baseUrl = apiBaseUrl()
+): Promise<RuntimeGitSettings> {
+  return fetchJson<RuntimeGitSettings>(`/admin/businesses/${businessId}/git-settings`, baseUrl);
+}
+
+export async function updateBusinessGitSettings(
+  businessId: number,
+  payload: RuntimeGitSettingsPayload,
+  baseUrl = apiBaseUrl()
+): Promise<RuntimeGitSettings> {
+  const response = await fetch(`${baseUrl}/admin/businesses/${businessId}/git-settings`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",

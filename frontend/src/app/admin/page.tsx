@@ -5,9 +5,13 @@ import React, { useEffect, useState } from "react";
 
 import {
   fetchAdminAuditLogs,
+  fetchBusinessGitSettings,
   fetchRuntimeGitSettings,
+  listBusinesses,
+  updateBusinessGitSettings,
   updateRuntimeGitSettings,
   type AdminAuditLog,
+  type BusinessRecord,
   type RuntimeGitSettings,
   type RuntimeGitSettingsPayload,
 } from "../../lib/api";
@@ -59,6 +63,8 @@ function clean(value: string): string | null {
 }
 
 export default function AdminPage() {
+  const [businesses, setBusinesses] = useState<BusinessRecord[]>([]);
+  const [selectedBusinessId, setSelectedBusinessId] = useState<string>("global");
   const [settings, setSettings] = useState<RuntimeGitSettings | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [auditLogs, setAuditLogs] = useState<AdminAuditLog[]>([]);
@@ -75,6 +81,7 @@ export default function AdminPage() {
         fetchRuntimeGitSettings(),
         fetchAdminAuditLogs(),
       ]);
+      setBusinesses(await listBusinesses());
       setSettings(loadedSettings);
       setForm(toForm(loadedSettings));
       setAuditLogs(loadedAudit);
@@ -88,6 +95,20 @@ export default function AdminPage() {
   useEffect(() => {
     void load();
   }, []);
+
+  async function handleScopeChange(value: string) {
+    setSelectedBusinessId(value);
+    setStatus(null);
+    setError(null);
+    try {
+      const loadedSettings =
+        value === "global" ? await fetchRuntimeGitSettings() : await fetchBusinessGitSettings(Number(value));
+      setSettings(loadedSettings);
+      setForm(toForm(loadedSettings));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to load repository settings");
+    }
+  }
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -109,7 +130,10 @@ export default function AdminPage() {
       if (form.credential_secret !== "") {
         payload.credential_secret = form.credential_secret;
       }
-      const updated = await updateRuntimeGitSettings(payload);
+      const updated =
+        selectedBusinessId === "global"
+          ? await updateRuntimeGitSettings(payload)
+          : await updateBusinessGitSettings(Number(selectedBusinessId), payload);
       setSettings(updated);
       setForm(toForm(updated));
       setAuditLogs(await fetchAdminAuditLogs());
@@ -142,13 +166,33 @@ export default function AdminPage() {
           <div>
             <h2>Business Data Repository</h2>
             <small>
-              Secret values are write-only. Saved secrets are never returned to the browser.
+              Configure global defaults or business-specific Git service credentials. Secret values are write-only.
             </small>
           </div>
           {settings ? (
-            <small>{settings.credential_configured ? "Credential configured" : "No credential stored"}</small>
+            <small>
+              {settings.source === "business"
+                ? "Business override"
+                : settings.source === "global"
+                  ? "Using global defaults"
+                  : "Using config defaults"}
+              {" · "}
+              {settings.credential_configured ? "Credential configured" : "No credential stored"}
+            </small>
           ) : null}
         </div>
+
+        <label className="stacked-label">
+          <span>Settings scope</span>
+          <select value={selectedBusinessId} onChange={(event) => void handleScopeChange(event.target.value)}>
+            <option value="global">Global defaults</option>
+            {businesses.map((business) => (
+              <option key={business.id} value={business.id}>
+                {business.display_name}
+              </option>
+            ))}
+          </select>
+        </label>
 
         <form onSubmit={handleSubmit} className="admin-settings-form">
           <div className="grid-form">
@@ -161,7 +205,7 @@ export default function AdminPage() {
               />
             </label>
             <label className="stacked-label">
-              <span>Remote URL</span>
+              <span>Repository URL</span>
               <input
                 value={form.remote_url}
                 onChange={(event) => setForm({ ...form, remote_url: event.target.value })}
@@ -225,6 +269,10 @@ export default function AdminPage() {
               onChange={(event) => setForm({ ...form, credential_secret: event.target.value })}
               placeholder="Paste a token or private key only when creating or rotating the credential."
             />
+            <small>
+              Tokens are saved to the selected secret provider and are never returned after save. Leave blank to keep
+              the current token.
+            </small>
           </label>
 
           <label className="checkbox-row">

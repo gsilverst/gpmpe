@@ -224,6 +224,7 @@ class BusinessImportS3Request(BaseModel):
 
 class RuntimeGitSettingsResponse(BaseModel):
     scope: str = "global"
+    source: str = "database"
     repo_path: str | None = None
     remote_url: str | None = None
     remote_name: str

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Body, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from ..config import resolve_config
-from ..dependencies import get_db_session
+from ..dependencies import get_db_session, require_business
 from ..schemas import BusinessImportS3Request, RuntimeGitSettingsRequest, RuntimeGitSettingsResponse
 from ..services.business_import import (
     BusinessImportError,
@@ -14,8 +14,10 @@ from ..services.business_import import (
     preview_business_zip,
 )
 from ..services.runtime_settings import (
+    get_business_git_settings,
     get_runtime_git_settings,
     list_admin_audit_logs,
+    upsert_business_git_settings,
     upsert_runtime_git_settings,
 )
 from ..services.secret_store import SecretStoreError
@@ -37,6 +39,31 @@ def update_git_settings(
     actor = (x_gpmpe_actor or "system").strip() or "system"
     try:
         return upsert_runtime_git_settings(db, resolve_config(), payload, actor=actor)
+    except SecretStoreError as error:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.get("/businesses/{business_id}/git-settings", response_model=RuntimeGitSettingsResponse)
+def read_business_git_settings(
+    business_id: int,
+    db: Session = Depends(get_db_session),
+) -> RuntimeGitSettingsResponse:
+    require_business(db, business_id)
+    return get_business_git_settings(db, resolve_config(), business_id)
+
+
+@router.put("/businesses/{business_id}/git-settings", response_model=RuntimeGitSettingsResponse)
+def update_business_git_settings(
+    business_id: int,
+    payload: RuntimeGitSettingsRequest,
+    db: Session = Depends(get_db_session),
+    x_gpmpe_actor: str | None = Header(default=None),
+) -> RuntimeGitSettingsResponse:
+    require_business(db, business_id)
+    actor = (x_gpmpe_actor or "system").strip() or "system"
+    try:
+        return upsert_business_git_settings(db, resolve_config(), business_id, payload, actor=actor)
     except SecretStoreError as error:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(error)) from error
