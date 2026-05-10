@@ -180,13 +180,15 @@ Objective:
 - Add audit logging for credential and repository configuration changes, including actor, timestamp, scope, repository metadata, and rotation timestamp.
 - Restrict credential administration to Primary Admin/Admin users; regular users must not be able to view or modify runtime credentials.
 - Prefer business-profile-specific Git repositories and credentials as the long-term source-control model. Global Git settings may remain as defaults or bootstrap settings, but each business should be managed independently in Git so repository ownership aligns with business ownership.
-- Current status: a basic admin Git settings page, metadata model, local/AWS secret-provider abstraction, audit-log endpoint, app-user role mirror tables, first-run setup page, admin-route authorization dependency, initial admin user-invite/business-grant flow, and Cognito/ALB setup scaffold exist. Running full Cognito/ALB login in staging is waiting on a real application host name and same-region ACM certificate. Campaign access administration, access-request workflow, and complete credential administration UX are not yet implemented.
+- Current status: a basic admin Git settings page, metadata model, local/AWS secret-provider abstraction, audit-log endpoint, app-user role mirror tables, first-run/recovery admin handoff page, admin-route authorization dependency, initial admin user-invite/business-grant flow, and Cognito/ALB setup scaffold exist. Running full Cognito/ALB login in staging is waiting on a real application host name and same-region ACM certificate. Campaign access administration, access-request workflow, and complete credential administration UX are not yet implemented.
 - Update the user guide with a dedicated administrator section covering the admin page, user management, role assignment, business-profile access, runtime configuration, business data repository setup, credential rotation, and audit-log review.
 
 Relevant test coverage:
 - Existing: `backend/tests/test_auth.py::test_auth_status_disabled_by_default`
 - Existing: `backend/tests/test_auth.py::test_auth_bootstrap_creates_primary_admin`
 - Existing: `backend/tests/test_auth.py::test_auth_bootstrap_sends_cognito_invite_when_configured`
+- Existing: `backend/tests/test_auth.py::test_auth_bootstrap_rejects_second_handoff_without_recovery_enabled`
+- Existing: `backend/tests/test_auth.py::test_deployer_recovery_can_assign_primary_admin_after_bootstrap`
 - Existing: `backend/tests/test_auth.py::test_admin_routes_require_authorized_user_when_auth_enabled`
 - Existing: `backend/tests/test_auth.py::test_primary_admin_invites_regular_user_with_business_access`
 - Existing: `backend/tests/test_auth.py::test_admin_user_cannot_invite_admin`

@@ -61,12 +61,17 @@ export default function SetupPage() {
     }
   }
 
+  const handoffEnabled = Boolean(
+    status?.enabled && (status.bootstrap_required || status.deployer_recovery_enabled)
+  );
+  const handoffLabel = status?.bootstrap_required ? "Create Primary Admin" : "Assign Primary Admin";
+
   return (
     <main>
       <div className="page-header">
         <div>
-          <h1>First-Run Setup</h1>
-          <p>Hand off this deployment to the first Primary Admin user.</p>
+          <h1>Admin Handoff</h1>
+          <p>Hand off or recover Primary Admin access for this deployment.</p>
         </div>
         <Link className="text-link" href="/">
           Back to home
@@ -94,11 +99,11 @@ export default function SetupPage() {
           <p className="empty-hint">Authentication is not enabled for this deployment.</p>
         ) : null}
 
-        {status && status.enabled && !status.bootstrap_required ? (
-          <p className="empty-hint">First-run setup is complete.</p>
+        {status && status.enabled && !handoffEnabled ? (
+          <p className="empty-hint">Primary Admin handoff is not currently enabled.</p>
         ) : null}
 
-        {status?.bootstrap_required ? (
+        {handoffEnabled ? (
           <form onSubmit={handleSubmit} className="admin-settings-form">
             <div className="grid-form">
               <label className="stacked-label">
@@ -132,7 +137,7 @@ export default function SetupPage() {
               <small>The setup token is temporary and is not stored in the application database.</small>
             </label>
             <button type="submit" disabled={saving}>
-              {saving ? "Creating..." : "Create Primary Admin"}
+              {saving ? "Saving..." : handoffLabel}
             </button>
           </form>
         ) : null}

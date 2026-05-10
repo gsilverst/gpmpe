@@ -28,6 +28,7 @@ def read_auth_status(db: Session = Depends(get_db_session)) -> AuthStatusRespons
         mode=config.auth_mode,
         enabled=config.auth_mode != "disabled",
         bootstrap_required=bootstrap_required(db, config),
+        deployer_recovery_enabled=config.auth_deployer_recovery_enabled,
         user_count=user_count,
     )
 
@@ -67,33 +68,46 @@ def bootstrap_primary_admin(
     config = resolve_config()
     if config.auth_mode == "disabled":
         raise HTTPException(status_code=400, detail="Authentication is disabled")
-    if not bootstrap_required(db, config):
-        raise HTTPException(status_code=409, detail="Application has already been bootstrapped")
+    initial_bootstrap = bootstrap_required(db, config)
+    if not initial_bootstrap and not config.auth_deployer_recovery_enabled:
+        raise HTTPException(status_code=409, detail="Primary Admin handoff is not enabled")
     if not config.auth_bootstrap_token:
         raise HTTPException(status_code=503, detail="AUTH_BOOTSTRAP_TOKEN is not configured")
     if x_gpmpe_setup_token != config.auth_bootstrap_token:
         raise HTTPException(status_code=403, detail="Invalid setup token")
 
     email = normalize_email(payload.primary_admin_email)
-    send_cognito_invite(config, email=email, display_name=payload.display_name)
-    status = "invited" if config.cognito_user_pool_id else "active"
-    user = AppUser(
-        email=email,
-        display_name=payload.display_name,
-        role="primary_admin",
-        status=status,
-    )
-    db.add(user)
+    user = db.query(AppUser).filter(AppUser.email == email).first()
+    created = user is None
+    if created:
+        send_cognito_invite(config, email=email, display_name=payload.display_name)
+        status = "invited" if config.cognito_user_pool_id else "active"
+        user = AppUser(
+            email=email,
+            display_name=payload.display_name,
+            role="primary_admin",
+            status=status,
+        )
+        db.add(user)
+    else:
+        status = user.status or "active"
+        user.display_name = payload.display_name or user.display_name
+        user.role = "primary_admin"
+        if user.status not in {"active", "invited"}:
+            user.status = "active"
+            status = "active"
     db.add(
         AdminAuditLog(
             actor=email,
-            action="auth.bootstrap_primary_admin",
+            action="auth.bootstrap_primary_admin" if initial_bootstrap else "auth.deployer_recovery_primary_admin",
             scope="global",
             metadata_json=json.dumps(
                 {
                     "email": email,
                     "status": status,
-                    "cognito_invite_sent": bool(config.cognito_user_pool_id),
+                    "created": created,
+                    "cognito_invite_sent": bool(config.cognito_user_pool_id and created),
+                    "deployer_recovery": not initial_bootstrap,
                 },
                 sort_keys=True,
             ),

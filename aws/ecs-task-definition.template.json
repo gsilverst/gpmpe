@@ -55,6 +55,7 @@
         { "name": "GIT_LOCK_TIMEOUT_SECONDS", "value": "30" },
         { "name": "COMMIT_ON_SAVE", "value": "true" },
         { "name": "AUTH_MODE", "value": "disabled" },
+        { "name": "AUTH_DEPLOYER_RECOVERY_ENABLED", "value": "false" },
         { "name": "COGNITO_REGION", "value": "REGION" },
         { "name": "COGNITO_USER_POOL_ID", "value": "" }
       ],

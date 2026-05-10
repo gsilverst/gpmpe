@@ -22,6 +22,7 @@ def write_isolated_config(
     openrouter_api_key: str | None = None,
     auth_mode: str | None = None,
     auth_bootstrap_token: str | None = None,
+    auth_deployer_recovery_enabled: bool | None = None,
     cognito_user_pool_id: str | None = None,
     cognito_region: str | None = None,
 ) -> Path:
@@ -53,6 +54,8 @@ def write_isolated_config(
         lines.append(f"AUTH_MODE={auth_mode}")
     if auth_bootstrap_token:
         lines.append(f"AUTH_BOOTSTRAP_TOKEN={auth_bootstrap_token}")
+    if auth_deployer_recovery_enabled is not None:
+        lines.append(f"AUTH_DEPLOYER_RECOVERY_ENABLED={'true' if auth_deployer_recovery_enabled else 'false'}")
     if cognito_user_pool_id:
         lines.append(f"COGNITO_USER_POOL_ID={cognito_user_pool_id}")
     if cognito_region:

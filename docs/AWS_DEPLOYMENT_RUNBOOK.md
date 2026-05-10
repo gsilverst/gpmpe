@@ -75,8 +75,9 @@ Use `aws/ecs-task-definition.template.json` as the starting point. Before first 
 5. Confirm `GIT_BRANCH` points to the staging/integration branch.
 6. Keep `GIT_PUSH_ENABLED=false` for the first deploy unless global Git credentials have been validated.
 7. Keep `AUTH_MODE=disabled` for pre-auth smoke tests, then switch to `AUTH_MODE=alb_oidc` after Cognito/ALB authentication is configured.
-8. Set `AUTH_BOOTSTRAP_TOKEN` only for the first-run Primary Admin handoff, then remove or rotate it after bootstrap.
+8. Set `AUTH_BOOTSTRAP_TOKEN` only for the active Primary Admin handoff/recovery window, then remove or rotate it after the handoff succeeds.
 9. Set `COGNITO_REGION` and `COGNITO_USER_POOL_ID` after creating the Cognito user pool.
+10. Keep `AUTH_DEPLOYER_RECOVERY_ENABLED=false` by default. Set it to `true` only when an AWS Deployer/Admin needs to assign or recover a GPMPE Primary Admin after the initial handoff.
 
 The task definition contains two containers:
 
@@ -185,6 +186,22 @@ After the AWS stack is deployed and Cognito/ALB authentication is configured:
 6. Remove or rotate the setup token after the first Primary Admin is created.
 
 The application stores only app-level user metadata, roles, business access grants, and audit/version metadata. Cognito remains responsible for login credentials, password reset, MFA/session behavior, and invite delivery.
+
+## AWS Deployer/Admin Recovery
+
+AWS Deployer/Admin and GPMPE Primary Admin are separate roles. AWS access should not automatically grant GPMPE app access, but an AWS Deployer/Admin must be able to recover the deployment if all GPMPE Primary Admin users are unavailable.
+
+For a controlled recovery handoff:
+
+1. Use AWS credentials to set or rotate the `AUTH_BOOTSTRAP_TOKEN` secret.
+2. Set `AUTH_DEPLOYER_RECOVERY_ENABLED=true` in the ECS task definition.
+3. Redeploy the ECS service.
+4. Visit `/setup` through the authenticated HTTPS application URL.
+5. Enter the new or restored Primary Admin email address and setup token.
+6. Confirm the audit log contains `auth.deployer_recovery_primary_admin`.
+7. Set `AUTH_DEPLOYER_RECOVERY_ENABLED=false`, remove or rotate `AUTH_BOOTSTRAP_TOKEN`, and redeploy.
+
+This recovery path can be reopened whenever needed by an AWS Deployer/Admin, but it should not be left enabled during normal operation.
 
 ## RDS Managed Passwords
 

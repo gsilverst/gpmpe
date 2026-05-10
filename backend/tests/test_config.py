@@ -102,6 +102,21 @@ def test_resolve_config_reads_run_mode(tmp_path: Path) -> None:
     assert config.run_mode == "aws"
 
 
+def test_resolve_config_reads_deployer_recovery_flag(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    config_path = repo_root / ".config"
+    config_path.write_text(
+        "DATA_DIR=./configured-data\n"
+        "AUTH_DEPLOYER_RECOVERY_ENABLED=true\n",
+        encoding="utf-8",
+    )
+
+    config = resolve_config(repo_root=repo_root, cwd=tmp_path)
+
+    assert config.auth_deployer_recovery_enabled is True
+
+
 def test_resolve_config_rejects_invalid_run_mode(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir(parents=True, exist_ok=True)

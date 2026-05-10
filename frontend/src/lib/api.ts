@@ -190,6 +190,7 @@ export type AuthStatus = {
   mode: string;
   enabled: boolean;
   bootstrap_required: boolean;
+  deployer_recovery_enabled: boolean;
   user_count: number;
 };
 

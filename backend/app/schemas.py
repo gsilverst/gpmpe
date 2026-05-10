@@ -239,6 +239,7 @@ class AuthStatusResponse(BaseModel):
     mode: str
     enabled: bool
     bootstrap_required: bool
+    deployer_recovery_enabled: bool
     user_count: int
 
 

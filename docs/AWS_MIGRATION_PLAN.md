@@ -255,12 +255,14 @@ Relevant test coverage:
     - The deployer's responsibility is to provision and deploy the AWS stack; the application's first-run setup should make the administrator handoff obvious instead of hiding it in environment variables or secret edits.
     - Protect first-run setup with a one-time bootstrap mechanism appropriate for AWS, such as a short-lived setup token or restricted deployer-only access path, then disable it after Primary Admin users are created.
     - Use the Primary Admin email address as the user ID and invite the user through Cognito.
-    - Current status: the app exposes `/setup`, `/auth/status`, `/auth/bootstrap`, and `/auth/me`. The bootstrap flow creates the first app-level Primary Admin mirror record using a temporary `AUTH_BOOTSTRAP_TOKEN`; it does not store or manage passwords.
+    - Keep AWS Deployer/Admin and GPMPE Primary Admin as separate roles. AWS access should not automatically grant GPMPE application access, but an AWS Deployer/Admin must be able to reopen a controlled handoff/recovery window to assign a new GPMPE Primary Admin if existing Primary Admin users are unavailable.
+    - Current status: the app exposes `/setup`, `/auth/status`, `/auth/bootstrap`, and `/auth/me`. The bootstrap flow creates the first app-level Primary Admin mirror record using a temporary `AUTH_BOOTSTRAP_TOKEN`; it does not store or manage passwords. A deployer recovery mode can be enabled with `AUTH_DEPLOYER_RECOVERY_ENABLED=true` so the same token-protected handoff can promote or create a Primary Admin after initial setup, then be disabled again.
     - Relevant test coverage:
         - Existing: `backend/tests/test_auth.py::test_auth_status_disabled_by_default`
         - Existing: `backend/tests/test_auth.py::test_auth_bootstrap_creates_primary_admin`
         - Existing: `backend/tests/test_auth.py::test_auth_bootstrap_sends_cognito_invite_when_configured`
-        - Planned: test that bootstrap cannot run after the first Primary Admin exists.
+        - Existing: `backend/tests/test_auth.py::test_auth_bootstrap_rejects_second_handoff_without_recovery_enabled`
+        - Existing: `backend/tests/test_auth.py::test_deployer_recovery_can_assign_primary_admin_after_bootstrap`
 - **Task 5.2: Cognito Identity Integration**:
     - Use Amazon Cognito for AWS-mode user identity management, including email-based login, user invitations, password reset, MFA/session controls, and token validation.
     - Allow Primary Admin/Admin users to create or invite other Admin and Regular users from the application admin dashboard, with the app calling Cognito APIs to create users and send invite emails.

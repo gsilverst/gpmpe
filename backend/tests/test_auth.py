@@ -102,6 +102,76 @@ def test_auth_bootstrap_sends_cognito_invite_when_configured(monkeypatch, tmp_pa
     assert fake_cognito.created_users[0]["Username"] == "admin@example.com"
 
 
+def test_auth_bootstrap_rejects_second_handoff_without_recovery_enabled(monkeypatch, tmp_path: Path) -> None:
+    data_dir = tmp_path / "data-dir"
+    data_dir.mkdir()
+    config_path = write_isolated_config(
+        tmp_path,
+        test_data_dir=data_dir,
+        auth_mode="dev_header",
+        auth_bootstrap_token="setup-token",
+    )
+
+    with make_test_client(monkeypatch, config_path) as client:
+        first = client.post(
+            "/auth/bootstrap",
+            headers={"X-GPMPE-Setup-Token": "setup-token"},
+            json={"primary_admin_email": "primary@example.com"},
+        )
+        second = client.post(
+            "/auth/bootstrap",
+            headers={"X-GPMPE-Setup-Token": "setup-token"},
+            json={"primary_admin_email": "recovery@example.com"},
+        )
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert second.json()["detail"] == "Primary Admin handoff is not enabled"
+
+
+def test_deployer_recovery_can_assign_primary_admin_after_bootstrap(monkeypatch, tmp_path: Path) -> None:
+    data_dir = tmp_path / "data-dir"
+    data_dir.mkdir()
+    fake_cognito = FakeCognitoClient()
+    monkeypatch.setattr("app.services.auth._cognito_client_factory", lambda region_name=None: fake_cognito)
+    config_path = write_isolated_config(
+        tmp_path,
+        test_data_dir=data_dir,
+        auth_mode="dev_header",
+        auth_bootstrap_token="setup-token",
+        auth_deployer_recovery_enabled=True,
+        cognito_user_pool_id="us-east-2_example",
+        cognito_region="us-east-2",
+    )
+
+    with make_test_client(monkeypatch, config_path) as client:
+        first = client.post(
+            "/auth/bootstrap",
+            headers={"X-GPMPE-Setup-Token": "setup-token"},
+            json={"primary_admin_email": "primary@example.com"},
+        )
+        recovery = client.post(
+            "/auth/bootstrap",
+            headers={"X-GPMPE-Setup-Token": "setup-token"},
+            json={"primary_admin_email": "recovery@example.com", "display_name": "Recovery Admin"},
+        )
+        status = client.get("/auth/status")
+        audit = client.get(
+            "/admin/audit-logs",
+            headers={"X-GPMPE-Dev-User-Email": "recovery@example.com"},
+        )
+
+    assert first.status_code == 200
+    assert recovery.status_code == 200
+    assert recovery.json()["email"] == "recovery@example.com"
+    assert recovery.json()["role"] == "primary_admin"
+    assert recovery.json()["status"] == "invited"
+    assert status.json()["bootstrap_required"] is False
+    assert status.json()["deployer_recovery_enabled"] is True
+    assert fake_cognito.created_users[-1]["Username"] == "recovery@example.com"
+    assert audit.json()["items"][0]["action"] == "auth.deployer_recovery_primary_admin"
+
+
 def test_admin_routes_require_authorized_user_when_auth_enabled(monkeypatch, tmp_path: Path) -> None:
     data_dir = tmp_path / "data-dir"
     data_dir.mkdir()
