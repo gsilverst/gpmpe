@@ -130,6 +130,17 @@ The helper creates:
 - ECS task role inline policy for `cognito-idp:AdminCreateUser`.
 - HTTPS ALB listener that authenticates with Cognito before forwarding to the app.
 
+If the deployment does not yet have a hostname and ACM certificate, create only the Cognito foundation first:
+
+```bash
+aws/setup-cognito-alb-auth.sh \
+  --cognito-only \
+  --region us-east-2 \
+  --ecs-task-role-name gpmpe-ecs-task-role
+```
+
+This creates the user pool, hosted UI domain, and ECS task-role policy for `AdminCreateUser`, but it does not create an app client or ALB listener. Keep `AUTH_MODE=disabled` and do not set `COGNITO_USER_POOL_ID` on a publicly reachable unauthenticated task, because admin invite endpoints are intentionally open while authentication is disabled.
+
 Then update the ECS task definition:
 
 1. Set `AUTH_MODE=alb_oidc`.

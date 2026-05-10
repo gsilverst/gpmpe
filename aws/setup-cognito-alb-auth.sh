@@ -14,9 +14,20 @@ Usage:
     [--name-prefix gpmpe-staging] \
     [--cognito-domain-prefix gpmpe-staging-433249887797]
 
+  setup-cognito-alb-auth.sh \
+    --cognito-only \
+    --region us-east-2 \
+    --ecs-task-role-name gpmpe-ecs-task-role \
+    [--name-prefix gpmpe-staging] \
+    [--cognito-domain-prefix gpmpe-staging-433249887797]
+
 Creates a Cognito user pool, app client, hosted UI domain, HTTPS ALB listener
 with authenticate-cognito, and an IAM policy allowing the ECS task role to
 invite users with Cognito AdminCreateUser.
+
+Use --cognito-only when the deployment does not yet have a hostname and ACM
+certificate. That creates the user pool, hosted UI domain, and ECS task-role
+invite policy, then prints the user-pool values needed for the ECS task.
 
 Prerequisites:
   - app-host must already resolve to the ALB, or be ready to do so.
@@ -33,6 +44,8 @@ TARGET_GROUP_ARN=""
 ECS_TASK_ROLE_NAME=""
 NAME_PREFIX="gpmpe-staging"
 COGNITO_DOMAIN_PREFIX=""
+COGNITO_ONLY="false"
+USER_POOL_ID=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -44,12 +57,19 @@ while [[ $# -gt 0 ]]; do
     --ecs-task-role-name) ECS_TASK_ROLE_NAME="$2"; shift 2 ;;
     --name-prefix) NAME_PREFIX="$2"; shift 2 ;;
     --cognito-domain-prefix) COGNITO_DOMAIN_PREFIX="$2"; shift 2 ;;
+    --cognito-only) COGNITO_ONLY="true"; shift ;;
+    --user-pool-id) USER_POOL_ID="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage; exit 2 ;;
   esac
 done
 
-if [[ -z "$REGION" || -z "$APP_HOST" || -z "$CERTIFICATE_ARN" || -z "$LOAD_BALANCER_ARN" || -z "$TARGET_GROUP_ARN" || -z "$ECS_TASK_ROLE_NAME" ]]; then
+if [[ -z "$REGION" || -z "$ECS_TASK_ROLE_NAME" ]]; then
+  usage >&2
+  exit 2
+fi
+
+if [[ "$COGNITO_ONLY" != "true" && ( -z "$APP_HOST" || -z "$CERTIFICATE_ARN" || -z "$LOAD_BALANCER_ARN" || -z "$TARGET_GROUP_ARN" ) ]]; then
   usage >&2
   exit 2
 fi
@@ -65,19 +85,56 @@ USER_POOL_NAME="${NAME_PREFIX}-users"
 CLIENT_NAME="${NAME_PREFIX}-alb"
 POLICY_NAME="${NAME_PREFIX}-cognito-admin-create-user"
 
-echo "Creating Cognito user pool: ${USER_POOL_NAME}"
-USER_POOL_ID="$(
-  aws cognito-idp create-user-pool \
+if [[ -z "$USER_POOL_ID" ]]; then
+  echo "Creating Cognito user pool: ${USER_POOL_NAME}"
+  USER_POOL_ID="$(
+    aws cognito-idp create-user-pool \
+      --region "$REGION" \
+      --pool-name "$USER_POOL_NAME" \
+      --username-attributes email \
+      --auto-verified-attributes email \
+      --policies 'PasswordPolicy={MinimumLength=12,RequireUppercase=true,RequireLowercase=true,RequireNumbers=true,RequireSymbols=false,TemporaryPasswordValidityDays=7}' \
+      --account-recovery-setting 'RecoveryMechanisms=[{Priority=1,Name=verified_email}]' \
+      --query 'UserPool.Id' \
+      --output text
+  )"
+
+  echo "Creating Cognito hosted UI domain: ${COGNITO_DOMAIN_PREFIX}"
+  aws cognito-idp create-user-pool-domain \
     --region "$REGION" \
-    --pool-name "$USER_POOL_NAME" \
-    --username-attributes email \
-    --auto-verified-attributes email \
-    --policies 'PasswordPolicy={MinimumLength=12,RequireUppercase=true,RequireLowercase=true,RequireNumbers=true,RequireSymbols=false,TemporaryPasswordValidityDays=7}' \
-    --account-recovery-setting 'RecoveryMechanisms=[{Priority=1,Name=verified_email}]' \
-    --query 'UserPool.Id' \
-    --output text
-)"
+    --user-pool-id "$USER_POOL_ID" \
+    --domain "$COGNITO_DOMAIN_PREFIX" >/dev/null
+fi
 USER_POOL_ARN="arn:aws:cognito-idp:${REGION}:${ACCOUNT_ID}:userpool/${USER_POOL_ID}"
+
+POLICY_DOCUMENT="$(
+  printf '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["cognito-idp:AdminCreateUser","cognito-idp:AdminGetUser"],"Resource":"%s"}]}' "$USER_POOL_ARN"
+)"
+
+echo "Granting ECS task role permission to invite Cognito users"
+aws iam put-role-policy \
+  --role-name "$ECS_TASK_ROLE_NAME" \
+  --policy-name "$POLICY_NAME" \
+  --policy-document "$POLICY_DOCUMENT" >/dev/null
+
+if [[ "$COGNITO_ONLY" == "true" ]]; then
+  cat <<SUMMARY
+
+Created Cognito authentication foundation.
+
+Set these ECS task environment values:
+  COGNITO_REGION=${REGION}
+  COGNITO_USER_POOL_ID=${USER_POOL_ID}
+
+Do not set AUTH_MODE=alb_oidc until the HTTPS ALB listener is configured.
+
+Resource outputs:
+  USER_POOL_ID=${USER_POOL_ID}
+  USER_POOL_ARN=${USER_POOL_ARN}
+  COGNITO_DOMAIN_PREFIX=${COGNITO_DOMAIN_PREFIX}
+SUMMARY
+  exit 0
+fi
 
 echo "Creating Cognito app client: ${CLIENT_NAME}"
 USER_POOL_CLIENT_ID="$(
@@ -95,22 +152,6 @@ USER_POOL_CLIENT_ID="$(
     --query 'UserPoolClient.ClientId' \
     --output text
 )"
-
-echo "Creating Cognito hosted UI domain: ${COGNITO_DOMAIN_PREFIX}"
-aws cognito-idp create-user-pool-domain \
-  --region "$REGION" \
-  --user-pool-id "$USER_POOL_ID" \
-  --domain "$COGNITO_DOMAIN_PREFIX" >/dev/null
-
-POLICY_DOCUMENT="$(
-  printf '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["cognito-idp:AdminCreateUser","cognito-idp:AdminGetUser"],"Resource":"%s"}]}' "$USER_POOL_ARN"
-)"
-
-echo "Granting ECS task role permission to invite Cognito users"
-aws iam put-role-policy \
-  --role-name "$ECS_TASK_ROLE_NAME" \
-  --policy-name "$POLICY_NAME" \
-  --policy-document "$POLICY_DOCUMENT" >/dev/null
 
 echo "Creating HTTPS listener with authenticate-cognito"
 HTTPS_LISTENER_ARN="$(

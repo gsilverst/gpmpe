@@ -338,12 +338,13 @@ Future work:
 - The staging ECS image was rebuilt and redeployed with S3 import support on May 8, 2026.
 - A real S3-backed business import smoke test succeeded from preview through import, RDS sync, EFS write, business/campaign API reads, data-manager reads, and audit-log recording.
 - A deployment-owned business package was then imported as a separate business, confirming that previously built campaigns can be selected in the browser, rendered, and viewed in the flyer previewer after import. Proprietary package names, campaign details, and ZIP contents are intentionally kept out of this public example.
+- The Cognito foundation for login was created in `us-east-2` with user pool `gpmpe-staging-users` (`us-east-2_uceahCfsU`) and hosted UI domain prefix `gpmpe-staging-433249887797`. The ECS task role has a scoped inline policy allowing `AdminCreateUser`/`AdminGetUser` against that pool.
 
 ## Current Limitations
 
 - This is a staging deployment, not a production hardening guide.
 - HTTPS/custom domain are not yet configured in this example.
-- Authentication/RBAC/admin-only enforcement is not complete.
+- Browser login is not yet enabled because the deployment still needs a real application hostname, same-region ACM certificate, HTTPS ALB listener, and Cognito app client callback wiring.
 - Git push/pull automation is not fully validated in AWS.
 - Business-specific Git repository settings are documented as the desired model but not fully implemented.
 - The admin UI does not yet expose the import flow.
