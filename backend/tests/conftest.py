@@ -22,6 +22,8 @@ def write_isolated_config(
     openrouter_api_key: str | None = None,
     auth_mode: str | None = None,
     auth_bootstrap_token: str | None = None,
+    cognito_user_pool_id: str | None = None,
+    cognito_region: str | None = None,
 ) -> Path:
     config_path = tmp_path / ".config"
     output_dir = output_dir or (tmp_path / "output")
@@ -51,6 +53,10 @@ def write_isolated_config(
         lines.append(f"AUTH_MODE={auth_mode}")
     if auth_bootstrap_token:
         lines.append(f"AUTH_BOOTSTRAP_TOKEN={auth_bootstrap_token}")
+    if cognito_user_pool_id:
+        lines.append(f"COGNITO_USER_POOL_ID={cognito_user_pool_id}")
+    if cognito_region:
+        lines.append(f"COGNITO_REGION={cognito_region}")
 
     config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return config_path

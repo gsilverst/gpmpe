@@ -218,7 +218,11 @@ To secure the application in AWS and support multi-user workflows, GPMPE should 
 Relevant test coverage:
 - Existing: `backend/tests/test_auth.py::test_auth_status_disabled_by_default`
 - Existing: `backend/tests/test_auth.py::test_auth_bootstrap_creates_primary_admin`
+- Existing: `backend/tests/test_auth.py::test_auth_bootstrap_sends_cognito_invite_when_configured`
 - Existing: `backend/tests/test_auth.py::test_admin_routes_require_authorized_user_when_auth_enabled`
+- Existing: `backend/tests/test_auth.py::test_primary_admin_invites_regular_user_with_business_access`
+- Existing: `backend/tests/test_auth.py::test_admin_user_cannot_invite_admin`
+- Existing: `backend/tests/test_auth.py::test_admin_invite_sends_cognito_invite_when_configured`
 - Existing: `backend/tests/test_auth.py::test_alb_oidc_identity_maps_to_app_user`
 - Planned: tests for Primary Admin, Admin, and Regular User permission differences once role enforcement expands beyond admin-route guards.
 
@@ -236,7 +240,8 @@ Relevant test coverage:
 Relevant test coverage:
 - Existing foundation: `backend/tests/test_auth.py::test_admin_routes_require_authorized_user_when_auth_enabled`
 - Existing foundation: `backend/tests/test_auth.py::test_alb_oidc_identity_maps_to_app_user`
-- Planned: tests for business-level grants allowing one Regular User to access multiple businesses.
+- Existing foundation: `backend/tests/test_auth.py::test_primary_admin_invites_regular_user_with_business_access`
+- Planned: tests for business-level grants allowing one Regular User to access multiple businesses beyond the initial single-business invite case.
 - Planned: tests for `all_business_users_can_access_campaigns=true`.
 - Planned: tests for `all_business_users_can_access_campaigns=false`.
 - Planned: tests for campaign creator/owner default access.
@@ -254,18 +259,20 @@ Relevant test coverage:
     - Relevant test coverage:
         - Existing: `backend/tests/test_auth.py::test_auth_status_disabled_by_default`
         - Existing: `backend/tests/test_auth.py::test_auth_bootstrap_creates_primary_admin`
+        - Existing: `backend/tests/test_auth.py::test_auth_bootstrap_sends_cognito_invite_when_configured`
         - Planned: test that bootstrap cannot run after the first Primary Admin exists.
-        - Planned: test that bootstrap creates a Cognito invite once Cognito admin APIs are wired.
 - **Task 5.2: Cognito Identity Integration**:
     - Use Amazon Cognito for AWS-mode user identity management, including email-based login, user invitations, password reset, MFA/session controls, and token validation.
     - Allow Primary Admin/Admin users to create or invite other Admin and Regular users from the application admin dashboard, with the app calling Cognito APIs to create users and send invite emails.
     - Decide whether broad role eligibility is represented in Cognito groups, app database records, or both. The preferred split is that Cognito handles authentication and optional coarse groups, while the app database stores application-specific roles, business access grants, and audit/version data.
     - Defer the local-mode authentication design until the AWS flow is concrete. Local mode may use a lighter-weight approximation later, but the AWS security model should lead the design.
-    - Current status: the backend can read trusted AWS ALB/Cognito identity headers in `AUTH_MODE=alb_oidc` and map the authenticated email to an app user record. Full Cognito user pool, app client, hosted UI, ALB authentication action, and admin invite integration remain TODO.
+    - Current status: the backend can read trusted AWS ALB/Cognito identity headers in `AUTH_MODE=alb_oidc`, map the authenticated email to an app user record, and call Cognito `AdminCreateUser` through the admin invite/bootstrap flows when `COGNITO_USER_POOL_ID` is configured. Full Cognito user pool, app client, hosted UI, and ALB authentication action remain TODO.
     - Relevant test coverage:
         - Existing: `backend/tests/test_auth.py::test_alb_oidc_identity_maps_to_app_user`
         - Existing: `backend/tests/test_auth.py::test_admin_routes_require_authorized_user_when_auth_enabled`
-        - Planned: tests for Cognito `AdminCreateUser` invite success/failure with mocked AWS responses.
+        - Existing: `backend/tests/test_auth.py::test_auth_bootstrap_sends_cognito_invite_when_configured`
+        - Existing: `backend/tests/test_auth.py::test_admin_invite_sends_cognito_invite_when_configured`
+        - Planned: tests for Cognito `AdminCreateUser` failure paths with mocked AWS responses.
         - Planned: tests for users authenticated by Cognito but missing app-user records.
         - Planned: tests for inactive app users.
 - **Task 5.3: Backend Authorization**:
@@ -273,9 +280,11 @@ Relevant test coverage:
     - Add application data tables, or a logically separate authorization schema/database if desired, for user profile mirrors, app roles, business access grants, and audit metadata.
     - Treat those tables as application data that Cognito-backed authorization uses; do not store user passwords or raw authentication secrets in the application database.
     - Add campaign-access policy and grant tables for business defaults, campaign owners, per-campaign view/edit grants, and access-request workflow state.
-    - Current status: app user and business-access grant tables exist. Admin settings, audit log, and business import endpoints are guarded by the new admin dependency whenever authentication is enabled; local/default deployments remain `AUTH_MODE=disabled`.
+    - Current status: app user and business-access grant tables exist. Admin settings, audit log, business import endpoints, and user invite/list endpoints are guarded by the admin dependency whenever authentication is enabled; local/default deployments remain `AUTH_MODE=disabled`.
     - Relevant test coverage:
         - Existing: `backend/tests/test_auth.py::test_admin_routes_require_authorized_user_when_auth_enabled`
+        - Existing: `backend/tests/test_auth.py::test_primary_admin_invites_regular_user_with_business_access`
+        - Existing: `backend/tests/test_auth.py::test_admin_user_cannot_invite_admin`
         - Existing: `backend/tests/test_admin_settings.py::test_admin_git_settings_save_metadata_secret_and_audit`
         - Existing: `backend/tests/test_admin_settings.py::test_admin_business_git_settings_save_secret_and_audit`
         - Existing: `backend/tests/test_business_import.py::test_admin_business_import_preview_and_import`
@@ -294,9 +303,12 @@ Relevant test coverage:
         - Existing: `backend/tests/test_admin_settings.py::test_admin_business_git_settings_inherit_global_until_overridden`
         - Existing: `backend/tests/test_admin_settings.py::test_admin_business_git_settings_save_secret_and_audit`
         - Existing: `frontend/tests/api.test.ts`
+        - Existing: `frontend/tests/admin-page.test.tsx`
         - Existing: `frontend/tests/page.test.tsx`
-        - Planned: frontend tests for the first-run setup page.
-        - Planned: frontend/backend tests for admin user invites, business access grants, campaign grants, and access-request review.
+        - Existing: `frontend/tests/setup-page.test.tsx`
+        - Existing backend: `backend/tests/test_auth.py::test_primary_admin_invites_regular_user_with_business_access`
+        - Existing backend: `backend/tests/test_auth.py::test_admin_invite_sends_cognito_invite_when_configured`
+        - Planned: frontend/backend tests for campaign grants and access-request review.
 
 ### 9.3 AWS Multi-User Editing And Versioning
 - AWS deployments should support multiple users editing the same campaign, business profile, or future business card by using per-user/per-object draft workspaces rather than direct concurrent mutation of canonical database rows.

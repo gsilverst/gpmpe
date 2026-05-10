@@ -134,10 +134,11 @@ For the initial release, rollback should be image-based:
 After the AWS stack is deployed and Cognito/ALB authentication is configured:
 
 1. Set `AUTH_MODE=alb_oidc` on the ECS task.
-2. Set a temporary `AUTH_BOOTSTRAP_TOKEN` value for the first setup run.
-3. Visit `/setup` through the AWS application URL.
-4. Enter the Primary Admin email address and setup token.
-5. Remove or rotate the setup token after the first Primary Admin is created.
+2. Set `COGNITO_USER_POOL_ID` and `COGNITO_REGION` so the app can send Cognito invitations through `AdminCreateUser`.
+3. Set a temporary `AUTH_BOOTSTRAP_TOKEN` value for the first setup run.
+4. Visit `/setup` through the AWS application URL.
+5. Enter the Primary Admin email address and setup token.
+6. Remove or rotate the setup token after the first Primary Admin is created.
 
 The application stores only app-level user metadata, roles, business access grants, and audit/version metadata. Cognito remains responsible for login credentials, password reset, MFA/session behavior, and invite delivery.
 

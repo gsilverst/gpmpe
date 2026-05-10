@@ -180,13 +180,17 @@ Objective:
 - Add audit logging for credential and repository configuration changes, including actor, timestamp, scope, repository metadata, and rotation timestamp.
 - Restrict credential administration to Primary Admin/Admin users; regular users must not be able to view or modify runtime credentials.
 - Prefer business-profile-specific Git repositories and credentials as the long-term source-control model. Global Git settings may remain as defaults or bootstrap settings, but each business should be managed independently in Git so repository ownership aligns with business ownership.
-- Current status: a basic admin Git settings page, metadata model, local/AWS secret-provider abstraction, audit-log endpoint, app-user role mirror tables, first-run setup page, and admin-route authorization dependency exist. Full Cognito/ALB infrastructure wiring, user invite management, business access administration, and complete credential administration UX are not yet implemented.
+- Current status: a basic admin Git settings page, metadata model, local/AWS secret-provider abstraction, audit-log endpoint, app-user role mirror tables, first-run setup page, admin-route authorization dependency, and initial admin user-invite/business-grant flow exist. Full Cognito/ALB infrastructure wiring, campaign access administration, access-request workflow, and complete credential administration UX are not yet implemented.
 - Update the user guide with a dedicated administrator section covering the admin page, user management, role assignment, business-profile access, runtime configuration, business data repository setup, credential rotation, and audit-log review.
 
 Relevant test coverage:
 - Existing: `backend/tests/test_auth.py::test_auth_status_disabled_by_default`
 - Existing: `backend/tests/test_auth.py::test_auth_bootstrap_creates_primary_admin`
+- Existing: `backend/tests/test_auth.py::test_auth_bootstrap_sends_cognito_invite_when_configured`
 - Existing: `backend/tests/test_auth.py::test_admin_routes_require_authorized_user_when_auth_enabled`
+- Existing: `backend/tests/test_auth.py::test_primary_admin_invites_regular_user_with_business_access`
+- Existing: `backend/tests/test_auth.py::test_admin_user_cannot_invite_admin`
+- Existing: `backend/tests/test_auth.py::test_admin_invite_sends_cognito_invite_when_configured`
 - Existing: `backend/tests/test_auth.py::test_alb_oidc_identity_maps_to_app_user`
 - Existing: `backend/tests/test_admin_settings.py::test_admin_git_settings_default_to_config_values`
 - Existing: `backend/tests/test_admin_settings.py::test_admin_git_settings_save_metadata_secret_and_audit`
@@ -194,7 +198,9 @@ Relevant test coverage:
 - Existing: `backend/tests/test_admin_settings.py::test_admin_business_git_settings_save_secret_and_audit`
 - Existing: `backend/tests/test_business_import.py::test_admin_business_import_preview_and_import`
 - Existing: `backend/tests/test_business_import.py::test_admin_business_import_from_s3`
-- Planned: tests for business-level access grants across multiple businesses.
+- Existing: `frontend/tests/admin-page.test.tsx`
+- Existing: `frontend/tests/setup-page.test.tsx`
+- Planned: tests for business-level access grants across multiple businesses beyond the initial single-business invite case.
 - Planned: tests for the business campaign-access default where all business users can access all campaigns.
 - Planned: tests for the restricted campaign-access default where regular users can access only campaigns they created or were granted.
 - Planned: tests for campaign owner invitations, admin grant/deny actions, and user access-request approval/denial.

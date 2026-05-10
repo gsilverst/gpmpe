@@ -14,6 +14,7 @@ from ..services.auth import (
     count_app_users,
     normalize_email,
     principal_from_request,
+    send_cognito_invite,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -74,11 +75,13 @@ def bootstrap_primary_admin(
         raise HTTPException(status_code=403, detail="Invalid setup token")
 
     email = normalize_email(payload.primary_admin_email)
+    send_cognito_invite(config, email=email, display_name=payload.display_name)
+    status = "invited" if config.cognito_user_pool_id else "active"
     user = AppUser(
         email=email,
         display_name=payload.display_name,
         role="primary_admin",
-        status="active",
+        status=status,
     )
     db.add(user)
     db.add(
@@ -86,7 +89,14 @@ def bootstrap_primary_admin(
             actor=email,
             action="auth.bootstrap_primary_admin",
             scope="global",
-            metadata_json=json.dumps({"email": email}, sort_keys=True),
+            metadata_json=json.dumps(
+                {
+                    "email": email,
+                    "status": status,
+                    "cognito_invite_sent": bool(config.cognito_user_pool_id),
+                },
+                sort_keys=True,
+            ),
         )
     )
     db.commit()

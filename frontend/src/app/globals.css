@@ -567,6 +567,17 @@ small {
   gap: 0.55rem;
 }
 
+.checkbox-stack {
+  display: grid;
+  gap: 0.45rem;
+}
+
+fieldset.stacked-label {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
 .audit-list {
   list-style: none;
   padding: 0;

@@ -5,7 +5,13 @@ from sqlalchemy.orm import Session
 
 from ..config import resolve_config
 from ..dependencies import get_db_session, require_business
-from ..schemas import BusinessImportS3Request, RuntimeGitSettingsRequest, RuntimeGitSettingsResponse
+from ..schemas import (
+    AdminUserInviteRequest,
+    AdminUserResponse,
+    BusinessImportS3Request,
+    RuntimeGitSettingsRequest,
+    RuntimeGitSettingsResponse,
+)
 from ..services.business_import import (
     BusinessImportError,
     import_business_s3_zip,
@@ -13,7 +19,7 @@ from ..services.business_import import (
     preview_business_s3_zip,
     preview_business_zip,
 )
-from ..services.auth import actor_from_request, require_admin_principal
+from ..services.auth import actor_from_request, invite_app_user, list_app_users, require_admin_principal
 from ..services.runtime_settings import (
     get_business_git_settings,
     get_runtime_git_settings,
@@ -24,6 +30,27 @@ from ..services.runtime_settings import (
 from ..services.secret_store import SecretStoreError
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.get("/users", response_model=dict[str, list[AdminUserResponse]])
+def read_admin_users(
+    request: Request,
+    db: Session = Depends(get_db_session),
+) -> dict[str, list[AdminUserResponse]]:
+    require_admin_principal(db, request)
+    return {"items": list_app_users(db)}
+
+
+@router.post("/users/invitations", response_model=AdminUserResponse, status_code=201)
+def create_admin_user_invitation(
+    request: Request,
+    payload: AdminUserInviteRequest,
+    db: Session = Depends(get_db_session),
+    x_gpmpe_actor: str | None = Header(default=None),
+) -> AdminUserResponse:
+    principal = require_admin_principal(db, request)
+    actor = principal.actor if principal.authenticated else (x_gpmpe_actor or "system").strip() or "system"
+    return invite_app_user(db, resolve_config(), payload, inviter=principal, actor=actor)
 
 
 @router.get("/git-settings", response_model=RuntimeGitSettingsResponse)

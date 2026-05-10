@@ -202,6 +202,24 @@ export type CurrentUser = {
   auth_mode: string;
 };
 
+export type AdminUser = {
+  id: number;
+  email: string;
+  display_name: string | null;
+  role: "primary_admin" | "admin" | "regular" | string;
+  status: "active" | "invited" | string;
+  business_ids: number[];
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type AdminUserInvitePayload = {
+  email: string;
+  display_name?: string | null;
+  role: "admin" | "regular";
+  business_ids?: number[];
+};
+
 export function apiBaseUrl(): string {
   const configured = process.env.NEXT_PUBLIC_API_BASE_URL;
   if (configured && configured.trim() !== "") {
@@ -690,6 +708,41 @@ export async function bootstrapPrimaryAdmin(
   }
 
   return (await response.json()) as CurrentUser;
+}
+
+export async function fetchAdminUsers(baseUrl = apiBaseUrl()): Promise<AdminUser[]> {
+  const payload = await fetchJson<{ items: AdminUser[] }>("/admin/users", baseUrl);
+  return payload.items;
+}
+
+export async function inviteAdminUser(
+  payload: AdminUserInvitePayload,
+  baseUrl = apiBaseUrl()
+): Promise<AdminUser> {
+  const response = await fetch(`${baseUrl}/admin/users/invitations`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "X-GPMPE-Actor": "admin-ui",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const errorData = await response.json();
+      if (typeof errorData?.detail === "string") {
+        detail = ` - ${errorData.detail}`;
+      }
+    } catch {
+      // Ignore JSON parse failures for non-JSON error responses.
+    }
+    throw new ApiError(response.status, `Request failed: ${response.status}${detail}`);
+  }
+
+  return (await response.json()) as AdminUser;
 }
 
 export type StartupStatusReport = {

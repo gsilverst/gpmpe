@@ -251,6 +251,32 @@ class CurrentUserResponse(BaseModel):
     auth_mode: str
 
 
+class AdminUserInviteRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    display_name: str | None = Field(default=None, max_length=200)
+    role: Literal["admin", "regular"] = "regular"
+    business_ids: list[int] = Field(default_factory=list)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if "@" not in normalized:
+            raise ValueError("email must be an email address")
+        return normalized
+
+
+class AdminUserResponse(BaseModel):
+    id: int
+    email: str
+    display_name: str | None = None
+    role: str
+    status: str
+    business_ids: list[int] = Field(default_factory=list)
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
 class RuntimeGitSettingsResponse(BaseModel):
     scope: str = "global"
     source: str = "database"

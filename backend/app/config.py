@@ -26,6 +26,8 @@ class AppConfig:
     openrouter_api_key: str | None = None
     auth_mode: str = "disabled"
     auth_bootstrap_token: str | None = None
+    cognito_user_pool_id: str | None = None
+    cognito_region: str | None = None
 
 
 def _parse_bool(value: str | None, *, default: bool = False) -> bool:
@@ -202,4 +204,6 @@ def resolve_config(
         openrouter_api_key=_config_value(values, "OPENROUTER_API_KEY") or None,
         auth_mode=_parse_auth_mode(_config_value(values, "AUTH_MODE")),
         auth_bootstrap_token=_config_value(values, "AUTH_BOOTSTRAP_TOKEN") or None,
+        cognito_user_pool_id=_config_value(values, "COGNITO_USER_POOL_ID") or None,
+        cognito_region=_config_value(values, "COGNITO_REGION") or _config_value(values, "AWS_REGION") or None,
     )
