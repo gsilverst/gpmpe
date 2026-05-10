@@ -44,6 +44,8 @@ Before running an adapted deploy workflow from the deployment owner's repository
 | EFS access point IDs | `/app/data` and `/app/output` mounts |
 | CloudWatch log group | ECS container logs |
 | Deployment OIDC role ARN | `AWS_DEPLOY_ROLE_ARN` GitHub secret or equivalent CI setting |
+| Application host name | Cognito callback URL and HTTPS user entry point |
+| ACM certificate ARN | HTTPS ALB listener for Cognito authentication |
 
 ## Deployment CI Configuration
 
@@ -74,6 +76,7 @@ Use `aws/ecs-task-definition.template.json` as the starting point. Before first 
 6. Keep `GIT_PUSH_ENABLED=false` for the first deploy unless global Git credentials have been validated.
 7. Keep `AUTH_MODE=disabled` for pre-auth smoke tests, then switch to `AUTH_MODE=alb_oidc` after Cognito/ALB authentication is configured.
 8. Set `AUTH_BOOTSTRAP_TOKEN` only for the first-run Primary Admin handoff, then remove or rotate it after bootstrap.
+9. Set `COGNITO_REGION` and `COGNITO_USER_POOL_ID` after creating the Cognito user pool.
 
 The task definition contains two containers:
 
@@ -94,6 +97,47 @@ The task definition contains two containers:
 5. Run the deployment owner's deploy workflow manually with an image tag such as `staging-YYYYMMDD-HHMM`.
 6. Wait for ECS service stability.
 7. Open the load balancer target and check `/health`.
+
+## Cognito And ALB Login Setup
+
+The recommended AWS login shape is Cognito hosted UI in front of the application through an HTTPS ALB listener. The application then trusts the ALB-provided OIDC headers, maps the authenticated email to an app user record, and enforces application roles and business grants from RDS.
+
+Prerequisites:
+
+- A real application host name, such as `staging.example.com`, that users will open in the browser.
+- An ACM certificate for that host name in the same AWS region as the ALB.
+- DNS for the host name pointing to the ALB.
+- The ALB security group allowing inbound HTTPS `443` from the desired client source.
+
+After those prerequisites exist, run the helper from the deployment repository or an operator workstation:
+
+```bash
+aws/setup-cognito-alb-auth.sh \
+  --region us-east-2 \
+  --app-host staging.example.com \
+  --certificate-arn arn:aws:acm:us-east-2:ACCOUNT_ID:certificate/CERTIFICATE_ID \
+  --load-balancer-arn arn:aws:elasticloadbalancing:us-east-2:ACCOUNT_ID:loadbalancer/app/gpmpe-staging-alb/ALB_ID \
+  --target-group-arn arn:aws:elasticloadbalancing:us-east-2:ACCOUNT_ID:targetgroup/gpmpe-staging-tg/TG_ID \
+  --ecs-task-role-name gpmpe-ecs-task-role
+```
+
+The helper creates:
+
+- Cognito user pool with email usernames.
+- Cognito app client with a client secret for ALB authentication.
+- Cognito hosted UI domain.
+- ECS task role inline policy for `cognito-idp:AdminCreateUser`.
+- HTTPS ALB listener that authenticates with Cognito before forwarding to the app.
+
+Then update the ECS task definition:
+
+1. Set `AUTH_MODE=alb_oidc`.
+2. Set `COGNITO_REGION` to the deployment region.
+3. Set `COGNITO_USER_POOL_ID` to the helper output.
+4. Keep `AUTH_BOOTSTRAP_TOKEN` as an ECS secret only until first setup has completed.
+5. Redeploy the ECS service and open `/auth/status` through the HTTPS host.
+
+For the current staging deployment, this step is blocked until a host name and ACM certificate are selected. Do not switch the public staging app to `AUTH_MODE=alb_oidc` until the HTTPS listener is active; otherwise direct HTTP requests will lack trusted OIDC headers and the app will correctly reject them.
 
 ## Staging Validation
 
