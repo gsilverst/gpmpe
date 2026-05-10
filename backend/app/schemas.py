@@ -222,6 +222,35 @@ class BusinessImportS3Request(BaseModel):
         return value.strip()
 
 
+class AuthBootstrapRequest(BaseModel):
+    primary_admin_email: str = Field(min_length=3, max_length=320)
+    display_name: str | None = Field(default=None, max_length=200)
+
+    @field_validator("primary_admin_email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if "@" not in normalized:
+            raise ValueError("primary_admin_email must be an email address")
+        return normalized
+
+
+class AuthStatusResponse(BaseModel):
+    mode: str
+    enabled: bool
+    bootstrap_required: bool
+    user_count: int
+
+
+class CurrentUserResponse(BaseModel):
+    authenticated: bool
+    email: str | None = None
+    display_name: str | None = None
+    role: str | None = None
+    status: str | None = None
+    auth_mode: str
+
+
 class RuntimeGitSettingsResponse(BaseModel):
     scope: str = "global"
     source: str = "database"

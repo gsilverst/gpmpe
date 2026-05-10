@@ -20,6 +20,8 @@ def write_isolated_config(
     git_user_name: str | None = None,
     git_user_email: str | None = None,
     openrouter_api_key: str | None = None,
+    auth_mode: str | None = None,
+    auth_bootstrap_token: str | None = None,
 ) -> Path:
     config_path = tmp_path / ".config"
     output_dir = output_dir or (tmp_path / "output")
@@ -45,6 +47,10 @@ def write_isolated_config(
         lines.append(f"GIT_USER_EMAIL={git_user_email}")
     if openrouter_api_key:
         lines.append(f"OPENROUTER_API_KEY={openrouter_api_key}")
+    if auth_mode:
+        lines.append(f"AUTH_MODE={auth_mode}")
+    if auth_bootstrap_token:
+        lines.append(f"AUTH_BOOTSTRAP_TOKEN={auth_bootstrap_token}")
 
     config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return config_path

@@ -186,6 +186,22 @@ export type AdminAuditLog = {
   created_at: string | null;
 };
 
+export type AuthStatus = {
+  mode: string;
+  enabled: boolean;
+  bootstrap_required: boolean;
+  user_count: number;
+};
+
+export type CurrentUser = {
+  authenticated: boolean;
+  email: string | null;
+  display_name: string | null;
+  role: string | null;
+  status: string | null;
+  auth_mode: string;
+};
+
 export function apiBaseUrl(): string {
   const configured = process.env.NEXT_PUBLIC_API_BASE_URL;
   if (configured && configured.trim() !== "") {
@@ -635,6 +651,45 @@ export async function updateBusinessGitSettings(
 export async function fetchAdminAuditLogs(baseUrl = apiBaseUrl()): Promise<AdminAuditLog[]> {
   const payload = await fetchJson<{ items: AdminAuditLog[] }>("/admin/audit-logs", baseUrl);
   return payload.items;
+}
+
+export async function fetchAuthStatus(baseUrl = apiBaseUrl()): Promise<AuthStatus> {
+  return fetchJson<AuthStatus>("/auth/status", baseUrl);
+}
+
+export async function fetchCurrentUser(baseUrl = apiBaseUrl()): Promise<CurrentUser> {
+  return fetchJson<CurrentUser>("/auth/me", baseUrl);
+}
+
+export async function bootstrapPrimaryAdmin(
+  payload: { primary_admin_email: string; display_name?: string },
+  setupToken: string,
+  baseUrl = apiBaseUrl()
+): Promise<CurrentUser> {
+  const response = await fetch(`${baseUrl}/auth/bootstrap`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "X-GPMPE-Setup-Token": setupToken,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const errorData = await response.json();
+      if (typeof errorData?.detail === "string") {
+        detail = ` - ${errorData.detail}`;
+      }
+    } catch {
+      // Ignore JSON parse failures for non-JSON error responses.
+    }
+    throw new ApiError(response.status, `Request failed: ${response.status}${detail}`);
+  }
+
+  return (await response.json()) as CurrentUser;
 }
 
 export type StartupStatusReport = {

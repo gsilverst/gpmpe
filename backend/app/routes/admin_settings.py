@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from ..config import resolve_config
@@ -13,6 +13,7 @@ from ..services.business_import import (
     preview_business_s3_zip,
     preview_business_zip,
 )
+from ..services.auth import actor_from_request, require_admin_principal
 from ..services.runtime_settings import (
     get_business_git_settings,
     get_runtime_git_settings,
@@ -26,17 +27,22 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 @router.get("/git-settings", response_model=RuntimeGitSettingsResponse)
-def read_git_settings(db: Session = Depends(get_db_session)) -> RuntimeGitSettingsResponse:
+def read_git_settings(
+    request: Request,
+    db: Session = Depends(get_db_session),
+) -> RuntimeGitSettingsResponse:
+    require_admin_principal(db, request)
     return get_runtime_git_settings(db, resolve_config())
 
 
 @router.put("/git-settings", response_model=RuntimeGitSettingsResponse)
 def update_git_settings(
+    request: Request,
     payload: RuntimeGitSettingsRequest,
     db: Session = Depends(get_db_session),
     x_gpmpe_actor: str | None = Header(default=None),
 ) -> RuntimeGitSettingsResponse:
-    actor = (x_gpmpe_actor or "system").strip() or "system"
+    actor = actor_from_request(db, request, x_gpmpe_actor)
     try:
         return upsert_runtime_git_settings(db, resolve_config(), payload, actor=actor)
     except SecretStoreError as error:
@@ -46,22 +52,25 @@ def update_git_settings(
 
 @router.get("/businesses/{business_id}/git-settings", response_model=RuntimeGitSettingsResponse)
 def read_business_git_settings(
+    request: Request,
     business_id: int,
     db: Session = Depends(get_db_session),
 ) -> RuntimeGitSettingsResponse:
+    require_admin_principal(db, request)
     require_business(db, business_id)
     return get_business_git_settings(db, resolve_config(), business_id)
 
 
 @router.put("/businesses/{business_id}/git-settings", response_model=RuntimeGitSettingsResponse)
 def update_business_git_settings(
+    request: Request,
     business_id: int,
     payload: RuntimeGitSettingsRequest,
     db: Session = Depends(get_db_session),
     x_gpmpe_actor: str | None = Header(default=None),
 ) -> RuntimeGitSettingsResponse:
     require_business(db, business_id)
-    actor = (x_gpmpe_actor or "system").strip() or "system"
+    actor = actor_from_request(db, request, x_gpmpe_actor)
     try:
         return upsert_business_git_settings(db, resolve_config(), business_id, payload, actor=actor)
     except SecretStoreError as error:
@@ -71,18 +80,22 @@ def update_business_git_settings(
 
 @router.get("/audit-logs")
 def read_audit_logs(
+    request: Request,
     limit: int = 25,
     db: Session = Depends(get_db_session),
 ) -> dict[str, object]:
+    require_admin_principal(db, request)
     bounded_limit = max(1, min(limit, 100))
     return {"items": list_admin_audit_logs(db, limit=bounded_limit)}
 
 
 @router.post("/business-imports/preview")
 def preview_business_import(
+    request: Request,
     package: bytes = Body(..., media_type="application/zip"),
     db: Session = Depends(get_db_session),
 ) -> dict[str, object]:
+    require_admin_principal(db, request)
     try:
         preview = preview_business_zip(db, resolve_config(), package)
     except BusinessImportError as error:
@@ -101,12 +114,13 @@ def preview_business_import(
 
 @router.post("/business-imports")
 def create_business_import(
+    request: Request,
     conflict_action: str = "reject",
     package: bytes = Body(..., media_type="application/zip"),
     db: Session = Depends(get_db_session),
     x_gpmpe_actor: str | None = Header(default=None),
 ) -> dict[str, object]:
-    actor = (x_gpmpe_actor or "system").strip() or "system"
+    actor = actor_from_request(db, request, x_gpmpe_actor)
     try:
         preview, summary = import_business_zip(
             db,
@@ -131,9 +145,11 @@ def create_business_import(
 
 @router.post("/business-imports/s3/preview")
 def preview_s3_business_import(
+    request: Request,
     payload: BusinessImportS3Request,
     db: Session = Depends(get_db_session),
 ) -> dict[str, object]:
+    require_admin_principal(db, request)
     try:
         preview = preview_business_s3_zip(db, resolve_config(), payload.s3_uri)
     except BusinessImportError as error:
@@ -154,11 +170,12 @@ def preview_s3_business_import(
 
 @router.post("/business-imports/s3")
 def create_s3_business_import(
+    request: Request,
     payload: BusinessImportS3Request,
     db: Session = Depends(get_db_session),
     x_gpmpe_actor: str | None = Header(default=None),
 ) -> dict[str, object]:
-    actor = (x_gpmpe_actor or "system").strip() or "system"
+    actor = actor_from_request(db, request, x_gpmpe_actor)
     try:
         preview, summary = import_business_s3_zip(
             db,

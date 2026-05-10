@@ -32,6 +32,7 @@ from .models import (
 )
 from .routes.admin_settings import router as admin_settings_router
 from .routes.artifacts import router as artifacts_router
+from .routes.auth import router as auth_router
 from .routes.business_campaigns import router as business_campaigns_router
 from .routes.chat import create_chat_router
 from .routes.components import router as components_router
@@ -150,6 +151,7 @@ def create_app() -> FastAPI:
 
     app.include_router(admin_settings_router)
     app.include_router(artifacts_router)
+    app.include_router(auth_router)
     app.include_router(business_campaigns_router)
     app.include_router(create_chat_router(chat_store))
     app.include_router(components_router)
@@ -167,6 +169,10 @@ def create_app() -> FastAPI:
         @app.get("/data-manager", include_in_schema=False)
         def data_manager_frontend() -> FileResponse:
             return FileResponse(static_dir / "data-manager.html")
+
+        @app.get("/setup", include_in_schema=False)
+        def setup_frontend() -> FileResponse:
+            return FileResponse(static_dir / "setup.html")
 
         app.mount("/", StaticFiles(directory=static_dir, html=True), name="frontend-static")
 

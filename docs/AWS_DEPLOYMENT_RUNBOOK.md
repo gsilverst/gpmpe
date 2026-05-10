@@ -72,6 +72,8 @@ Use `aws/ecs-task-definition.template.json` as the starting point. Before first 
 4. Confirm the CloudWatch log group exists or let infrastructure provisioning create it.
 5. Confirm `GIT_BRANCH` points to the staging/integration branch.
 6. Keep `GIT_PUSH_ENABLED=false` for the first deploy unless global Git credentials have been validated.
+7. Keep `AUTH_MODE=disabled` for pre-auth smoke tests, then switch to `AUTH_MODE=alb_oidc` after Cognito/ALB authentication is configured.
+8. Set `AUTH_BOOTSTRAP_TOKEN` only for the first-run Primary Admin handoff, then remove or rotate it after bootstrap.
 
 The task definition contains two containers:
 
@@ -125,4 +127,22 @@ For the initial release, rollback should be image-based:
 - EFS backup policy is enabled.
 - Secrets rotation process is documented.
 - Git push remains disabled until global service credentials and branch protections are confirmed.
-- Admin-only credential management is tracked for Phase 5/RBAC work.
+- Admin-only credential management is guarded by the app authorization dependency when authentication is enabled. The current AWS target is ALB/Cognito authentication in front of the app, with app-level user and role mirrors stored in RDS.
+
+## First-Run Admin Handoff
+
+After the AWS stack is deployed and Cognito/ALB authentication is configured:
+
+1. Set `AUTH_MODE=alb_oidc` on the ECS task.
+2. Set a temporary `AUTH_BOOTSTRAP_TOKEN` value for the first setup run.
+3. Visit `/setup` through the AWS application URL.
+4. Enter the Primary Admin email address and setup token.
+5. Remove or rotate the setup token after the first Primary Admin is created.
+
+The application stores only app-level user metadata, roles, business access grants, and audit/version metadata. Cognito remains responsible for login credentials, password reset, MFA/session behavior, and invite delivery.
+
+## RDS Managed Passwords
+
+If the RDS instance uses AWS-managed master password rotation, treat the RDS-managed master secret as the source of truth. The application `DATABASE_URL` secret must be rebuilt from that managed secret whenever the managed password changes.
+
+Do not set `--master-user-password` manually on a managed-password RDS instance, and do not print the managed password while repairing the app secret. The `DATABASE_URL` value should still be a plaintext SQLAlchemy URL stored in Secrets Manager, with the password portion URL-encoded.

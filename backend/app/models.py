@@ -57,6 +57,29 @@ class AdminAuditLog(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=func.current_timestamp())
 
 
+class AppUser(Base):
+    __tablename__ = "app_users"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True)
+    display_name: Mapped[str | None] = mapped_column(String(200))
+    role: Mapped[str] = mapped_column(String(50), nullable=False, server_default="regular")
+    status: Mapped[str] = mapped_column(String(50), nullable=False, server_default="active")
+    external_subject: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=func.current_timestamp())
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
+
+
+class BusinessAccessGrant(Base):
+    __tablename__ = "business_access_grants"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False)
+    business_id: Mapped[int] = mapped_column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False)
+    access_level: Mapped[str] = mapped_column(String(50), nullable=False, server_default="editor")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=func.current_timestamp())
+
+    __table_args__ = (UniqueConstraint("user_id", "business_id", name="uix_business_access_user_business"),)
+
+
 class Business(Base):
     __tablename__ = "businesses"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

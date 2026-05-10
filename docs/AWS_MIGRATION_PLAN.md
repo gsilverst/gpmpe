@@ -221,15 +221,18 @@ To secure the application in AWS and support multi-user workflows, GPMPE should 
     - The deployer's responsibility is to provision and deploy the AWS stack; the application's first-run setup should make the administrator handoff obvious instead of hiding it in environment variables or secret edits.
     - Protect first-run setup with a one-time bootstrap mechanism appropriate for AWS, such as a short-lived setup token or restricted deployer-only access path, then disable it after Primary Admin users are created.
     - Use the Primary Admin email address as the user ID and invite the user through Cognito.
+    - Current status: the app exposes `/setup`, `/auth/status`, `/auth/bootstrap`, and `/auth/me`. The bootstrap flow creates the first app-level Primary Admin mirror record using a temporary `AUTH_BOOTSTRAP_TOKEN`; it does not store or manage passwords.
 - **Task 5.2: Cognito Identity Integration**:
     - Use Amazon Cognito for AWS-mode user identity management, including email-based login, user invitations, password reset, MFA/session controls, and token validation.
     - Allow Primary Admin/Admin users to create or invite other Admin and Regular users from the application admin dashboard, with the app calling Cognito APIs to create users and send invite emails.
     - Decide whether broad role eligibility is represented in Cognito groups, app database records, or both. The preferred split is that Cognito handles authentication and optional coarse groups, while the app database stores application-specific roles, business access grants, and audit/version data.
     - Defer the local-mode authentication design until the AWS flow is concrete. Local mode may use a lighter-weight approximation later, but the AWS security model should lead the design.
+    - Current status: the backend can read trusted AWS ALB/Cognito identity headers in `AUTH_MODE=alb_oidc` and map the authenticated email to an app user record. Full Cognito user pool, app client, hosted UI, ALB authentication action, and admin invite integration remain TODO.
 - **Task 5.3: Backend Authorization**:
     - Implement FastAPI dependencies that validate Cognito-issued identity tokens and enforce role/business access on sensitive endpoints.
     - Add application data tables, or a logically separate authorization schema/database if desired, for user profile mirrors, app roles, business access grants, and audit metadata.
     - Treat those tables as application data that Cognito-backed authorization uses; do not store user passwords or raw authentication secrets in the application database.
+    - Current status: app user and business-access grant tables exist. Admin settings, audit log, and business import endpoints are guarded by the new admin dependency whenever authentication is enabled; local/default deployments remain `AUTH_MODE=disabled`.
 - **Task 5.4: Admin Management Portal**:
     - Develop a web-based administrative dashboard within the frontend application.
     - Features: Cognito-backed user onboarding/invites, role assignment, business profile permissions, global and business-specific Git credential references, and administrative audit logs.

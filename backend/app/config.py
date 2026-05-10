@@ -24,6 +24,8 @@ class AppConfig:
     git_lock_timeout_seconds: float = 30.0
     run_mode: str = "local"
     openrouter_api_key: str | None = None
+    auth_mode: str = "disabled"
+    auth_bootstrap_token: str | None = None
 
 
 def _parse_bool(value: str | None, *, default: bool = False) -> bool:
@@ -43,6 +45,15 @@ def _parse_run_mode(value: str | None) -> str:
     normalized = value.strip().lower()
     if normalized not in {"local", "aws"}:
         raise ValueError("RUN_MODE must be 'local' or 'aws'")
+    return normalized
+
+
+def _parse_auth_mode(value: str | None) -> str:
+    if value is None or value.strip() == "":
+        return "disabled"
+    normalized = value.strip().lower().replace("-", "_")
+    if normalized not in {"disabled", "alb_oidc", "dev_header"}:
+        raise ValueError("AUTH_MODE must be 'disabled', 'alb_oidc', or 'dev_header'")
     return normalized
 
 
@@ -189,4 +200,6 @@ def resolve_config(
         git_branch=git_branch,
         git_lock_timeout_seconds=git_lock_timeout_seconds,
         openrouter_api_key=_config_value(values, "OPENROUTER_API_KEY") or None,
+        auth_mode=_parse_auth_mode(_config_value(values, "AUTH_MODE")),
+        auth_bootstrap_token=_config_value(values, "AUTH_BOOTSTRAP_TOKEN") or None,
     )

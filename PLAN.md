@@ -176,7 +176,7 @@ Objective:
 - Add audit logging for credential and repository configuration changes, including actor, timestamp, scope, repository metadata, and rotation timestamp.
 - Restrict credential administration to Primary Admin/Admin users; regular users must not be able to view or modify runtime credentials.
 - Prefer business-profile-specific Git repositories and credentials as the long-term source-control model. Global Git settings may remain as defaults or bootstrap settings, but each business should be managed independently in Git so repository ownership aligns with business ownership.
-- Current status: a basic admin Git settings page, metadata model, local/AWS secret-provider abstraction, and audit-log endpoint exist. Full user management, authenticated admin-only enforcement, and complete credential administration UX are not yet implemented.
+- Current status: a basic admin Git settings page, metadata model, local/AWS secret-provider abstraction, audit-log endpoint, app-user role mirror tables, first-run setup page, and admin-route authorization dependency exist. Full Cognito/ALB infrastructure wiring, user invite management, business access administration, and complete credential administration UX are not yet implemented.
 - Update the user guide with a dedicated administrator section covering the admin page, user management, role assignment, business-profile access, runtime configuration, business data repository setup, credential rotation, and audit-log review.
 
 ### Step 21b: Version-Control-Aware Save and Restore UX (TODO)
