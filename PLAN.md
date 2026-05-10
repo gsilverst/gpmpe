@@ -170,6 +170,10 @@ Objective:
 - Store business-profile Git repository metadata on the business profile as administrator-only fields, including repository name/URL, branch/ref, push policy, and credential reference. These fields must be visible and modifiable only by Primary Admin/Admin users.
 - Require administrators to configure a runtime Git credential, such as a fine-grained Git token, GitHub App credential, deploy key, or equivalent provider-specific secret, before enabling automated pull/push against private business data repositories.
 - Include administrator user management in the same administrative area, including adding users, assigning Primary Admin/Admin/Regular roles, and managing business-profile access.
+- Keep the first authorization model role-light: Primary Admin, Admin, and Regular User. Add finer capabilities later only when user workspaces require them.
+- Allow admins to grant Regular Users access to one or more business profiles.
+- Add a business-level campaign access policy. When enabled, all users with access to the business can access all campaigns in that business by default. When disabled, Regular Users can access campaigns they created, and other campaign access requires an explicit campaign-level grant.
+- Support campaign-level view/edit grants, campaign-owner invitations, admin grants/denials, and user access requests that can be approved by either the campaign owner or an admin.
 - Keep raw Git tokens, private keys, database passwords, API keys, and other sensitive values out of normal application tables; store only non-sensitive metadata and credential references in the application database.
 - Support local deployments with a local secret/reference mechanism and AWS deployments with AWS Secrets Manager or ECS task secrets.
 - Support credential create/update/rotation workflows without exposing secret values back to the browser after save.
@@ -178,6 +182,22 @@ Objective:
 - Prefer business-profile-specific Git repositories and credentials as the long-term source-control model. Global Git settings may remain as defaults or bootstrap settings, but each business should be managed independently in Git so repository ownership aligns with business ownership.
 - Current status: a basic admin Git settings page, metadata model, local/AWS secret-provider abstraction, audit-log endpoint, app-user role mirror tables, first-run setup page, and admin-route authorization dependency exist. Full Cognito/ALB infrastructure wiring, user invite management, business access administration, and complete credential administration UX are not yet implemented.
 - Update the user guide with a dedicated administrator section covering the admin page, user management, role assignment, business-profile access, runtime configuration, business data repository setup, credential rotation, and audit-log review.
+
+Relevant test coverage:
+- Existing: `backend/tests/test_auth.py::test_auth_status_disabled_by_default`
+- Existing: `backend/tests/test_auth.py::test_auth_bootstrap_creates_primary_admin`
+- Existing: `backend/tests/test_auth.py::test_admin_routes_require_authorized_user_when_auth_enabled`
+- Existing: `backend/tests/test_auth.py::test_alb_oidc_identity_maps_to_app_user`
+- Existing: `backend/tests/test_admin_settings.py::test_admin_git_settings_default_to_config_values`
+- Existing: `backend/tests/test_admin_settings.py::test_admin_git_settings_save_metadata_secret_and_audit`
+- Existing: `backend/tests/test_admin_settings.py::test_admin_business_git_settings_inherit_global_until_overridden`
+- Existing: `backend/tests/test_admin_settings.py::test_admin_business_git_settings_save_secret_and_audit`
+- Existing: `backend/tests/test_business_import.py::test_admin_business_import_preview_and_import`
+- Existing: `backend/tests/test_business_import.py::test_admin_business_import_from_s3`
+- Planned: tests for business-level access grants across multiple businesses.
+- Planned: tests for the business campaign-access default where all business users can access all campaigns.
+- Planned: tests for the restricted campaign-access default where regular users can access only campaigns they created or were granted.
+- Planned: tests for campaign owner invitations, admin grant/deny actions, and user access-request approval/denial.
 
 ### Step 21b: Version-Control-Aware Save and Restore UX (TODO)
 Objective:
@@ -246,6 +266,10 @@ Objective:
 - Keep `docs/AWS_DEPLOYMENT_RUNBOOK.md` current with the deployment steps, console setup details, AWS service configuration, validation checks, rollback notes, and lessons learned during the migration.
 - Maintain a worked AWS staging deployment example based on the successful first deployment, including concrete non-secret resource names, validation steps, business bootstrap flow, confirmed capabilities, limitations, and lessons learned for deployment owners who need more help than a terse reference runbook provides.
 - Keep `docs/USER_GUIDE_CHAT.md` current for chatbot workflows, supported natural-language commands, editing examples, limitations, and troubleshooting.
+- As new automated test cases are added, update the relevant plan/design sections to reference those tests under their "Relevant test coverage" notes, and remove or revise planned-test bullets once implemented.
+- Before open-source publication, write or rewrite the final requirements document based on the actual completed implementation rather than the historical project trajectory.
+- Before open-source publication, write or rewrite a detailed design document covering the final architecture, data model, API boundaries, authorization model, versioning model, rendering pipeline, deployment model, and extension points.
+- Before open-source publication, write a detailed test plan that maps automated and manual tests to the specific requirements they validate, or to the specific design/implementation details they cover when the test is design-driven rather than requirement-driven.
 - Add a full `docs/USER_GUIDE.md` that describes the complete application experience, including high-level concepts, normal user workflows, administrator workflows, business profiles, promotions, generated artifacts, configuration, and references to `docs/USER_GUIDE_CHAT.md` and `docs/AWS_DEPLOYMENT_RUNBOOK.md`.
 - Require a documentation review before public open-source availability and before each release so new features, compatibility notes, setup changes, and operational procedures are reflected in user-facing docs.
 

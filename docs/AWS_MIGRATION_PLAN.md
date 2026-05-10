@@ -212,8 +212,37 @@ To secure the application in AWS and support multi-user workflows, GPMPE should 
     - **Permissions**: Can create/modify business profiles. Can add Regular users. Can grant Regular users access to specific business profiles.
     - **Constraints**: Cannot add or modify other Admin users.
 - **Regular User**:
-    - **Permissions**: Can add and modify campaigns under business profiles they have been granted access to.
+    - **Permissions**: Can add and modify campaigns under business profiles they have been granted access to, subject to the campaign-access policy for that business.
     - **Constraints**: Cannot create or modify business profiles. Cannot manage users.
+
+Relevant test coverage:
+- Existing: `backend/tests/test_auth.py::test_auth_status_disabled_by_default`
+- Existing: `backend/tests/test_auth.py::test_auth_bootstrap_creates_primary_admin`
+- Existing: `backend/tests/test_auth.py::test_admin_routes_require_authorized_user_when_auth_enabled`
+- Existing: `backend/tests/test_auth.py::test_alb_oidc_identity_maps_to_app_user`
+- Planned: tests for Primary Admin, Admin, and Regular User permission differences once role enforcement expands beyond admin-route guards.
+
+### 9.1a Business And Campaign Access
+- Keep the initial role model simple: Primary Admin, Admin, and Regular User. Additional roles or capabilities may be added later when user workspaces are implemented.
+- Primary Admin/Admin users have access to every business profile and every campaign, and can grant or deny Regular User access at both the business and campaign level.
+- Business access grants allow one Regular User to work across multiple businesses, while still keeping each business administratively independent.
+- Each business profile should have a campaign-access policy setting. When `all_business_users_can_access_campaigns` is enabled, every Regular User with business access can view and edit campaigns under that business unless an admin later adds explicit restrictions.
+- When `all_business_users_can_access_campaigns` is disabled, Regular Users can access campaigns they create by default. Access to other campaigns requires an explicit campaign grant.
+- Campaign creators should be treated as campaign owners for access-management purposes. A campaign owner can invite other users with business access to view or collaborate on that campaign.
+- Regular Users should be able to request access to a campaign. The request can be approved or denied by either the campaign owner or a Primary Admin/Admin user.
+- Campaign-level access should support at least view and edit levels so a user can be invited to inspect a campaign without necessarily modifying it.
+- Future workspace permissions should build on this model rather than replacing it: business access grants define broad eligibility, campaign grants define object-level access, and workspace grants can add organization and visibility rules later.
+
+Relevant test coverage:
+- Existing foundation: `backend/tests/test_auth.py::test_admin_routes_require_authorized_user_when_auth_enabled`
+- Existing foundation: `backend/tests/test_auth.py::test_alb_oidc_identity_maps_to_app_user`
+- Planned: tests for business-level grants allowing one Regular User to access multiple businesses.
+- Planned: tests for `all_business_users_can_access_campaigns=true`.
+- Planned: tests for `all_business_users_can_access_campaigns=false`.
+- Planned: tests for campaign creator/owner default access.
+- Planned: tests for campaign-level view/edit grants.
+- Planned: tests for owner invitations and admin grant/deny changes.
+- Planned: tests for access requests approved or denied by campaign owners and admins.
 
 ### 9.2 Implementation Tasks
 - **Task 5.1: First-Run Admin Handoff**:
@@ -222,22 +251,52 @@ To secure the application in AWS and support multi-user workflows, GPMPE should 
     - Protect first-run setup with a one-time bootstrap mechanism appropriate for AWS, such as a short-lived setup token or restricted deployer-only access path, then disable it after Primary Admin users are created.
     - Use the Primary Admin email address as the user ID and invite the user through Cognito.
     - Current status: the app exposes `/setup`, `/auth/status`, `/auth/bootstrap`, and `/auth/me`. The bootstrap flow creates the first app-level Primary Admin mirror record using a temporary `AUTH_BOOTSTRAP_TOKEN`; it does not store or manage passwords.
+    - Relevant test coverage:
+        - Existing: `backend/tests/test_auth.py::test_auth_status_disabled_by_default`
+        - Existing: `backend/tests/test_auth.py::test_auth_bootstrap_creates_primary_admin`
+        - Planned: test that bootstrap cannot run after the first Primary Admin exists.
+        - Planned: test that bootstrap creates a Cognito invite once Cognito admin APIs are wired.
 - **Task 5.2: Cognito Identity Integration**:
     - Use Amazon Cognito for AWS-mode user identity management, including email-based login, user invitations, password reset, MFA/session controls, and token validation.
     - Allow Primary Admin/Admin users to create or invite other Admin and Regular users from the application admin dashboard, with the app calling Cognito APIs to create users and send invite emails.
     - Decide whether broad role eligibility is represented in Cognito groups, app database records, or both. The preferred split is that Cognito handles authentication and optional coarse groups, while the app database stores application-specific roles, business access grants, and audit/version data.
     - Defer the local-mode authentication design until the AWS flow is concrete. Local mode may use a lighter-weight approximation later, but the AWS security model should lead the design.
     - Current status: the backend can read trusted AWS ALB/Cognito identity headers in `AUTH_MODE=alb_oidc` and map the authenticated email to an app user record. Full Cognito user pool, app client, hosted UI, ALB authentication action, and admin invite integration remain TODO.
+    - Relevant test coverage:
+        - Existing: `backend/tests/test_auth.py::test_alb_oidc_identity_maps_to_app_user`
+        - Existing: `backend/tests/test_auth.py::test_admin_routes_require_authorized_user_when_auth_enabled`
+        - Planned: tests for Cognito `AdminCreateUser` invite success/failure with mocked AWS responses.
+        - Planned: tests for users authenticated by Cognito but missing app-user records.
+        - Planned: tests for inactive app users.
 - **Task 5.3: Backend Authorization**:
     - Implement FastAPI dependencies that validate Cognito-issued identity tokens and enforce role/business access on sensitive endpoints.
     - Add application data tables, or a logically separate authorization schema/database if desired, for user profile mirrors, app roles, business access grants, and audit metadata.
     - Treat those tables as application data that Cognito-backed authorization uses; do not store user passwords or raw authentication secrets in the application database.
+    - Add campaign-access policy and grant tables for business defaults, campaign owners, per-campaign view/edit grants, and access-request workflow state.
     - Current status: app user and business-access grant tables exist. Admin settings, audit log, and business import endpoints are guarded by the new admin dependency whenever authentication is enabled; local/default deployments remain `AUTH_MODE=disabled`.
+    - Relevant test coverage:
+        - Existing: `backend/tests/test_auth.py::test_admin_routes_require_authorized_user_when_auth_enabled`
+        - Existing: `backend/tests/test_admin_settings.py::test_admin_git_settings_save_metadata_secret_and_audit`
+        - Existing: `backend/tests/test_admin_settings.py::test_admin_business_git_settings_save_secret_and_audit`
+        - Existing: `backend/tests/test_business_import.py::test_admin_business_import_preview_and_import`
+        - Existing: `backend/tests/test_business_import.py::test_admin_business_import_from_s3`
+        - Planned: tests for business grant enforcement on business and campaign routes.
+        - Planned: tests for campaign grant enforcement on view/edit/render/save routes.
+        - Planned: tests for admin override behavior across all businesses and campaigns.
 - **Task 5.4: Admin Management Portal**:
     - Develop a web-based administrative dashboard within the frontend application.
-    - Features: Cognito-backed user onboarding/invites, role assignment, business profile permissions, global and business-specific Git credential references, and administrative audit logs.
+    - Features: Cognito-backed user onboarding/invites, role assignment, business profile permissions, campaign access grants/denials, campaign access-request review, global and business-specific Git credential references, and administrative audit logs.
     - Let administrators manage business-specific Git repository settings and credential references as part of the business profile, with optional global/default Git credentials for shared-credential deployments.
     - Store raw Git tokens, deploy keys, API keys, and database passwords only in AWS Secrets Manager/ECS task secrets. Store only references and non-sensitive metadata in RDS.
+    - Relevant test coverage:
+        - Existing: `backend/tests/test_admin_settings.py::test_admin_git_settings_default_to_config_values`
+        - Existing: `backend/tests/test_admin_settings.py::test_admin_git_settings_save_metadata_secret_and_audit`
+        - Existing: `backend/tests/test_admin_settings.py::test_admin_business_git_settings_inherit_global_until_overridden`
+        - Existing: `backend/tests/test_admin_settings.py::test_admin_business_git_settings_save_secret_and_audit`
+        - Existing: `frontend/tests/api.test.ts`
+        - Existing: `frontend/tests/page.test.tsx`
+        - Planned: frontend tests for the first-run setup page.
+        - Planned: frontend/backend tests for admin user invites, business access grants, campaign grants, and access-request review.
 
 ### 9.3 AWS Multi-User Editing And Versioning
 - AWS deployments should support multiple users editing the same campaign, business profile, or future business card by using per-user/per-object draft workspaces rather than direct concurrent mutation of canonical database rows.
