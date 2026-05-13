@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from reportlab.lib import colors
@@ -914,7 +915,185 @@ def test_render_flyer_centers_featured_cards_vertically(monkeypatch) -> None:
     assert pdf_bytes.startswith(b"%PDF")
     assert len(cards) == 1
     assert cards[0]["title"] == "Deep Tissue"
-    assert abs(float(cards[0]["y"]) - 456.0) < 0.01
+    assert abs(float(cards[0]["y"]) - 451.5) < 0.01
+
+
+def test_render_flyer_keeps_logo_clear_of_business_title(monkeypatch, tmp_path: Path) -> None:
+    from PIL import Image
+    from reportlab.pdfgen import canvas as canvas_module
+
+    from app import renderer as renderer_module
+
+    logo_file = tmp_path / "acme" / "assets" / "logo.png"
+    logo_file.parent.mkdir(parents=True)
+    Image.new("RGB", (100, 100), "#6E4A8E").save(logo_file)
+
+    centered: list[tuple[str, float, float]] = []
+    images: list[dict[str, float]] = []
+    original_centered = renderer_module._draw_centered
+    original_draw_image = canvas_module.Canvas.drawImage
+
+    def _capture_centered(pdf, text, x, y, font, size, color):
+        centered.append((text or "", y, size))
+        return original_centered(pdf, text, x, y, font, size, color)
+
+    def _capture_image(self, image, x, y, *args, **kwargs):
+        images.append({"y": y, "h": float(kwargs.get("height") or 0.0)})
+        return original_draw_image(self, image, x, y, *args, **kwargs)
+
+    monkeypatch.setattr(renderer_module, "_draw_centered", _capture_centered)
+    monkeypatch.setattr(canvas_module.Canvas, "drawImage", _capture_image)
+
+    ctx = {
+        "campaign_id": 86,
+        "campaign_name": "logo-spacing",
+        "title": "Logo Spacing",
+        "objective": "Keep the logo clear of the business title",
+        "campaign_footnote_text": None,
+        "start_date": "2026-05-01",
+        "end_date": "2026-05-31",
+        "business_display_name": "ACME",
+        "business_legal_name": "ACME LLC",
+        "theme": {
+            "primary_color": "#5E3A82",
+            "secondary_color": "#6E4A8E",
+            "accent_color": "#E0559A",
+            "logo_path": "assets/logo.png",
+        },
+        "location": None,
+        "contacts": [],
+        "offers": [],
+        "components": [
+            {
+                "component_key": "featured",
+                "component_kind": "featured-offers",
+                "display_title": "Featured",
+                "subtitle": None,
+                "description_text": None,
+                "display_order": 0,
+                "items": [
+                    {
+                        "item_name": "Deep Tissue",
+                        "item_kind": "service",
+                        "duration_label": "60 min",
+                        "item_value": "$10",
+                        "description_text": None,
+                        "terms_text": None,
+                        "display_order": 0,
+                    }
+                ],
+            }
+        ],
+        "effective_values": {
+            "business_name": "ACME",
+            "business_subtitle": "ACME LLC",
+            "footer": "acme.example",
+            "legal": "Offer terms.",
+        },
+        "template_name": "flyer-standard",
+        "template": {"layout": {}},
+    }
+
+    if not renderer_module._PIL_AVAILABLE:
+        pytest.skip("PIL is required for logo loading")
+
+    pdf_bytes = render_flyer(ctx, data_dir=tmp_path)
+
+    assert pdf_bytes.startswith(b"%PDF")
+    assert images
+    title_y, title_size = next((y, size) for text, y, size in centered if text == "ACME")
+    logo_bottom = images[0]["y"]
+    assert title_y + title_size * 0.7 <= logo_bottom - 2.0
+
+
+def test_render_flyer_keeps_featured_cards_below_wrapped_subtitle(monkeypatch) -> None:
+    from app import renderer as renderer_module
+
+    cards: list[dict[str, float | str]] = []
+    subtitle_bottoms: list[float] = []
+    original_card = renderer_module._draw_compact_offer_card
+    original_wrapped = renderer_module._draw_wrapped_centered
+
+    def _capture_card(pdf, x, y, w, h, title, duration, price, fill, accent, text_color, **kwargs):
+        cards.append({"title": title, "y": y, "h": h})
+        return original_card(pdf, x, y, w, h, title, duration, price, fill, accent, text_color, **kwargs)
+
+    def _capture_wrapped(pdf, text, cx, top_y, max_w, font, size, leading, color):
+        bottom = original_wrapped(pdf, text, cx, top_y, max_w, font, size, leading, color)
+        if (text or "").startswith("Employees and owners"):
+            subtitle_bottoms.append(bottom)
+        return bottom
+
+    monkeypatch.setattr(renderer_module, "_draw_compact_offer_card", _capture_card)
+    monkeypatch.setattr(renderer_module, "_draw_wrapped_centered", _capture_wrapped)
+
+    ctx = {
+        "campaign_id": 87,
+        "campaign_name": "subtitle-card-spacing",
+        "title": "Subtitle Card Spacing",
+        "objective": "Keep featured items clear of multiline subtitles",
+        "campaign_footnote_text": None,
+        "start_date": "2026-05-01",
+        "end_date": "2026-05-31",
+        "business_display_name": "ACME",
+        "business_legal_name": "ACME LLC",
+        "theme": {
+            "primary_color": "#5E3A82",
+            "secondary_color": "#6E4A8E",
+            "accent_color": "#E0559A",
+        },
+        "location": None,
+        "contacts": [],
+        "offers": [],
+        "components": [
+            {
+                "component_key": "main-street-appreciation",
+                "component_kind": "featured-offers",
+                "display_title": "MAIN STREET APPRECIATION MONTH",
+                "subtitle": (
+                    "Employees and owners of the Hackensack small business community can take "
+                    "50% off of all services Tuesday thru Friday; Our thanks for making Hackensack great!"
+                ),
+                "description_text": None,
+                "display_order": 0,
+                "items": [
+                    {
+                        "item_name": name,
+                        "item_kind": "service",
+                        "duration_label": "60 minutes",
+                        "item_value": value,
+                        "description_text": None,
+                        "terms_text": None,
+                        "display_order": index,
+                    }
+                    for index, (name, value) in enumerate(
+                        [
+                            ("Swedish Massage", "$45"),
+                            ("Body Sculpting", "$110"),
+                            ("Lymphatic Drainage", "$75"),
+                            ("Deep Tissue", "$55"),
+                        ]
+                    )
+                ],
+            }
+        ],
+        "effective_values": {
+            "business_name": "ACME",
+            "business_subtitle": "ACME LLC",
+            "footer": "acme.example",
+            "legal": "Offer terms.",
+        },
+        "template_name": "flyer-standard",
+        "template": {"layout": {}},
+    }
+
+    pdf_bytes = render_flyer(ctx)
+
+    assert pdf_bytes.startswith(b"%PDF")
+    assert subtitle_bottoms
+    assert cards
+    highest_card_top = max(float(card["y"]) + float(card["h"]) for card in cards)
+    assert highest_card_top <= subtitle_bottoms[0] - 10.0
 
 
 def test_render_flyer_uses_print_safe_featured_duration_style(monkeypatch) -> None:

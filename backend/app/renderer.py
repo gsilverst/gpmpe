@@ -35,11 +35,11 @@ _MARGIN = 36.0
 _HEADER_H: float = 112.0
 _HEADER_Y: float = _PH - 156.0          # 636
 _SECTION_GAP: float = 14.0
-_FEATURED_H: float = 230.0
-_FEATURED_Y: float = _HEADER_Y - _SECTION_GAP - _FEATURED_H  # 392
+_FEATURED_H: float = 239.0
+_FEATURED_Y: float = _HEADER_Y - _SECTION_GAP - _FEATURED_H  # 383
 _WEEKDAY_Y: float = 76.0
-_WEEKDAY_TOP: float = _FEATURED_Y - _SECTION_GAP             # 378
-_WEEKDAY_H: float = _WEEKDAY_TOP - _WEEKDAY_Y                # 302
+_WEEKDAY_TOP: float = _FEATURED_Y - _SECTION_GAP             # 369
+_WEEKDAY_H: float = _WEEKDAY_TOP - _WEEKDAY_Y                # 293
 _LEGAL_Y: float = 34.0
 _LEGAL_H: float = 22.0
 
@@ -83,9 +83,9 @@ _DEFAULT_RENDER_LAYOUT: dict[str, Any] = {
         "featured": {
             "max_columns": 3,
             "card_gap": 8.0,
-            "row_gap": 8.0,
+            "row_gap": 5.0,
             "max_card_width": 132.0,
-            "min_card_height": 52.0,
+            "min_card_height": 44.0,
             "max_card_height": 58.0,
             "item_top_offset": 74.0,
             "subtitle_top_offset": 62.0,
@@ -124,9 +124,9 @@ _DEFAULT_RENDER_LAYOUT: dict[str, Any] = {
             "business_subtitle_font": "Helvetica-BoldOblique",
             "business_subtitle_size": 15.0,
             "business_subtitle_color": "#FFFFFF",
-            "business_line_gap": 20.0,
+            "business_line_gap": 18.0,
             "business_text_bottom_padding": 12.0,
-            "business_text_logo_gap": 8.0,
+            "business_text_logo_gap": 18.0,
         },
         "footnotes": {"marker": "**", "max_campaign_notes": 2},
     },
