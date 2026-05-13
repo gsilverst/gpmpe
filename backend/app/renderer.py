@@ -124,6 +124,9 @@ _DEFAULT_RENDER_LAYOUT: dict[str, Any] = {
             "business_subtitle_font": "Helvetica-BoldOblique",
             "business_subtitle_size": 15.0,
             "business_subtitle_color": "#FFFFFF",
+            "business_line_gap": 20.0,
+            "business_text_bottom_padding": 12.0,
+            "business_text_logo_gap": 8.0,
         },
         "footnotes": {"marker": "**", "max_campaign_notes": 2},
     },
@@ -500,6 +503,7 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
     _draw_rounded_panel(pdf, hx, header_region["y"], panel_w, header_region["h"],
                         palette["primary"], palette["primary"], radius=panel_radius, stroke_w=stroke_w)
 
+    logo_y: float | None = None
     if logo_reader is not None:
         logo_w, logo_h = 58, 58
         logo_x = (w - logo_w) / 2
@@ -511,10 +515,6 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
     biz_sub = ev.get("business_subtitle") or ctx.get("business_legal_name", "")
     
     biz_name_style = typography.get("business_name", {})
-    _draw_centered(pdf, biz_name.upper(), w / 2, header_region["y"] + 28,
-                   biz_name_style.get("font", "Helvetica-Bold"), 
-                   biz_name_style.get("size", 22.0), palette["white"])
-    
     biz_sub_style = typography.get("business_subtitle", {})
     biz_sub_font = _style(layout, "header", "business_subtitle_font", fallback=None) or biz_sub_style.get("font", "Times-Italic")
     biz_sub_size = float(
@@ -524,7 +524,23 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
         ev.get("business_subtitle_color") or _style(layout, "header", "business_subtitle_color", fallback=None),
         _string_hex(_COLOR_WHITE),
     )
-    _draw_centered(pdf, biz_sub, w / 2, header_region["y"] + 8,
+
+    line_gap = float(_style(layout, "header", "business_line_gap", fallback=20.0))
+    text_bottom = header_region["y"] + float(_style(layout, "header", "business_text_bottom_padding", fallback=12.0))
+    if logo_y is not None:
+        text_top = logo_y - float(_style(layout, "header", "business_text_logo_gap", fallback=8.0))
+    else:
+        text_top = header_region["y"] + header_region["h"] - float(
+            _style(layout, "header", "business_text_bottom_padding", fallback=12.0)
+        )
+    text_center = (text_top + text_bottom) / 2.0
+    biz_name_y = text_center + line_gap / 2.0
+    biz_sub_y = text_center - line_gap / 2.0
+
+    _draw_centered(pdf, biz_name.upper(), w / 2, biz_name_y,
+                   biz_name_style.get("font", "Helvetica-Bold"),
+                   biz_name_style.get("size", 22.0), palette["white"])
+    _draw_centered(pdf, biz_sub, w / 2, biz_sub_y,
                    biz_sub_font,
                    biz_sub_size, biz_sub_color)
 
@@ -618,8 +634,9 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
         grid_x = hx + (panel_w - grid_w) / 2.0
         card_x_positions = [grid_x + idx * (card_w + card_gap) for idx in range(cols_per_row)]
 
-        first_row_top = items_top_boundary
-        card_y_start = first_row_top - card_h
+        total_grid_h = num_rows * card_h + row_spacing * max(0, num_rows - 1)
+        grid_bottom = items_bottom_boundary + max(0.0, available_h - total_grid_h) / 2.0
+        card_y_start = grid_bottom + total_grid_h - card_h
         
         for row_idx in range(num_rows):
             card_y = card_y_start - (row_idx * (card_h + row_spacing))

@@ -775,6 +775,148 @@ def test_render_flyer_uses_print_safe_header_subtitle_style(monkeypatch) -> None
     assert color.rgb() == colors.white.rgb()
 
 
+def test_render_flyer_centers_header_business_text_block(monkeypatch) -> None:
+    from app import renderer as renderer_module
+
+    centered: list[tuple[str, float]] = []
+    original_centered = renderer_module._draw_centered
+
+    def _capture_centered(pdf, text, x, y, font, size, color):
+        centered.append((text or "", y))
+        return original_centered(pdf, text, x, y, font, size, color)
+
+    monkeypatch.setattr(renderer_module, "_draw_centered", _capture_centered)
+
+    ctx = {
+        "campaign_id": 84,
+        "campaign_name": "header-centering",
+        "title": "Header Centering",
+        "objective": "Center business text within the header panel",
+        "campaign_footnote_text": None,
+        "start_date": "2026-05-01",
+        "end_date": "2026-05-31",
+        "business_display_name": "ACME",
+        "business_legal_name": "ACME LLC",
+        "theme": {
+            "primary_color": "#5E3A82",
+            "secondary_color": "#6E4A8E",
+            "accent_color": "#E0559A",
+        },
+        "location": None,
+        "contacts": [],
+        "offers": [],
+        "components": [
+            {
+                "component_key": "featured",
+                "component_kind": "featured-offers",
+                "display_title": "Featured",
+                "subtitle": None,
+                "description_text": None,
+                "display_order": 0,
+                "items": [
+                    {
+                        "item_name": "A",
+                        "item_kind": "service",
+                        "duration_label": "60 min",
+                        "item_value": "$10",
+                        "description_text": None,
+                        "terms_text": None,
+                        "display_order": 0,
+                    }
+                ],
+            }
+        ],
+        "effective_values": {
+            "business_name": "ACME",
+            "business_subtitle": "ACME LLC",
+            "footer": "acme.example",
+            "legal": "Offer terms.",
+        },
+        "template_name": "flyer-standard",
+        "template": {"layout": {}},
+    }
+
+    pdf_bytes = render_flyer(ctx)
+
+    assert pdf_bytes.startswith(b"%PDF")
+    y_by_text = {text: y for text, y in centered}
+    text_midpoint = (y_by_text["ACME"] + y_by_text["ACME LLC"]) / 2
+    header_y = 636.0
+    header_h = 112.0
+    header_padding = 12.0
+    header_midpoint = (header_y + header_padding + header_y + header_h - header_padding) / 2
+    assert abs(text_midpoint - header_midpoint) < 0.01
+
+
+def test_render_flyer_centers_featured_cards_vertically(monkeypatch) -> None:
+    from app import renderer as renderer_module
+
+    cards: list[dict[str, float | str]] = []
+    original_card = renderer_module._draw_compact_offer_card
+
+    def _capture_card(pdf, x, y, w, h, title, duration, price, fill, accent, text_color, **kwargs):
+        cards.append({"title": title, "y": y, "h": h})
+        return original_card(pdf, x, y, w, h, title, duration, price, fill, accent, text_color, **kwargs)
+
+    monkeypatch.setattr(renderer_module, "_draw_compact_offer_card", _capture_card)
+
+    ctx = {
+        "campaign_id": 85,
+        "campaign_name": "featured-centering",
+        "title": "Featured Centering",
+        "objective": "Center featured items inside their panel",
+        "campaign_footnote_text": None,
+        "start_date": "2026-05-01",
+        "end_date": "2026-05-31",
+        "business_display_name": "ACME",
+        "business_legal_name": "ACME LLC",
+        "theme": {
+            "primary_color": "#5E3A82",
+            "secondary_color": "#6E4A8E",
+            "accent_color": "#E0559A",
+        },
+        "location": None,
+        "contacts": [],
+        "offers": [],
+        "components": [
+            {
+                "component_key": "featured",
+                "component_kind": "featured-offers",
+                "display_title": "Featured",
+                "subtitle": None,
+                "description_text": None,
+                "display_order": 0,
+                "items": [
+                    {
+                        "item_name": "Deep Tissue",
+                        "item_kind": "service",
+                        "duration_label": "60 min",
+                        "item_value": "$10",
+                        "description_text": None,
+                        "terms_text": None,
+                        "display_order": 0,
+                    }
+                ],
+            }
+        ],
+        "effective_values": {
+            "business_name": "ACME",
+            "business_subtitle": "ACME LLC",
+            "footer": "acme.example",
+            "legal": "Offer terms.",
+        },
+        "template_name": "flyer-standard",
+        "template": {"layout": {}},
+    }
+
+    pdf_bytes = render_flyer(ctx)
+
+    assert pdf_bytes.startswith(b"%PDF")
+    assert len(cards) == 1
+    assert cards[0]["title"] == "Deep Tissue"
+    assert abs(float(cards[0]["y"]) - 456.0) < 0.01
+
+
 def test_render_flyer_uses_print_safe_featured_duration_style(monkeypatch) -> None:
     from app import renderer as renderer_module
 
