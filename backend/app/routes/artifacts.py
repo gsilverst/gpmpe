@@ -14,7 +14,7 @@ from ..models import GeneratedArtifact
 from ..renderer import render_campaign_artifact_session
 from ..schemas import ArtifactRenderRequest, ArtifactResponse, CampaignSaveRequest
 from ..services.runtime_settings import effective_git_settings
-from ..services.yaml_persistence import campaign_yaml_paths_for_session_or_raise
+from ..services.yaml_persistence import persist_campaign_yaml_session_or_raise
 
 router = APIRouter()
 
@@ -27,9 +27,9 @@ def save_campaign(
 ) -> dict[str, Any]:
     request = payload or CampaignSaveRequest()
     config = resolve_config()
-    git_settings = effective_git_settings(db, config)
 
-    require_campaign(db, campaign_id)
+    campaign = require_campaign(db, campaign_id)
+    git_settings = effective_git_settings(db, config, campaign.business_id)
 
     if not config.commit_on_save:
         return {
@@ -49,7 +49,7 @@ def save_campaign(
 
     business_file: Path
     campaign_file: Path
-    business_file, campaign_file = campaign_yaml_paths_for_session_or_raise(db, config, campaign_id)
+    business_file, campaign_file = persist_campaign_yaml_session_or_raise(db, config, campaign_id)
     repo_root = git_settings.repo_path
     default_message = f"Save campaign {campaign_id} YAML"
     commit_message = (request.commit_message or default_message).strip()
@@ -64,8 +64,10 @@ def save_campaign(
             user_email=git_settings.user_email,
             push_enabled=git_settings.push_enabled,
             remote=git_settings.remote,
+            remote_url=git_settings.remote_url,
             branch=git_settings.branch,
             lock_timeout_seconds=git_settings.lock_timeout_seconds,
+            credential_secret=git_settings.credential_secret,
         )
     except GitStoreError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error

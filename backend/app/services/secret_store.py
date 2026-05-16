@@ -15,6 +15,9 @@ class SecretStore(Protocol):
     def save_secret(self, reference: str, secret: str) -> None:
         ...
 
+    def get_secret(self, reference: str) -> str | None:
+        ...
+
     def has_secret(self, reference: str) -> bool:
         ...
 
@@ -40,6 +43,11 @@ class LocalSecretStore:
         values[reference] = secret
         self._write(values)
 
+    def get_secret(self, reference: str) -> str | None:
+        values = self._read()
+        secret = values.get(reference)
+        return secret or None
+
     def has_secret(self, reference: str) -> bool:
         values = self._read()
         return reference in values and values[reference] != ""
@@ -63,6 +71,15 @@ class AwsSecretsManagerStore:
             client.put_secret_value(SecretId=reference, SecretString=secret)
         except client_error as exc:
             raise SecretStoreError(f"Unable to update AWS secret '{reference}'") from exc
+
+    def get_secret(self, reference: str) -> str | None:
+        client, client_error = self._client()
+        try:
+            response = client.get_secret_value(SecretId=reference)
+        except client_error as exc:
+            raise SecretStoreError(f"Unable to read AWS secret '{reference}'") from exc
+        secret = response.get("SecretString")
+        return secret or None
 
     def has_secret(self, reference: str) -> bool:
         client, client_error = self._client()

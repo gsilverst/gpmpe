@@ -22,8 +22,10 @@ class EffectiveGitSettings:
     user_email: str | None
     push_enabled: bool
     remote: str
+    remote_url: str | None
     branch: str
     lock_timeout_seconds: float
+    credential_secret: str | None
     source: str
 
 
@@ -234,8 +236,25 @@ def list_admin_audit_logs(db: Session, *, limit: int = 25) -> list[dict[str, obj
     return results
 
 
-def effective_git_settings(db: Session, config: AppConfig) -> EffectiveGitSettings:
-    settings = db.query(RuntimeGitSettings).filter(RuntimeGitSettings.scope == GLOBAL_SCOPE).first()
+def _credential_secret(config: AppConfig, settings: RuntimeGitSettings | None) -> str | None:
+    if settings is None or not settings.credential_reference:
+        return None
+    return secret_store_for_config(config, settings.credential_provider).get_secret(settings.credential_reference)
+
+
+def effective_git_settings(db: Session, config: AppConfig, business_id: int | None = None) -> EffectiveGitSettings:
+    settings: RuntimeGitSettings | None = None
+    source = "config"
+    if business_id is not None:
+        settings = db.query(RuntimeGitSettings).filter(RuntimeGitSettings.scope == _business_scope(business_id)).first()
+        if settings is not None:
+            source = "business"
+
+    if settings is None:
+        settings = db.query(RuntimeGitSettings).filter(RuntimeGitSettings.scope == GLOBAL_SCOPE).first()
+        if settings is not None:
+            source = "database"
+
     if settings is None:
         return EffectiveGitSettings(
             repo_path=config.git_repo_path,
@@ -243,8 +262,10 @@ def effective_git_settings(db: Session, config: AppConfig) -> EffectiveGitSettin
             user_email=config.git_user_email,
             push_enabled=config.git_push_enabled,
             remote=config.git_remote,
+            remote_url=None,
             branch=config.git_branch,
             lock_timeout_seconds=config.git_lock_timeout_seconds,
+            credential_secret=None,
             source="config",
         )
 
@@ -254,7 +275,9 @@ def effective_git_settings(db: Session, config: AppConfig) -> EffectiveGitSettin
         user_email=settings.user_email,
         push_enabled=settings.push_enabled,
         remote=settings.remote_name,
+        remote_url=settings.remote_url,
         branch=settings.branch,
         lock_timeout_seconds=config.git_lock_timeout_seconds,
-        source="database",
+        credential_secret=_credential_secret(config, settings),
+        source=source,
     )

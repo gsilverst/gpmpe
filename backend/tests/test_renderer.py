@@ -1006,6 +1006,232 @@ def test_render_flyer_keeps_logo_clear_of_business_title(monkeypatch, tmp_path: 
     assert title_y + title_size * 0.7 <= logo_bottom - 2.0
 
 
+def test_render_flyer_can_replace_header_with_campaign_image(monkeypatch, tmp_path: Path) -> None:
+    from PIL import Image
+    from reportlab.pdfgen import canvas as canvas_module
+
+    from app import renderer as renderer_module
+
+    header_file = tmp_path / "acme" / "promotions" / "header-image" / "assets" / "header.png"
+    header_file.parent.mkdir(parents=True)
+    Image.new("RGB", (400, 200), "#21A0A0").save(header_file)
+
+    centered: list[str] = []
+    images: list[dict[str, float]] = []
+    original_centered = renderer_module._draw_centered
+    original_draw_image = canvas_module.Canvas.drawImage
+
+    def _capture_centered(pdf, text, x, y, font, size, color):
+        centered.append(text or "")
+        return original_centered(pdf, text, x, y, font, size, color)
+
+    def _capture_image(self, image, x, y, *args, **kwargs):
+        width = kwargs.get("width")
+        height = kwargs.get("height")
+        if width is None and len(args) >= 1:
+            width = args[0]
+        if height is None and len(args) >= 2:
+            height = args[1]
+        images.append(
+            {
+                "x": float(x),
+                "y": float(y),
+                "w": float(width or 0.0),
+                "h": float(height or 0.0),
+            }
+        )
+        return original_draw_image(self, image, x, y, *args, **kwargs)
+
+    monkeypatch.setattr(renderer_module, "_draw_centered", _capture_centered)
+    monkeypatch.setattr(canvas_module.Canvas, "drawImage", _capture_image)
+
+    ctx = {
+        "campaign_id": 88,
+        "campaign_name": "header-image",
+        "title": "Header Image",
+        "objective": "Use campaign art as the flyer header",
+        "campaign_footnote_text": None,
+        "start_date": "2026-05-01",
+        "end_date": "2026-05-31",
+        "business_display_name": "ACME",
+        "business_legal_name": "ACME LLC",
+        "theme": {
+            "primary_color": "#5E3A82",
+            "secondary_color": "#6E4A8E",
+            "accent_color": "#E0559A",
+        },
+        "location": None,
+        "contacts": [],
+        "offers": [],
+        "assets": [
+            {
+                "asset_type": "header_image",
+                "source_type": "generated",
+                "mime_type": "image/png",
+                "source_path": "assets/header.png",
+                "width": 400,
+                "height": 200,
+                "metadata": {},
+            }
+        ],
+        "components": [
+            {
+                "component_key": "featured",
+                "component_kind": "featured-offers",
+                "display_title": "Featured",
+                "subtitle": None,
+                "description_text": None,
+                "display_order": 0,
+                "items": [
+                    {
+                        "item_name": "Deep Tissue",
+                        "item_kind": "service",
+                        "duration_label": "60 min",
+                        "item_value": "$10",
+                        "description_text": None,
+                        "terms_text": None,
+                        "display_order": 0,
+                    }
+                ],
+            }
+        ],
+        "effective_values": {
+            "business_name": "ACME",
+            "business_subtitle": "ACME LLC",
+            "footer": "acme.example",
+            "legal": "Offer terms.",
+        },
+        "template_name": "flyer-standard",
+        "template": {"layout": {}},
+    }
+
+    if not renderer_module._PIL_AVAILABLE:
+        pytest.skip("PIL is required for header image cover rendering")
+
+    pdf_bytes = render_flyer(ctx, data_dir=tmp_path)
+
+    assert pdf_bytes.startswith(b"%PDF")
+    assert images
+    header_image = images[0]
+    assert header_image["x"] == 40.0
+    assert header_image["y"] == 640.0
+    assert header_image["w"] == 532.0
+    assert header_image["h"] == 104.0
+    assert "ACME" not in centered
+    assert "ACME LLC" not in centered
+
+
+def test_render_flyer_can_replace_featured_title_with_image(monkeypatch, tmp_path: Path) -> None:
+    from PIL import Image
+    from reportlab.pdfgen import canvas as canvas_module
+
+    from app import renderer as renderer_module
+
+    header_file = tmp_path / "acme" / "promotions" / "component-image" / "assets" / "component-title.png"
+    header_file.parent.mkdir(parents=True)
+    Image.new("RGB", (400, 400), "#FDF7F4").save(header_file)
+
+    centered: list[str] = []
+    images: list[dict[str, float]] = []
+    original_centered = renderer_module._draw_centered
+    original_draw_image = canvas_module.Canvas.drawImage
+
+    def _capture_centered(pdf, text, x, y, font, size, color):
+        centered.append(text or "")
+        return original_centered(pdf, text, x, y, font, size, color)
+
+    def _capture_image(self, image, x, y, *args, **kwargs):
+        width = kwargs.get("width")
+        height = kwargs.get("height")
+        if width is None and len(args) >= 1:
+            width = args[0]
+        if height is None and len(args) >= 2:
+            height = args[1]
+        images.append(
+            {
+                "x": float(x),
+                "y": float(y),
+                "w": float(width or 0.0),
+                "h": float(height or 0.0),
+            }
+        )
+        return original_draw_image(self, image, x, y, *args, **kwargs)
+
+    monkeypatch.setattr(renderer_module, "_draw_centered", _capture_centered)
+    monkeypatch.setattr(canvas_module.Canvas, "drawImage", _capture_image)
+
+    ctx = {
+        "campaign_id": 89,
+        "campaign_name": "component-image",
+        "title": "Component Image",
+        "objective": "Use campaign art inside a component title area",
+        "campaign_footnote_text": None,
+        "start_date": "2026-05-01",
+        "end_date": "2026-05-31",
+        "business_display_name": "ACME",
+        "business_legal_name": "ACME LLC",
+        "theme": {
+            "primary_color": "#5E3A82",
+            "secondary_color": "#6E4A8E",
+            "accent_color": "#E0559A",
+        },
+        "location": None,
+        "contacts": [],
+        "offers": [],
+        "assets": [],
+        "components": [
+            {
+                "component_key": "featured",
+                "component_kind": "featured-offers",
+                "render_region": "featured",
+                "render_mode": "offer-card-grid",
+                "display_title": "Visual Title",
+                "subtitle": "This subtitle should be replaced with an image.",
+                "description_text": None,
+                "display_order": 0,
+                "style": {
+                    "header_image_path": "assets/component-title.png",
+                    "header_image_height": 70,
+                    "header_image_focus_y": 0.1,
+                },
+                "items": [
+                    {
+                        "item_name": "Deep Tissue",
+                        "item_kind": "service",
+                        "duration_label": "60 min",
+                        "item_value": "$10",
+                        "description_text": None,
+                        "terms_text": None,
+                        "display_order": 0,
+                    }
+                ],
+            }
+        ],
+        "effective_values": {
+            "business_name": "ACME",
+            "business_subtitle": "ACME LLC",
+            "footer": "acme.example",
+            "legal": "Offer terms.",
+        },
+        "template_name": "flyer-standard",
+        "template": {"layout": {}},
+    }
+
+    if not renderer_module._PIL_AVAILABLE:
+        pytest.skip("PIL is required for component image cover rendering")
+
+    pdf_bytes = render_flyer(ctx, data_dir=tmp_path)
+
+    assert pdf_bytes.startswith(b"%PDF")
+    component_image = next(image for image in images if image["w"] == 500.0 and image["h"] == 70.0)
+    assert component_image["x"] == 56.0
+    assert component_image["y"] == 544.0
+    assert component_image["w"] == 500.0
+    assert component_image["h"] == 70.0
+    assert "Visual Title" not in centered
+    assert "This subtitle should be replaced with an image." not in centered
+
+
 def test_render_flyer_keeps_featured_cards_below_wrapped_subtitle(monkeypatch) -> None:
     from app import renderer as renderer_module
 

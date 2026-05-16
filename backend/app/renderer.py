@@ -327,6 +327,44 @@ def _load_logo(logo_path: Path | None) -> ImageReader | None:
         return None
 
 
+def _load_image_cover(
+    image_path: Path | None,
+    target_w: float,
+    target_h: float,
+    *,
+    focus_x: float = 0.5,
+    focus_y: float = 0.5,
+) -> ImageReader | None:
+    if image_path is None or not image_path.exists() or target_w <= 0 or target_h <= 0:
+        return None
+    try:
+        if _PIL_AVAILABLE:
+            with _PILImage.open(image_path).convert("RGB") as img:
+                src_w, src_h = img.size
+                focus_x = min(1.0, max(0.0, focus_x))
+                focus_y = min(1.0, max(0.0, focus_y))
+                target_ratio = target_w / target_h
+                src_ratio = src_w / src_h
+                if src_ratio > target_ratio:
+                    crop_w = int(src_h * target_ratio)
+                    left = int((src_w - crop_w) * focus_x)
+                    left = max(0, min(src_w - crop_w, left))
+                    img = img.crop((left, 0, left + crop_w, src_h))
+                elif src_ratio < target_ratio:
+                    crop_h = int(src_w / target_ratio)
+                    top = int((src_h - crop_h) * focus_y)
+                    top = max(0, min(src_h - crop_h, top))
+                    img = img.crop((0, top, src_w, top + crop_h))
+
+                buf = BytesIO()
+                img.save(buf, format="PNG")
+                buf.seek(0)
+                return ImageReader(buf)
+        return ImageReader(str(image_path))
+    except Exception:
+        return None
+
+
 def _resolve_logo(theme: dict, data_dir: Path | None, business_display_name: str) -> Path | None:
     logo_str = (theme.get("logo_path") or "").strip()
     if not logo_str:
@@ -337,6 +375,78 @@ def _resolve_logo(theme: dict, data_dir: Path | None, business_display_name: str
     if data_dir is not None:
         biz_dir = data_dir / business_display_name.lower()
         candidate = biz_dir / logo_str
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _resolve_campaign_asset_path(ctx: dict[str, Any], data_dir: Path | None) -> Path | None:
+    ev = ctx.get("effective_values", {})
+    image_path = (ev.get("header_image_path") or "").strip()
+    if image_path:
+        path = Path(image_path)
+        if path.is_absolute():
+            return path if path.exists() else None
+        candidates: list[Path] = []
+        if data_dir is not None:
+            business_dir = data_dir / str(ctx.get("business_display_name", "")).lower()
+            campaign_name = str(ctx.get("campaign_name", ""))
+            candidates.extend(
+                [
+                    business_dir / "promotions" / campaign_name / image_path,
+                    business_dir / campaign_name / image_path,
+                    business_dir / image_path,
+                    data_dir / image_path,
+                ]
+            )
+        candidates.append(Path(image_path))
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+
+    asset_type = (ev.get("header_image_asset_type") or "header_image").strip()
+    for asset in ctx.get("assets", []):
+        if asset.get("asset_type") != asset_type:
+            continue
+        source_path = str(asset.get("source_path") or "").strip()
+        if not source_path:
+            continue
+        path = Path(source_path)
+        if path.is_absolute():
+            return path if path.exists() else None
+        if data_dir is None:
+            continue
+        business_dir = data_dir / str(ctx.get("business_display_name", "")).lower()
+        campaign_name = str(ctx.get("campaign_name", ""))
+        for candidate in (
+            business_dir / "promotions" / campaign_name / source_path,
+            business_dir / campaign_name / source_path,
+            business_dir / source_path,
+            data_dir / source_path,
+        ):
+            if candidate.exists():
+                return candidate
+    return None
+
+
+def _resolve_relative_campaign_path(ctx: dict[str, Any], data_dir: Path | None, source_path: str) -> Path | None:
+    path = Path(source_path)
+    if path.is_absolute():
+        return path if path.exists() else None
+    candidates: list[Path] = []
+    if data_dir is not None:
+        business_dir = data_dir / str(ctx.get("business_display_name", "")).lower()
+        campaign_name = str(ctx.get("campaign_name", ""))
+        candidates.extend(
+            [
+                business_dir / "promotions" / campaign_name / source_path,
+                business_dir / campaign_name / source_path,
+                business_dir / source_path,
+                data_dir / source_path,
+            ]
+        )
+    candidates.append(path)
+    for candidate in candidates:
         if candidate.exists():
             return candidate
     return None
@@ -476,8 +586,10 @@ def _draw_weekday_strip(pdf: Any, x: float, y: float, w: float,
 # ---------------------------------------------------------------------------
 
 def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
+                      header_image_reader: Any,
                       featured: list, weekday: list,
-                      discount: list, legal: list) -> None:
+                      discount: list, legal: list,
+                      data_dir: Path | None = None) -> None:
     ev = ctx.get("effective_values", {})
     layout = _layout(ctx)
     typography = layout.get("typography", {})
@@ -503,46 +615,57 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
     _draw_rounded_panel(pdf, hx, header_region["y"], panel_w, header_region["h"],
                         palette["primary"], palette["primary"], radius=panel_radius, stroke_w=stroke_w)
 
-    logo_y: float | None = None
-    if logo_reader is not None:
-        logo_w, logo_h = 58, 58
-        logo_x = (w - logo_w) / 2
-        logo_y = header_region["y"] + header_region["h"] - logo_h - 6
-        pdf.drawImage(logo_reader, logo_x, logo_y,
-                      width=logo_w, height=logo_h, preserveAspectRatio=True)
-
-    biz_name = ev.get("business_name") or ctx.get("business_display_name", "")
-    biz_sub = ev.get("business_subtitle") or ctx.get("business_legal_name", "")
-    
-    biz_name_style = typography.get("business_name", {})
-    biz_sub_style = typography.get("business_subtitle", {})
-    biz_sub_font = _style(layout, "header", "business_subtitle_font", fallback=None) or biz_sub_style.get("font", "Times-Italic")
-    biz_sub_size = float(
-        _style(layout, "header", "business_subtitle_size", fallback=None) or biz_sub_style.get("size", 16.0)
-    )
-    biz_sub_color = _hex(
-        ev.get("business_subtitle_color") or _style(layout, "header", "business_subtitle_color", fallback=None),
-        _string_hex(_COLOR_WHITE),
-    )
-
-    line_gap = float(_style(layout, "header", "business_line_gap", fallback=20.0))
-    text_bottom = header_region["y"] + float(_style(layout, "header", "business_text_bottom_padding", fallback=12.0))
-    if logo_y is not None:
-        text_top = logo_y - float(_style(layout, "header", "business_text_logo_gap", fallback=8.0))
-    else:
-        text_top = header_region["y"] + header_region["h"] - float(
-            _style(layout, "header", "business_text_bottom_padding", fallback=12.0)
+    if header_image_reader is not None:
+        image_padding = float(_style(layout, "header", "image_padding", fallback=4.0))
+        pdf.drawImage(
+            header_image_reader,
+            hx + image_padding,
+            header_region["y"] + image_padding,
+            width=panel_w - image_padding * 2,
+            height=header_region["h"] - image_padding * 2,
+            preserveAspectRatio=False,
         )
-    text_center = (text_top + text_bottom) / 2.0
-    biz_name_y = text_center + line_gap / 2.0
-    biz_sub_y = text_center - line_gap / 2.0
+    else:
+        logo_y: float | None = None
+        if logo_reader is not None:
+            logo_w, logo_h = 58, 58
+            logo_x = (w - logo_w) / 2
+            logo_y = header_region["y"] + header_region["h"] - logo_h - 6
+            pdf.drawImage(logo_reader, logo_x, logo_y,
+                          width=logo_w, height=logo_h, preserveAspectRatio=True)
 
-    _draw_centered(pdf, biz_name.upper(), w / 2, biz_name_y,
-                   biz_name_style.get("font", "Helvetica-Bold"),
-                   biz_name_style.get("size", 22.0), palette["white"])
-    _draw_centered(pdf, biz_sub, w / 2, biz_sub_y,
-                   biz_sub_font,
-                   biz_sub_size, biz_sub_color)
+        biz_name = ev.get("business_name") or ctx.get("business_display_name", "")
+        biz_sub = ev.get("business_subtitle") or ctx.get("business_legal_name", "")
+
+        biz_name_style = typography.get("business_name", {})
+        biz_sub_style = typography.get("business_subtitle", {})
+        biz_sub_font = _style(layout, "header", "business_subtitle_font", fallback=None) or biz_sub_style.get("font", "Times-Italic")
+        biz_sub_size = float(
+            _style(layout, "header", "business_subtitle_size", fallback=None) or biz_sub_style.get("size", 16.0)
+        )
+        biz_sub_color = _hex(
+            ev.get("business_subtitle_color") or _style(layout, "header", "business_subtitle_color", fallback=None),
+            _string_hex(_COLOR_WHITE),
+        )
+
+        line_gap = float(_style(layout, "header", "business_line_gap", fallback=20.0))
+        text_bottom = header_region["y"] + float(_style(layout, "header", "business_text_bottom_padding", fallback=12.0))
+        if logo_y is not None:
+            text_top = logo_y - float(_style(layout, "header", "business_text_logo_gap", fallback=8.0))
+        else:
+            text_top = header_region["y"] + header_region["h"] - float(
+                _style(layout, "header", "business_text_bottom_padding", fallback=12.0)
+            )
+        text_center = (text_top + text_bottom) / 2.0
+        biz_name_y = text_center + line_gap / 2.0
+        biz_sub_y = text_center - line_gap / 2.0
+
+        _draw_centered(pdf, biz_name.upper(), w / 2, biz_name_y,
+                       biz_name_style.get("font", "Helvetica-Bold"),
+                       biz_name_style.get("size", 22.0), palette["white"])
+        _draw_centered(pdf, biz_sub, w / 2, biz_sub_y,
+                       biz_sub_font,
+                       biz_sub_size, biz_sub_color)
 
     def title_with_marker(component: dict[str, Any] | None) -> str:
         if component is None:
@@ -573,16 +696,44 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
         _draw_rounded_panel(pdf, hx, panel_top, panel_w, panel_h,
                             featured_fill, palette["accent"], radius=panel_radius, stroke_w=stroke_w)
         
-        section_title_style = typography.get("section_title", {})
-        _draw_centered(pdf, title_with_marker(comp), w / 2,
-                       panel_top + panel_h - 34, 
-                       section_title_style.get("font", "Helvetica-Bold"), 
-                       section_title_style.get("size", 21.0), palette["primary"])
+        component_header_image_path = (comp_style.get("header_image_path") or "").strip()
+        component_header_image_h = float(comp_style.get("header_image_height") or 0.0)
+        component_header_image_reader = _load_image_cover(
+            _resolve_relative_campaign_path(ctx, data_dir, component_header_image_path) if component_header_image_path else None,
+            panel_w - 40.0,
+            component_header_image_h,
+            focus_x=float(comp_style.get("header_image_focus_x") or 0.5),
+            focus_y=float(comp_style.get("header_image_focus_y") or 0.5),
+        )
+
+        if component_header_image_reader is not None and component_header_image_h > 0:
+            component_header_padding = float(comp_style.get("header_image_padding") or 8.0)
+            component_header_y = panel_top + panel_h - component_header_image_h - component_header_padding
+            pdf.drawImage(
+                component_header_image_reader,
+                hx + 20.0,
+                component_header_y,
+                width=panel_w - 40.0,
+                height=component_header_image_h,
+                preserveAspectRatio=False,
+            )
+        else:
+            component_header_y = panel_top + panel_h
+            section_title_style = typography.get("section_title", {})
+            _draw_centered(pdf, title_with_marker(comp), w / 2,
+                           panel_top + panel_h - 34,
+                           section_title_style.get("font", "Helvetica-Bold"),
+                           section_title_style.get("size", 21.0), palette["primary"])
         
         # Carve out a fixed inner content region for items between the subtitle and
         # the footnote so cards can never encroach on either boundary.
-        subtitle = comp.get("subtitle") or ""
+        subtitle = "" if component_header_image_reader is not None else (comp.get("subtitle") or "")
         items_top_boundary = panel_top + panel_h - float(_style(layout, "featured", "item_top_offset", fallback=74.0))
+        if component_header_image_reader is not None and component_header_image_h > 0:
+            items_top_boundary = min(
+                items_top_boundary,
+                component_header_y - float(comp_style.get("header_image_item_gap") or 10.0),
+            )
         if subtitle:
             section_subtitle_style = typography.get("section_subtitle", {})
             subtitle_font = (
@@ -1094,6 +1245,15 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
         """,
         (campaign_id,),
     ).fetchall()
+    assets = connection.execute(
+        """
+        SELECT asset_type, source_type, mime_type, source_path, width, height, metadata_json
+        FROM campaign_assets
+        WHERE campaign_id = ?
+        ORDER BY id ASC;
+        """,
+        (campaign_id,),
+    ).fetchall()
     components = connection.execute(
         """
         SELECT id, component_key, component_kind, render_region, render_mode, style_json, display_title, background_color, header_accent_color, footnote_text, subtitle, description_text, display_order
@@ -1185,6 +1345,13 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
         "location": dict(location) if location else None,
         "contacts": [dict(c) for c in contacts],
         "offers": offer_payloads,
+        "assets": [
+            {
+                **dict(asset),
+                "metadata": json.loads(asset["metadata_json"] or "{}"),
+            }
+            for asset in assets
+        ],
         "components": component_payloads,
         "effective_values": effective,
         "template_name": template_name,
@@ -1209,6 +1376,7 @@ def _collect_render_context_session(db: Session, campaign_id: int) -> dict[str, 
     location = next(iter(sorted(business.locations, key=lambda item: item.id)), None)
     contacts = sorted(business.contacts, key=lambda item: (not item.is_primary, item.id))
     offers = sorted(campaign.offers, key=lambda item: item.id)
+    assets = sorted(campaign.assets, key=lambda item: item.id)
     components = sorted(campaign.components, key=lambda item: (item.display_order, item.id))
     binding = (
         db.query(CampaignTemplateBinding)
@@ -1324,6 +1492,18 @@ def _collect_render_context_session(db: Session, campaign_id: int) -> dict[str, 
             for contact in contacts
         ],
         "offers": offer_payloads,
+        "assets": [
+            {
+                "asset_type": asset.asset_type,
+                "source_type": asset.source_type,
+                "mime_type": asset.mime_type,
+                "source_path": asset.source_path,
+                "width": asset.width,
+                "height": asset.height,
+                "metadata": json.loads(asset.metadata_json or "{}"),
+            }
+            for asset in assets
+        ],
         "components": component_payloads,
         "effective_values": effective,
         "template_name": template_name,
@@ -1348,7 +1528,14 @@ def render_flyer(ctx: dict[str, Any], data_dir: Path | None = None) -> bytes:
 
     # Resolve logo
     logo_reader = None
+    header_image_reader = None
     if use_rich:
+        header_region = _region(layout, "header")
+        header_image_reader = _load_image_cover(
+            _resolve_campaign_asset_path(ctx, data_dir),
+            header_region["w"],
+            header_region["h"],
+        )
         logo_path = _resolve_logo(
             ctx.get("theme", {}),
             data_dir,
@@ -1361,7 +1548,7 @@ def render_flyer(ctx: dict[str, Any], data_dir: Path | None = None) -> bytes:
     pdf.setTitle(ctx.get("title") or "Flyer")
 
     if use_rich:
-        _draw_rich_flyer(pdf, ctx, palette, logo_reader, featured, weekday, discount, legal)
+        _draw_rich_flyer(pdf, ctx, palette, logo_reader, header_image_reader, featured, weekday, discount, legal, data_dir=data_dir)
     else:
         _draw_simple_flyer(pdf, ctx, palette)
 
@@ -1385,7 +1572,14 @@ def render_flyer_nup(ctx: dict[str, Any], images_per_page: int, data_dir: Path |
     use_rich = bool(featured or weekday)
 
     logo_reader = None
+    header_image_reader = None
     if use_rich:
+        header_region = _region(layout, "header")
+        header_image_reader = _load_image_cover(
+            _resolve_campaign_asset_path(ctx, data_dir),
+            header_region["w"],
+            header_region["h"],
+        )
         logo_path = _resolve_logo(
             ctx.get("theme", {}),
             data_dir,
@@ -1417,7 +1611,7 @@ def render_flyer_nup(ctx: dict[str, Any], images_per_page: int, data_dir: Path |
         pdf.scale(scale, scale)
 
         if use_rich:
-            _draw_rich_flyer(pdf, ctx, palette, logo_reader, featured, weekday, discount, legal)
+            _draw_rich_flyer(pdf, ctx, palette, logo_reader, header_image_reader, featured, weekday, discount, legal, data_dir=data_dir)
         else:
             _draw_simple_flyer(pdf, ctx, palette)
 

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import fcntl
+import os
 from pathlib import Path
 import subprocess
+import tempfile
 import time
 
 
@@ -31,9 +33,46 @@ def _git_operation_lock(repo_root: Path, *, timeout_seconds: float = 30.0):
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
-def _run_git(repo_root: Path, args: list[str], *, user_name: str, user_email: str) -> str:
+@contextmanager
+def _git_auth_environment(token: str | None):
+    if not token:
+        yield None
+        return
+
+    askpass_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as askpass:
+            askpass_path = Path(askpass.name)
+            askpass.write(
+                "#!/bin/sh\n"
+                "case \"$1\" in\n"
+                "  *Username*) printf '%s\\n' \"x-access-token\" ;;\n"
+                "  *Password*) printf '%s\\n' \"$GPMPE_GIT_TOKEN\" ;;\n"
+                "  *) printf '%s\\n' \"$GPMPE_GIT_TOKEN\" ;;\n"
+                "esac\n"
+            )
+        askpass_path.chmod(0o700)
+        yield {
+            **os.environ,
+            "GIT_ASKPASS": str(askpass_path),
+            "GIT_TERMINAL_PROMPT": "0",
+            "GPMPE_GIT_TOKEN": token,
+        }
+    finally:
+        if askpass_path is not None:
+            askpass_path.unlink(missing_ok=True)
+
+
+def _run_git(
+    repo_root: Path,
+    args: list[str],
+    *,
+    user_name: str,
+    user_email: str,
+    env: dict[str, str] | None = None,
+) -> str:
     command = ["git", "-c", f"user.name={user_name}", "-c", f"user.email={user_email}", *args]
-    result = subprocess.run(command, cwd=repo_root, capture_output=True, text=True, check=False)
+    result = subprocess.run(command, cwd=repo_root, capture_output=True, text=True, check=False, env=env)
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip() or f"git {' '.join(args)} failed"
         raise GitStoreError(detail)
@@ -60,8 +99,10 @@ def auto_commit_paths(
     user_email: str,
     push_enabled: bool = False,
     remote: str = "origin",
+    remote_url: str | None = None,
     branch: str = "HEAD",
     lock_timeout_seconds: float = 30.0,
+    credential_secret: str | None = None,
 ) -> str:
     if not (repo_root / ".git").exists():
         raise GitStoreError(f"No git repository found at '{repo_root}'")
@@ -78,7 +119,9 @@ def auto_commit_paths(
         commit_id = _run_git(repo_root, ["rev-parse", "HEAD"], user_name=user_name, user_email=user_email)
 
         if push_enabled:
-            _run_git(repo_root, ["push", remote, branch], user_name=user_name, user_email=user_email)
+            with _git_auth_environment(credential_secret) as env:
+                push_remote = remote_url or remote
+                _run_git(repo_root, ["push", push_remote, branch], user_name=user_name, user_email=user_email, env=env)
         
         return commit_id
 
