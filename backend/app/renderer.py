@@ -1530,11 +1530,14 @@ def render_flyer(ctx: dict[str, Any], data_dir: Path | None = None) -> bytes:
     logo_reader = None
     header_image_reader = None
     if use_rich:
+        ev = ctx.get("effective_values", {})
         header_region = _region(layout, "header")
         header_image_reader = _load_image_cover(
             _resolve_campaign_asset_path(ctx, data_dir),
             header_region["w"],
             header_region["h"],
+            focus_x=float(ev.get("header_image_focus_x") or 0.5),
+            focus_y=float(ev.get("header_image_focus_y") or 0.5),
         )
         logo_path = _resolve_logo(
             ctx.get("theme", {}),
@@ -1574,11 +1577,14 @@ def render_flyer_nup(ctx: dict[str, Any], images_per_page: int, data_dir: Path |
     logo_reader = None
     header_image_reader = None
     if use_rich:
+        ev = ctx.get("effective_values", {})
         header_region = _region(layout, "header")
         header_image_reader = _load_image_cover(
             _resolve_campaign_asset_path(ctx, data_dir),
             header_region["w"],
             header_region["h"],
+            focus_x=float(ev.get("header_image_focus_x") or 0.5),
+            focus_y=float(ev.get("header_image_focus_y") or 0.5),
         )
         logo_path = _resolve_logo(
             ctx.get("theme", {}),
