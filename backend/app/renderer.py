@@ -558,8 +558,12 @@ def _draw_weekday_strip(pdf: Any, x: float, y: float, w: float,
                          radius: float = 10.0,
                          typography: dict | None = None,
                          detail_font: str | None = None,
-                         detail_color: Any = None) -> None:
-    _draw_rounded_panel(pdf, x, y, w, 26, strip_fill or palette["primary_light"], palette["secondary"],
+                         detail_color: Any = None,
+                         height: float = 26.0,
+                         price_badge_fill: Any = None,
+                         price_badge_color: Any = None,
+                         price_badge_padding_x: float = 8.0) -> None:
+    _draw_rounded_panel(pdf, x, y, w, height, strip_fill or palette["primary_light"], palette["secondary"],
                         radius=radius, stroke_w=1)
     pdf.setFillColor(palette["ink"])
     
@@ -569,16 +573,37 @@ def _draw_weekday_strip(pdf: Any, x: float, y: float, w: float,
     detail_style = typo.get("item_detail", {})
     value_style = typo.get("item_value", {})
     
+    text_y = y + max(7.0, (height - 10.0) / 2.0)
+
     pdf.setFont(name_style.get("font", "Helvetica-Bold"), name_style.get("size", 11.0))
-    pdf.drawString(x + 16, y + 8, title)
+    pdf.drawString(x + 16, text_y, title)
     
     pdf.setFillColor(detail_color or palette["ink"])
     pdf.setFont(detail_font or detail_style.get("font", "Helvetica"), detail_style.get("size", 11.0))
-    pdf.drawString(x + 180, y + 8, detail)
+    pdf.drawString(x + 180, text_y, detail)
     
-    pdf.setFillColor(palette["ink"])
-    pdf.setFont(value_style.get("font", "Helvetica-Bold"), value_style.get("size", 11.0))
-    pdf.drawRightString(x + w - 16, y + 8, price)
+    price_font = value_style.get("font", "Helvetica-Bold")
+    price_size = float(value_style.get("size", 11.0))
+    pdf.setFont(price_font, price_size)
+    price_x = x + w - 16
+    if price_badge_fill is not None and price:
+        price_w = pdf.stringWidth(price, price_font, price_size)
+        badge_h = min(height - 6.0, price_size + 6.0)
+        badge_w = price_w + price_badge_padding_x * 2
+        _draw_rounded_panel(
+            pdf,
+            price_x - badge_w,
+            y + (height - badge_h) / 2.0,
+            badge_w,
+            badge_h,
+            price_badge_fill,
+            price_badge_fill,
+            radius=badge_h / 2.0,
+            stroke_w=0,
+        )
+    pdf.setFillColor(price_badge_color or palette["ink"])
+    pdf.setFont(price_font, price_size)
+    pdf.drawRightString(price_x, text_y, price)
 
 
 # ---------------------------------------------------------------------------
@@ -941,7 +966,19 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
                                 radius=item_style.get("border_radius") or strip_radius,
                                 typography=typography,
                                 detail_font=detail_font,
-                                detail_color=detail_color)
+                                detail_color=detail_color,
+                                height=strip_h,
+                                price_badge_fill=(
+                                    _hex(item_style.get("price_badge_fill"), "#FFE66D")
+                                    if item_style.get("price_badge_fill")
+                                    else None
+                                ),
+                                price_badge_color=(
+                                    _hex(item_style.get("price_badge_color"), _string_hex(_COLOR_INK))
+                                    if item_style.get("price_badge_color")
+                                    else None
+                                ),
+                                price_badge_padding_x=float(item_style.get("price_badge_padding_x") or 8.0))
 
         wd_note = (wd_comp.get("footnote_text") or "").strip()
         if wd_note:
