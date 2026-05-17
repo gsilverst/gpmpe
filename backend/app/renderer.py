@@ -898,6 +898,7 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
                        section_title_style.get("size", 22.0), wd_text_color)
         
         wd_sub = wd_comp.get("subtitle") or ""
+        subtitle_bottom: float | None = None
         if wd_sub:
             section_subtitle_style = typography.get("section_subtitle", {})
             wd_subtitle_font = (
@@ -910,14 +911,26 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
                 or _style(layout, "secondary", "subtitle_size", fallback=None)
                 or section_subtitle_style.get("size", 14.0)
             )
+            wd_subtitle_leading = float(
+                wd_comp_style.get("subtitle_leading")
+                or _style(layout, "secondary", "subtitle_leading", fallback=wd_subtitle_size + 2.0)
+            )
             wd_subtitle_color = _hex(
                 wd_comp_style.get("subtitle_color")
                 or _style(layout, "secondary", "subtitle_color", fallback=None),
                 _string_hex(wd_text_color),
             )
-            _draw_centered(pdf, wd_sub, w / 2, secondary_region["y"] + secondary_region["h"] - 56,
-                           wd_subtitle_font,
-                           wd_subtitle_size, wd_subtitle_color)
+            subtitle_bottom = _draw_wrapped_centered(
+                pdf,
+                wd_sub,
+                w / 2,
+                secondary_region["y"] + secondary_region["h"] - 54,
+                panel_w - 78,
+                wd_subtitle_font,
+                wd_subtitle_size,
+                wd_subtitle_leading,
+                wd_subtitle_color,
+            )
 
         strips_x = hx + 18
         strips_w = w - (hx + 18) * 2
@@ -932,6 +945,8 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
         # or the lower discount/footer region.
         # Keep a little breathing room below the subtitle before the first item strip.
         strips_top = secondary_region["y"] + secondary_region["h"] - float(_style(layout, "secondary", "strip_top_offset", fallback=92.0))
+        if subtitle_bottom is not None:
+            strips_top = min(strips_top, subtitle_bottom - 8.0)
         if has_discount_panel:
             strips_bottom = services_panel_y + services_panel_h + float(_style(layout, "secondary", "discount_clearance", fallback=10.0))
         else:

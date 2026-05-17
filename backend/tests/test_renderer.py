@@ -1467,20 +1467,21 @@ def test_render_flyer_uses_featured_price_badge_defaults(monkeypatch) -> None:
 def test_render_flyer_uses_print_safe_weekday_subtitle_and_duration_style(monkeypatch) -> None:
     from app import renderer as renderer_module
 
-    centered: list[tuple[str, str, float, object]] = []
+    subtitles: list[tuple[str, str, float, float, object]] = []
     strips: list[tuple[str, object]] = []
-    original_centered = renderer_module._draw_centered
+    original_wrapped = renderer_module._draw_wrapped_centered
     original_strip = renderer_module._draw_weekday_strip
 
-    def _capture_centered(pdf, text, x, y, font, size, color):
-        centered.append((text or "", font, size, color))
-        return original_centered(pdf, text, x, y, font, size, color)
+    def _capture_wrapped(pdf, text, cx, top_y, max_w, font, size, leading, color):
+        if text == "Wednesday-Friday":
+            subtitles.append((text or "", font, size, leading, color))
+        return original_wrapped(pdf, text, cx, top_y, max_w, font, size, leading, color)
 
     def _capture_strip(pdf, x, y, w, title, detail, price, palette, strip_fill=None, **kwargs):
         strips.append((kwargs.get("detail_font"), kwargs.get("detail_color")))
         return original_strip(pdf, x, y, w, title, detail, price, palette, strip_fill=strip_fill, **kwargs)
 
-    monkeypatch.setattr(renderer_module, "_draw_centered", _capture_centered)
+    monkeypatch.setattr(renderer_module, "_draw_wrapped_centered", _capture_wrapped)
     monkeypatch.setattr(renderer_module, "_draw_weekday_strip", _capture_strip)
 
     ctx = {
@@ -1535,11 +1536,11 @@ def test_render_flyer_uses_print_safe_weekday_subtitle_and_duration_style(monkey
     pdf_bytes = render_flyer(ctx)
 
     assert pdf_bytes.startswith(b"%PDF")
-    subtitle_rows = [row for row in centered if row[0] == "Wednesday-Friday"]
-    assert subtitle_rows
-    _, font, size, _ = subtitle_rows[0]
+    assert subtitles
+    _, font, size, leading, _ = subtitles[0]
     assert font == "Helvetica-BoldOblique"
     assert size == 14.0
+    assert leading == 16.0
     assert strips
     detail_font, detail_color = strips[0]
     assert detail_font == "Helvetica-Bold"
