@@ -71,7 +71,10 @@ def _run_git(
     user_email: str,
     env: dict[str, str] | None = None,
 ) -> str:
-    command = ["git", "-c", f"user.name={user_name}", "-c", f"user.email={user_email}", *args]
+    command = ["git", "-c", f"user.name={user_name}", "-c", f"user.email={user_email}"]
+    if env is not None and "GIT_ASKPASS" in env:
+        command.extend(["-c", "credential.helper="])
+    command.extend(args)
     result = subprocess.run(command, cwd=repo_root, capture_output=True, text=True, check=False, env=env)
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip() or f"git {' '.join(args)} failed"
