@@ -586,10 +586,12 @@ def _draw_weekday_strip(pdf: Any, x: float, y: float, w: float,
     price_size = float(value_style.get("size", 11.0))
     pdf.setFont(price_font, price_size)
     price_x = x + w - 16
+    price_text_x = price_x
     if price_badge_fill is not None and price:
         price_w = pdf.stringWidth(price, price_font, price_size)
         badge_h = min(height - 6.0, price_size + 6.0)
         badge_w = price_w + price_badge_padding_x * 2
+        price_text_x = price_x - price_badge_padding_x
         _draw_rounded_panel(
             pdf,
             price_x - badge_w,
@@ -603,7 +605,7 @@ def _draw_weekday_strip(pdf: Any, x: float, y: float, w: float,
         )
     pdf.setFillColor(price_badge_color or palette["ink"])
     pdf.setFont(price_font, price_size)
-    pdf.drawRightString(price_x, text_y, price)
+    pdf.drawRightString(price_text_x, text_y, price)
 
 
 # ---------------------------------------------------------------------------

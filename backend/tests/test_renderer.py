@@ -25,6 +25,54 @@ def _make_client(monkeypatch, config_path: Path) -> TestClient:
     return make_test_client(monkeypatch, config_path)
 
 
+def test_weekday_strip_price_badge_centers_price(monkeypatch) -> None:
+    from app import renderer as renderer_module
+
+    panels: list[dict[str, float]] = []
+    prices: list[dict[str, float]] = []
+
+    class FakePdf:
+        def setFillColor(self, color) -> None:
+            pass
+
+        def setFont(self, font: str, size: float) -> None:
+            self.font = font
+            self.size = size
+
+        def stringWidth(self, text: str, font: str, size: float) -> float:
+            return 18.0
+
+        def drawString(self, x: float, y: float, text: str) -> None:
+            pass
+
+        def drawRightString(self, x: float, y: float, text: str) -> None:
+            prices.append({"x": float(x), "y": float(y)})
+
+    def _capture_panel(pdf, x, y, w, h, fill, stroke, radius=0, stroke_w=1):
+        panels.append({"x": float(x), "w": float(w)})
+
+    monkeypatch.setattr(renderer_module, "_draw_rounded_panel", _capture_panel)
+
+    renderer_module._draw_weekday_strip(
+        FakePdf(),
+        10.0,
+        20.0,
+        200.0,
+        "Service",
+        "60 minutes",
+        "$45",
+        {"primary_light": colors.HexColor("#D9CBE8"), "secondary": colors.HexColor("#6E4A8E"), "ink": colors.black},
+        price_badge_fill=colors.HexColor("#FFE66D"),
+        price_badge_padding_x=9.0,
+    )
+
+    badge = panels[-1]
+    price = prices[-1]
+    assert badge["x"] == 158.0
+    assert badge["w"] == 36.0
+    assert price["x"] == 185.0
+
+
 def _seed_full_campaign(client: TestClient) -> tuple[int, int]:
     """Seed a business+campaign with offers, a template, and a binding."""
     business_id = client.post(
