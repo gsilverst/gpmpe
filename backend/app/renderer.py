@@ -946,7 +946,11 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
         # Keep a little breathing room below the subtitle before the first item strip.
         strips_top = secondary_region["y"] + secondary_region["h"] - float(_style(layout, "secondary", "strip_top_offset", fallback=92.0))
         if subtitle_bottom is not None:
-            strips_top = min(strips_top, subtitle_bottom - 8.0)
+            subtitle_item_gap = float(
+                wd_comp_style.get("subtitle_item_gap")
+                or _style(layout, "secondary", "subtitle_item_gap", fallback=8.0)
+            )
+            strips_top = min(strips_top, subtitle_bottom - subtitle_item_gap)
         if has_discount_panel:
             strips_bottom = services_panel_y + services_panel_h + float(_style(layout, "secondary", "discount_clearance", fallback=10.0))
         else:
