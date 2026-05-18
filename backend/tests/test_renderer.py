@@ -679,6 +679,87 @@ def test_render_flyer_uses_secondary_text_color_for_footer(monkeypatch) -> None:
     assert footer_rows[0][1] == 12
 
 
+def test_render_flyer_draws_image_only_component(monkeypatch, tmp_path: Path) -> None:
+    from PIL import Image
+    from reportlab.pdfgen import canvas as canvas_module
+
+    image_file = tmp_path / "acme" / "promotions" / "image-art" / "assets" / "meadow.png"
+    image_file.parent.mkdir(parents=True)
+    Image.new("RGB", (300, 120), "#FFE66D").save(image_file)
+
+    images: list[dict[str, float]] = []
+    original_draw_image = canvas_module.Canvas.drawImage
+
+    def _capture_image(self, image, x, y, *args, **kwargs):
+        width = kwargs.get("width")
+        height = kwargs.get("height")
+        if width is None and len(args) >= 1:
+            width = args[0]
+        if height is None and len(args) >= 2:
+            height = args[1]
+        images.append(
+            {
+                "x": float(x),
+                "y": float(y),
+                "w": float(width or 0.0),
+                "h": float(height or 0.0),
+            }
+        )
+        return original_draw_image(self, image, x, y, *args, **kwargs)
+
+    monkeypatch.setattr(canvas_module.Canvas, "drawImage", _capture_image)
+
+    ctx = {
+        "campaign_id": 91,
+        "campaign_name": "image-art",
+        "title": "Image Art",
+        "objective": "Render an image-only component",
+        "campaign_footnote_text": None,
+        "start_date": "2026-05-01",
+        "end_date": "2026-05-31",
+        "business_display_name": "ACME",
+        "business_legal_name": "ACME LLC",
+        "theme": {
+            "primary_color": "#5E3A82",
+            "secondary_color": "#6E4A8E",
+            "accent_color": "#E0559A",
+        },
+        "location": None,
+        "contacts": [],
+        "offers": [],
+        "assets": [],
+        "components": [
+            {
+                "component_key": "meadow-art",
+                "component_kind": "image-only",
+                "display_title": "Meadow Art",
+                "style": {"image_path": "assets/meadow.png", "fit": "cover"},
+                "display_order": 0,
+                "items": [],
+            }
+        ],
+        "effective_values": {
+            "business_name": "ACME",
+            "business_subtitle": "ACME LLC",
+            "footer": "acme.example",
+            "legal": "Offer terms.",
+        },
+        "template_name": "social-post",
+        "template": {
+            "layout": {
+                "regions": {
+                    "artwork": {"x": 100, "y": 120, "w": 200, "h": 80},
+                }
+            }
+        },
+    }
+
+    pdf_bytes = render_flyer(ctx, data_dir=tmp_path)
+
+    assert pdf_bytes.startswith(b"%PDF")
+    assert {"x": 100.0, "y": 120.0, "w": 200.0, "h": 80.0} in images
+
+
 def test_render_flyer_uses_print_safe_featured_subtitle_style(monkeypatch) -> None:
     from app import renderer as renderer_module
 

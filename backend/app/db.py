@@ -69,6 +69,8 @@ def _backfill_renderer_fields(connection: sqlite3.Connection) -> None:
           WHEN 'other-offers' THEN 'secondary'
           WHEN 'secondary-offers' THEN 'secondary'
           WHEN 'discount-strip' THEN 'discount'
+          WHEN 'image-only' THEN 'artwork'
+          WHEN 'image' THEN 'artwork'
           WHEN 'legal-note' THEN 'legal'
           ELSE render_region
         END
@@ -84,6 +86,8 @@ def _backfill_renderer_fields(connection: sqlite3.Connection) -> None:
           WHEN 'other-offers' THEN 'strip-list'
           WHEN 'secondary-offers' THEN 'strip-list'
           WHEN 'discount-strip' THEN 'discount-panel'
+          WHEN 'image-only' THEN 'image-only'
+          WHEN 'image' THEN 'image-only'
           WHEN 'legal-note' THEN 'legal-text'
           ELSE render_mode
         END

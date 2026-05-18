@@ -58,6 +58,8 @@ _COMPONENT_RENDER_DEFAULTS: dict[str, tuple[str, str]] = {
     "other-offers": ("secondary", "strip-list"),
     "secondary-offers": ("secondary", "strip-list"),
     "discount-strip": ("discount", "discount-panel"),
+    "image-only": ("artwork", "image-only"),
+    "image": ("artwork", "image-only"),
     "legal-note": ("legal", "legal-text"),
 }
 BUSINESS_FIELDS = {

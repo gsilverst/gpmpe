@@ -29,6 +29,22 @@
   - Changing campaigns clears stale component context automatically.
 - Incomplete component-rename messages now return a successful clarification response (`target=clarify`) instead of a hard HTTP 400 failure.
 
+## Delivered Updates (May 2026)
+- Local business-data repository workflow was validated with Merci's private `merci_promos` repository:
+  - Local app Git settings can use a business-owned repository with administrator-managed credentials.
+  - Campaign saves and manual Git operations can commit and push business YAML/assets to GitHub.
+  - The repository-oriented model is now business-data oriented rather than runtime-data-directory oriented.
+- Merci `main-street-appreciation` was rebuilt as a data-backed campaign baseline and checked into the business repository.
+- Merci `merci-may-flowers` was created as a new campaign derived from the May sales work:
+  - Uses the main-street header image.
+  - Preserves highlighted prices for Swedish Massage and Deep Tissue.
+  - Reorients the campaign away from Mother's Day toward "May Flowers Weekday Specials."
+  - Adds a pre-race rabbit/tortoise meadow vignette as subtle story continuity for the orthopedic campaign.
+- Renderer support now includes an `image-only` component mode for reusable promotional artwork regions.
+- The main-street campaign artwork was updated to restore a readable, faithful Merci logo on the storefront sign.
+- The orthopedic storyboard scene 2 artwork was updated to restore a readable, faithful Merci logo in the framed wall art.
+- Durable orthopedic storyboard assets are now stored in the Merci business repository under `data/merci/assets/orthopedic-storyboard/`.
+
 ## Execution Checkpoint (April 28, 2026 - Late Evening)
 
 Current phase status:
@@ -78,6 +94,16 @@ Notable new/updated backend tests:
 - On GUI startup, if `DATA_DIR` is configured, the application reads/syncs it automatically; if the directory is missing, the application creates it.
 - If `DATA_DIR` is not configured, that is an error in MVP.
 - Prompting the user to choose a data directory and updating `.config` without restart is a future enhancement, not part of MVP.
+
+## Local Proprietary Work Queue
+
+These items are not part of the open-source engine roadmap, but they capture current customer/campaign work that exercises the platform.
+
+- Completed: Merci `main-street-appreciation` baseline flyer has been reconstructed in the private business data repository and pushed to GitHub.
+- Completed: Merci `merci-may-flowers` has been created as a new campaign, using the main-street header, preserving the highlighted weekday specials, and adding a pre-race rabbit/tortoise meadow vignette.
+- Completed: Merci main-street artwork and orthopedic storyboard scene 2 were updated so the building/wall logos use a readable, faithful copy of Merci's true logo.
+- Follow-up: continue likeness and brand-polish iterations for Redza/main-street/storyboard imagery as needed after family/business review.
+- Follow-up: model the orthopedic storyboard as a first-class GPMPE promotion once page-level image-caption components are implemented.
 
 ## Step-by-Step Plan
 
@@ -227,6 +253,7 @@ Objective:
 - Continue moving rendering decisions out of hard-coded renderer branches and into database/YAML-controlled template, component, and item parameters.
 - Audit real campaign examples, including promotions where visually similar components display differently, to identify which differences come from `component_kind`, `render_region`, `render_mode`, style defaults, item roles, or renderer-only heuristics.
 - Expand structured template `layout_json`, template default values, component `style_json`, item `style_json`, `render_mode`, and `render_role` contracts so campaign-specific display behavior can be represented as data.
+- Support reusable image-only components for promotional art, decorative vignettes, product imagery, and future social-media formats by using named layout regions plus component `style_json` image placement parameters.
 - Preserve backwards compatibility by keeping renderer defaults for older data while allowing explicit database/YAML values to override those defaults.
 - Backfill explicit values into existing campaign data when renderer defaults are externalized, so historical campaigns keep rendering as close as practical to their prior output.
 - Document each newly externalized rendering parameter in `docs/DESIGN.md` and the user/admin documentation, including defaults and migration behavior.
@@ -255,6 +282,36 @@ Objective:
 - Decide how `component_kind`, `render_region`, `render_mode`, `render_role`, and component/item `style_json` should work together without overlapping responsibilities.
 - Preserve backwards compatibility by mapping existing component kinds to the new model and writing explicit migration/default values where needed.
 - Update the user guide, design documentation, sample data, chatbot commands, and tests once the revised component model is chosen.
+
+### Step 21e.1: Page-Level Image-Caption Components for Storyboards and Social Campaigns (TODO)
+Objective:
+- Expand the promotion model so a single promotion can contain ordered components that each occupy a full page.
+- Support an `image-caption` component kind or equivalent semantic content type with a page-level render mode such as `image-caption-page`.
+- Allow each page-level component to define:
+  - an image asset path,
+  - a title or page label,
+  - a caption/body/footer text,
+  - optional call-to-action text,
+  - optional layout/style parameters for image fit, caption placement, margins, typography, and background.
+- Render page-level components as a multi-page PDF, one page per component in `display_order`.
+- Add a storyboard/contact-sheet artifact mode later that can render the same ordered page components into a single overview grid.
+- Use the Merci orthopedic storyboard as the private proving example, but implement the feature with neutral sample data so it belongs to the generic engine.
+- Keep the UX simple for non-technical users: "add a page", "set the page image", "write the caption", "move this page before/after another page".
+- Update chat commands so users can create and edit page-level image-caption components through natural language.
+- Update the GUI so a promotion can show page components as ordered pages, not only as sales sections/items.
+- Ensure page-level components support social-media-oriented outputs, including future PNG/page-image export for carousel posts.
+- Document how this shifts GPMPE from price-oriented flyer generation toward broader promotional storytelling and social-media campaign creation.
+
+### Step 21e.2: Chat-Driven Image Generation for Promotional Assets (TODO)
+Objective:
+- Add an administrator-configured image-generation API credential, stored through the existing secret-provider model rather than in normal application tables.
+- Allow authorized users to ask the chat interface to generate or iterate promotional images for campaigns, storyboards, social posts, and page-level image-caption components.
+- Store generated image assets in the business data repository under explicit asset paths so they can be versioned with the campaign data.
+- Require generated assets to be attached to a business/campaign context before save, rather than leaving important assets only in temporary runtime storage.
+- Record image-generation prompts and selected output paths in version metadata or campaign asset metadata where useful for later review and iteration.
+- Provide a user-friendly workflow for choosing between generated variants, replacing an existing image, or saving a new versioned image.
+- Keep provider details and raw API keys hidden from regular users; expose simple admin setup and regular-user creative controls.
+- Add guardrails for brand-sensitive work, including use of approved logos/assets as references where appropriate and warnings when exact logo/text fidelity requires compositing or vector/source assets rather than generative repainting.
 
 ### Step 21f: Business Card Artifact Support (TODO)
 Objective:

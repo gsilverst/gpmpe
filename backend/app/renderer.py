@@ -59,6 +59,8 @@ _DEFAULT_RENDER_LAYOUT: dict[str, Any] = {
         "other-offers": {"render_region": "secondary", "render_mode": "strip-list"},
         "secondary-offers": {"render_region": "secondary", "render_mode": "strip-list"},
         "discount-strip": {"render_region": "discount", "render_mode": "discount-panel"},
+        "image-only": {"render_region": "artwork", "render_mode": "image-only"},
+        "image": {"render_region": "artwork", "render_mode": "image-only"},
         "legal-note": {"render_region": "legal", "render_mode": "legal-text"},
     },
     "typography": {
@@ -461,6 +463,60 @@ def _draw_centered(pdf: Any, text: str | None, x: float, y: float,
     pdf.setFillColor(color)
     pdf.setFont(font, size)
     pdf.drawCentredString(x, y, text or "")
+
+
+def _draw_image_only_component(
+    pdf: Any,
+    ctx: dict[str, Any],
+    component: dict[str, Any],
+    region: dict[str, float],
+    data_dir: Path | None,
+) -> None:
+    style = component.get("style") or {}
+    image_path = (
+        style.get("image_path")
+        or style.get("source_path")
+        or style.get("asset_path")
+        or component.get("description_text")
+        or ""
+    )
+    if not image_path:
+        return
+
+    x = float(style.get("x", region["x"]))
+    y = float(style.get("y", region["y"]))
+    width = float(style.get("w", style.get("width", region["w"])))
+    height = float(style.get("h", style.get("height", region["h"])))
+    if width <= 0 or height <= 0:
+        return
+
+    resolved = _resolve_relative_campaign_path(ctx, data_dir, str(image_path))
+    fit = str(style.get("fit") or "cover").strip().lower()
+    if fit == "cover":
+        image_reader = _load_image_cover(
+            resolved,
+            width,
+            height,
+            focus_x=float(style.get("focus_x") or 0.5),
+            focus_y=float(style.get("focus_y") or 0.5),
+        )
+        preserve_aspect = False
+    else:
+        image_reader = ImageReader(str(resolved)) if resolved is not None and resolved.exists() else None
+        preserve_aspect = fit == "contain"
+
+    if image_reader is None:
+        return
+
+    pdf.drawImage(
+        image_reader,
+        x,
+        y,
+        width=width,
+        height=height,
+        preserveAspectRatio=preserve_aspect,
+        mask="auto",
+    )
 
 
 def _draw_wrapped_centered(pdf: Any, text: str | None, cx: float, top_y: float,
@@ -1079,6 +1135,18 @@ def _draw_rich_flyer(pdf: Any, ctx: dict, palette: dict, logo_reader: Any,
                                services_panel_y - 16,
                                note_font, note_size, note_color)
 
+    # ----- Image-only components -----
+    for image_comp in [
+        comp for comp in ctx.get("components", []) if comp.get("render_mode") == "image-only"
+    ]:
+        _draw_image_only_component(
+            pdf,
+            ctx,
+            image_comp,
+            _region(layout, image_comp.get("render_region") or "artwork"),
+            data_dir,
+        )
+
     # ----- Footer contact line (inside weekday panel, very bottom) -----
     footer_text = ev.get("footer") or ""
     if footer_text:
@@ -1582,7 +1650,13 @@ def render_flyer(ctx: dict[str, Any], data_dir: Path | None = None) -> bytes:
     weekday = _region_components(grouped, "secondary", {"strip-list"})
     discount = _region_components(grouped, "discount", {"discount-panel"})
     legal = _region_components(grouped, "legal", {"legal-text"})
-    use_rich = bool(featured or weekday)
+    image_only = [
+        component
+        for components in grouped.values()
+        for component in components
+        if component.get("render_mode") == "image-only"
+    ]
+    use_rich = bool(featured or weekday or image_only)
 
     # Resolve logo
     logo_reader = None
@@ -1630,7 +1704,13 @@ def render_flyer_nup(ctx: dict[str, Any], images_per_page: int, data_dir: Path |
     weekday = _region_components(grouped, "secondary", {"strip-list"})
     discount = _region_components(grouped, "discount", {"discount-panel"})
     legal = _region_components(grouped, "legal", {"legal-text"})
-    use_rich = bool(featured or weekday)
+    image_only = [
+        component
+        for components in grouped.values()
+        for component in components
+        if component.get("render_mode") == "image-only"
+    ]
+    use_rich = bool(featured or weekday or image_only)
 
     logo_reader = None
     header_image_reader = None

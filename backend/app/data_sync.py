@@ -115,6 +115,8 @@ def _component_render_defaults(component_kind: str | None) -> tuple[str | None, 
         "other-offers": ("secondary", "strip-list"),
         "secondary-offers": ("secondary", "strip-list"),
         "discount-strip": ("discount", "discount-panel"),
+        "image-only": ("artwork", "image-only"),
+        "image": ("artwork", "image-only"),
         "legal-note": ("legal", "legal-text"),
     }
     return defaults.get(component_kind or "", (None, None))
