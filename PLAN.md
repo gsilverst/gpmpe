@@ -99,6 +99,8 @@ Notable new/updated backend tests:
 
 These items are not part of the open-source engine roadmap, but they capture current customer/campaign work that exercises the platform.
 
+Use the local-only `PLAN-LOCAL.md` file for active private/customer planning notes that should not be committed to this repository. `PLAN-LOCAL.md` is gitignored and should be deleted once the local/private projects it tracks are completed or moved into the relevant private business-data repository.
+
 - Completed: Merci `main-street-appreciation` baseline flyer has been reconstructed in the private business data repository and pushed to GitHub.
 - Completed: Merci `merci-may-flowers` has been created as a new campaign, using the main-street header, preserving the highlighted weekday specials, and adding a pre-race rabbit/tortoise meadow vignette.
 - Completed: Merci main-street artwork and orthopedic storyboard scene 2 were updated so the building/wall logos use a readable, faithful copy of Merci's true logo.

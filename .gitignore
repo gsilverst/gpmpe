@@ -2,6 +2,7 @@
 .env
 .config
 .gpmpe-secrets.json
+PLAN-LOCAL.md
 .agents/
 skills-lock.json
 misc-data/
