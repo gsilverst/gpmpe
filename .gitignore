@@ -3,6 +3,7 @@
 .config
 .gpmpe-secrets.json
 PLAN-LOCAL.md
+.merci/
 .agents/
 skills-lock.json
 misc-data/
