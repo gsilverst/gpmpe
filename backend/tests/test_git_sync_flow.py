@@ -133,6 +133,15 @@ def test_git_sync_flow_pulls_yaml_to_db_and_pushes_saved_edits(monkeypatch, tmp_
 
         save = client.post(
             f"/campaigns/{mothersday['id']}/save",
+            json={"commit_message": "Save campaign from AWS sync flow", "dry_run": True},
+        )
+        assert save.status_code == 200, save.text
+        assert save.json()["saved"] is False
+        assert save.json()["reason"] == "changes_detected"
+        assert "acme/promotions/mothersday/mothersday.yaml" in save.json()["changed_files"]
+
+        save = client.post(
+            f"/campaigns/{mothersday['id']}/save",
             json={"commit_message": "Save campaign from AWS sync flow"},
         )
         assert save.status_code == 200, save.text
@@ -196,6 +205,19 @@ def test_campaign_save_uses_business_git_settings(monkeypatch, tmp_path: Path) -
             json={"title": outbound_title},
         )
         assert edit.status_code == 200, edit.text
+        asset_path = data_repo / "acme" / "assets" / "save-test.txt"
+        asset_path.parent.mkdir(parents=True)
+        asset_path.write_text("asset content\n", encoding="utf-8")
+        asset = client.post(
+            f"/campaigns/{mothersday['id']}/assets",
+            json={
+                "asset_type": "story_image",
+                "source_type": "upload",
+                "mime_type": "text/plain",
+                "source_path": "acme/assets/save-test.txt",
+            },
+        )
+        assert asset.status_code == 201, asset.text
 
         save = client.post(
             f"/campaigns/{mothersday['id']}/save",
@@ -204,6 +226,7 @@ def test_campaign_save_uses_business_git_settings(monkeypatch, tmp_path: Path) -
         assert save.status_code == 200, save.text
         save_payload = save.json()
         assert save_payload["saved"] is True
+        assert "acme/assets/save-test.txt" in save_payload["changed_files"]
         assert save_payload["auto_commit"]["settings_source"] == "business"
         assert save_payload["auto_commit"]["push_enabled"] is True
 
@@ -212,4 +235,5 @@ def test_campaign_save_uses_business_git_settings(monkeypatch, tmp_path: Path) -
         (verify_repo / "acme" / "promotions" / "mothersday" / "mothersday.yaml").read_text(encoding="utf-8")
     )
     assert remote_yaml["title"] == outbound_title
+    assert (verify_repo / "acme" / "assets" / "save-test.txt").read_text(encoding="utf-8") == "asset content\n"
     assert _git(verify_repo, "log", "-1", "--pretty=%B") == "Save with business git settings"

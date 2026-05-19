@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -29,6 +30,27 @@ from ..services.yaml_persistence import persist_campaign_yaml_session_or_raise
 
 router = APIRouter()
 
+PROMOTION_TYPES = {"sales", "storybook"}
+
+
+def _campaign_details(campaign: Campaign) -> dict[str, Any]:
+    try:
+        details = json.loads(campaign.details_json or "{}")
+    except json.JSONDecodeError:
+        details = {}
+    return details if isinstance(details, dict) else {}
+
+
+def _promotion_type_from_details(details: dict[str, Any]) -> str:
+    value = str(details.get("promotion_type") or "sales").strip().lower()
+    return value if value in PROMOTION_TYPES else "sales"
+
+
+def _set_campaign_promotion_type(campaign: Campaign, promotion_type: str) -> None:
+    details = _campaign_details(campaign)
+    details["promotion_type"] = _promotion_type_from_details({"promotion_type": promotion_type})
+    campaign.details_json = json.dumps(details, sort_keys=True)
+
 
 def _business_to_response(business: Business) -> BusinessResponse:
     phone = next(
@@ -57,6 +79,12 @@ def _business_to_response(business: Business) -> BusinessResponse:
 
 
 def _campaign_row_to_dict(row: Any) -> dict[str, Any]:
+    try:
+        details = json.loads(row.get("details_json") or "{}")
+    except (AttributeError, TypeError, json.JSONDecodeError):
+        details = {}
+    if not isinstance(details, dict):
+        details = {}
     return {
         "id": row["id"],
         "business_id": row["business_id"],
@@ -65,6 +93,7 @@ def _campaign_row_to_dict(row: Any) -> dict[str, Any]:
         "title": row["title"],
         "objective": row["objective"],
         "footnote_text": row["footnote_text"],
+        "promotion_type": _promotion_type_from_details(details),
         "status": row["status"],
         "start_date": row["start_date"],
         "end_date": row["end_date"],
@@ -329,6 +358,7 @@ def create_campaign(
         start_date=payload.start_date,
         end_date=payload.end_date,
     )
+    _set_campaign_promotion_type(campaign, payload.promotion_type)
     db.add(campaign)
     db.commit()
     db.refresh(campaign)
@@ -368,8 +398,13 @@ def update_campaign(
     if campaign is None:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
+    promotion_type = updates.pop("promotion_type", None)
+
     for field, value in updates.items():
         setattr(campaign, field, value)
+
+    if promotion_type is not None:
+        _set_campaign_promotion_type(campaign, str(promotion_type))
 
     db.commit()
     db.refresh(campaign)

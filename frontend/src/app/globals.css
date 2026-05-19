@@ -205,6 +205,31 @@ small {
   color: #1f3a60;
 }
 
+.save-confirm {
+  margin-top: 0.75rem;
+  border: 1px solid #dbe4f3;
+  border-radius: 8px;
+  background: #f8fbff;
+  padding: 0.75rem;
+}
+
+.save-confirm ul {
+  margin: 0.5rem 0;
+  padding-left: 1.2rem;
+  font-size: 0.86rem;
+}
+
+.button-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.secondary-button {
+  background: #e7edf7;
+  color: #123456;
+}
+
 .chat-status-row {
   display: flex;
   gap: 0.6rem;

@@ -31,6 +31,7 @@ export default function DataManagerPage() {
   const [commitMessage, setCommitMessage] = useState<string>("");
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [saveResult, setSaveResult] = useState<CampaignSaveResponse | null>(null);
+  const [saveConfirm, setSaveConfirm] = useState<CampaignSaveResponse | null>(null);
   const [saving, setSaving] = useState<boolean>(false);
   const [artifacts, setArtifacts] = useState<ArtifactItem[]>([]);
   const [rendering, setRendering] = useState<boolean>(false);
@@ -172,6 +173,7 @@ export default function DataManagerPage() {
     setSelectedQualifier(qualifier);
     setSaveStatus(null);
     setSaveResult(null);
+    setSaveConfirm(null);
     setArtifacts([]);
     setRenderStatus(null);
   }
@@ -193,7 +195,29 @@ export default function DataManagerPage() {
     }
   }
 
-  async function handleSave() {
+  function describeSaveResult(result: CampaignSaveResponse): string {
+    if (result.saved) {
+      return result.auto_commit.performed
+        ? "Saved as a new version and pushed to the configured Git repository."
+        : "No staged changes were committed.";
+    }
+    if (result.reason === "changes_detected") {
+      const count = result.changed_files?.length ?? 0;
+      return `${count} changed ${count === 1 ? "file" : "files"} found. Confirm to save this as a new version.`;
+    }
+    if (result.reason === "no_changes") {
+      return "The current version is identical to the last saved Git version. There are no changes to save.";
+    }
+    if (result.reason === "commit_on_save_disabled") {
+      return "Save is disabled because COMMIT_ON_SAVE is false.";
+    }
+    if (result.reason === "git_config_incomplete") {
+      return "Save did nothing because git settings are incomplete.";
+    }
+    return "Save did not perform a commit.";
+  }
+
+  async function performSave(dryRun: boolean) {
     if (!campaignDetail) {
       return;
     }
@@ -201,23 +225,24 @@ export default function DataManagerPage() {
     setSaving(true);
     setSaveStatus(null);
     try {
-      const result = await saveCampaign(campaignDetail.campaign.id, commitMessage || undefined);
+      const result = await saveCampaign(campaignDetail.campaign.id, commitMessage || undefined, dryRun);
       setSaveResult(result);
-      if (result.saved) {
-        setSaveStatus(result.auto_commit.performed ? "Save commit completed." : "No staged changes to commit.");
-      } else if (result.reason === "commit_on_save_disabled") {
-        setSaveStatus("Save is disabled because COMMIT_ON_SAVE is false.");
-      } else if (result.reason === "git_config_incomplete") {
-        setSaveStatus("Save did nothing because git settings in .config are incomplete.");
+      if (dryRun && result.reason === "changes_detected") {
+        setSaveConfirm(result);
       } else {
-        setSaveStatus("Save did not perform a commit.");
+        setSaveConfirm(null);
       }
+      setSaveStatus(describeSaveResult(result));
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Save request failed";
       setSaveStatus(`Save request failed: ${message}`);
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleSave() {
+    await performSave(true);
   }
 
   return (
@@ -387,6 +412,29 @@ export default function DataManagerPage() {
                     {saving ? "Saving..." : "Save"}
                   </button>
                   {saveStatus ? <p className="save-status">{saveStatus}</p> : null}
+                  {saveConfirm ? (
+                    <div className="save-confirm">
+                      <p>
+                        The current campaign differs from the saved Git version. Save these changes as a new version?
+                      </p>
+                      <ul>
+                        {(saveConfirm.changed_files ?? []).slice(0, 8).map((file) => (
+                          <li key={file}>{file}</li>
+                        ))}
+                      </ul>
+                      {(saveConfirm.changed_files?.length ?? 0) > 8 ? (
+                        <p>{(saveConfirm.changed_files?.length ?? 0) - 8} more files changed.</p>
+                      ) : null}
+                      <div className="button-row">
+                        <button type="button" onClick={() => void performSave(false)} disabled={saving}>
+                          Save as New Version
+                        </button>
+                        <button type="button" className="secondary-button" onClick={() => setSaveConfirm(null)} disabled={saving}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                   {saveResult?.auto_commit?.commit_id ? (
                     <p className="save-status">Commit id: {saveResult.auto_commit.commit_id}</p>
                   ) : null}

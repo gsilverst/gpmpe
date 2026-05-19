@@ -129,6 +129,37 @@ def auto_commit_paths(
         return commit_id
 
 
+def changed_paths_for_paths(
+    repo_root: Path,
+    paths: list[Path],
+    *,
+    user_name: str,
+    user_email: str,
+    lock_timeout_seconds: float = 30.0,
+) -> list[str]:
+    if not (repo_root / ".git").exists():
+        raise GitStoreError(f"No git repository found at '{repo_root}'")
+
+    with _git_operation_lock(repo_root, timeout_seconds=lock_timeout_seconds):
+        relative_paths = _relative_repo_paths(repo_root.resolve(), paths)
+        status = _run_git(
+            repo_root,
+            ["status", "--porcelain", "--", *relative_paths],
+            user_name=user_name,
+            user_email=user_email,
+        )
+
+    changed: list[str] = []
+    for line in status.splitlines():
+        if not line:
+            continue
+        path = line[2:].strip() if len(line) > 2 else line
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        changed.append(path.strip())
+    return changed
+
+
 def pull_latest_changes(
     repo_root: Path,
     *,

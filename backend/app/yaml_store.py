@@ -181,6 +181,7 @@ def _campaign_payload(connection: sqlite3.Connection, campaign_id: int) -> tuple
 
     details = json.loads(campaign["details_json"] or "{}")
     campaign_display_name = details.get("display_name") or campaign["campaign_name"]
+    promotion_type = str(details.get("promotion_type") or "sales")
 
     offers = connection.execute(
         """
@@ -217,6 +218,7 @@ def _campaign_payload(connection: sqlite3.Connection, campaign_id: int) -> tuple
         "display_name": campaign_display_name,
         "campaign_name": campaign["campaign_name"],
         "qualifier": campaign["campaign_key"] or None,
+        "promotion_type": promotion_type,
         "title": campaign["title"],
         "objective": campaign["objective"],
         "footnote_text": campaign["footnote_text"],
@@ -434,6 +436,7 @@ def _campaign_payload_from_session(db: Session, campaign_id: int) -> tuple[str, 
 
     details = json.loads(campaign.details_json or "{}")
     campaign_display_name = details.get("display_name") or campaign.campaign_name
+    promotion_type = str(details.get("promotion_type") or "sales")
     binding = (
         db.query(CampaignTemplateBinding)
         .filter(
@@ -451,6 +454,7 @@ def _campaign_payload_from_session(db: Session, campaign_id: int) -> tuple[str, 
         "display_name": campaign_display_name,
         "campaign_name": campaign.campaign_name,
         "qualifier": campaign.campaign_key or None,
+        "promotion_type": promotion_type,
         "title": campaign.title,
         "objective": campaign.objective,
         "footnote_text": campaign.footnote_text,

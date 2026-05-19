@@ -288,13 +288,29 @@ Objective:
 ### Step 21e.1: Page-Level Image-Caption Components for Storyboards and Social Campaigns (TODO)
 Objective:
 - Expand the promotion model so a single promotion can contain ordered components that each occupy a full page.
-- Support an `image-caption` component kind or equivalent semantic content type with a page-level render mode such as `image-caption-page`.
+- Support a generic `storybook` promotion type for narrative/social campaigns
+  that are not primarily price/offer oriented.
+- Prefer a schema-minimal initial implementation: represent the promotion type
+  using existing flexible fields such as `campaigns.details_json` (for example
+  `promotion_type: storybook`) and/or `template_binding.template_kind:
+  storybook` before introducing a dedicated `campaign_type` database column.
+- Support a `scene` component kind, or equivalent semantic content type, with a
+  page-level render mode such as `image-caption-page`.
 - Allow each page-level component to define:
   - an image asset path,
-  - a title or page label,
+  - an optional scene title,
   - a caption/body/footer text,
   - optional call-to-action text,
   - optional layout/style parameters for image fit, caption placement, margins, typography, and background.
+- Interpret storybook title fields as follows:
+  - the promotion `title` renders as the main title on the first scene/page,
+  - the promotion `subtitle` renders as optional supporting text on the first
+    scene/page,
+  - component `display_title` remains available for an optional scene title,
+  - if the first scene has both a promotion title and component
+    `display_title`, render the component `display_title` as a secondary
+    heading/subtitle rather than competing with the promotion title,
+  - component `description_text` renders as the scene caption/footer/body text.
 - Render page-level components as a multi-page PDF, one page per component in `display_order`.
 - Add a storyboard/contact-sheet artifact mode later that can render the same ordered page components into a single overview grid.
 - Use the Merci orthopedic storyboard as the private proving example, but implement the feature with neutral sample data so it belongs to the generic engine.
@@ -303,6 +319,32 @@ Objective:
 - Update the GUI so a promotion can show page components as ordered pages, not only as sales sections/items.
 - Ensure page-level components support social-media-oriented outputs, including future PNG/page-image export for carousel posts.
 - Document how this shifts GPMPE from price-oriented flyer generation toward broader promotional storytelling and social-media campaign creation.
+- Keep existing sales-oriented promotions backward compatible. `sales` can remain
+  the implicit/default promotion type for existing data unless a campaign or
+  template explicitly declares another type.
+
+### Step 21e.1a: User-Level Creative Defaults (TODO)
+Objective:
+- Add user-level preferences for default creative actions and style choices, so
+  app-wide defaults are only fallbacks.
+- Support at minimum a per-user default promotion type with the same initial
+  values as the app default: `sales` and `storybook`.
+- Resolve defaults in this order:
+  1. explicit value chosen on the current create/edit screen,
+  2. current user's preference,
+  3. admin-configured app default,
+  4. built-in fallback of `sales`.
+- Use the promotion type example as the first concrete case: a user who mostly
+  creates sales flyers can default to `sales`, while a therapist using GPMPE for
+  social media/storytelling can default to `storybook`.
+- Design the preference model to support future defaults such as preferred
+  artifact type, default page format, default image fit, preferred caption
+  placement, common brand/style presets, and chat behavior defaults.
+- Add an admin/user settings UI where authorized users can set their own
+  defaults without changing other users' workflows.
+- Keep user preferences private to the application database or deployment
+  configuration; only promotion-specific explicit choices should be written into
+  campaign YAML.
 
 ### Step 21e.2: Chat-Driven Image Generation for Promotional Assets (TODO)
 Objective:

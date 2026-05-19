@@ -117,9 +117,16 @@ def _component_render_defaults(component_kind: str | None) -> tuple[str | None, 
         "discount-strip": ("discount", "discount-panel"),
         "image-only": ("artwork", "image-only"),
         "image": ("artwork", "image-only"),
+        "scene": ("page", "image-caption-page"),
         "legal-note": ("legal", "legal-text"),
     }
     return defaults.get(component_kind or "", (None, None))
+
+
+def _component_display_title(component: dict[str, Any], component_kind: str, path: Path) -> str:
+    if component_kind == "scene":
+        return _optional_string(component, "display_title") or ""
+    return _required_string(component, "display_title", path)
 
 
 def discover_data_directory(data_dir: Path) -> list[BusinessYamlRecord]:
@@ -385,7 +392,7 @@ def _sync_campaign_components(connection: sqlite3.Connection, campaign_id: int, 
                 _optional_string(component, "render_region") or default_region,
                 _optional_string(component, "render_mode") or default_mode,
                 json.dumps(component.get("style") or component.get("style_json") or {}),
-                _required_string(component, "display_title", record.file_path),
+                _component_display_title(component, component_kind, record.file_path),
                 _optional_string(component, "background_color"),
                 _optional_string(component, "header_accent_color"),
                                 _optional_string(component, "footnote_text"),
@@ -438,6 +445,10 @@ def _sync_campaign(connection: sqlite3.Connection, business_id: int, record: Cam
     start_date = _optional_string(payload, "start_date")
     end_date = _optional_string(payload, "end_date")
     display_name = _optional_string(payload, "display_name") or record.directory_name
+    promotion_type = _optional_string(payload, "promotion_type") or "sales"
+    if promotion_type not in {"sales", "storybook"}:
+        promotion_type = "sales"
+    details_json = json.dumps({"display_name": display_name, "promotion_type": promotion_type})
 
     row = connection.execute(
         """
@@ -464,7 +475,7 @@ def _sync_campaign(connection: sqlite3.Connection, business_id: int, record: Cam
                 status,
                 start_date,
                 end_date,
-                json.dumps({"display_name": display_name}),
+                details_json,
             ),
         )
         campaign_id = int(cursor.lastrowid)
@@ -483,7 +494,7 @@ def _sync_campaign(connection: sqlite3.Connection, business_id: int, record: Cam
                 status,
                 start_date,
                 end_date,
-                json.dumps({"display_name": display_name}),
+                details_json,
                 campaign_id,
             ),
         )
@@ -733,7 +744,7 @@ def _sync_campaign_components_session(db: Session, campaign: Campaign, record: C
             render_region=_optional_string(component, "render_region") or default_region,
             render_mode=_optional_string(component, "render_mode") or default_mode,
             style_json=json.dumps(component.get("style") or component.get("style_json") or {}),
-            display_title=_required_string(component, "display_title", record.file_path),
+            display_title=_component_display_title(component, component_kind, record.file_path),
             background_color=_optional_string(component, "background_color"),
             header_accent_color=_optional_string(component, "header_accent_color"),
             footnote_text=_optional_string(component, "footnote_text"),
@@ -771,6 +782,9 @@ def _sync_campaign_session(db: Session, business_id: int, record: CampaignYamlRe
     qualifier = _optional_string(payload, "qualifier") or ""
     title = _required_string(payload, "title", record.file_path)
     display_name = _optional_string(payload, "display_name") or record.directory_name
+    promotion_type = _optional_string(payload, "promotion_type") or "sales"
+    if promotion_type not in {"sales", "storybook"}:
+        promotion_type = "sales"
 
     campaign = (
         db.query(Campaign)
@@ -797,7 +811,7 @@ def _sync_campaign_session(db: Session, business_id: int, record: CampaignYamlRe
     campaign.status = _optional_string(payload, "status") or "draft"
     campaign.start_date = _optional_string(payload, "start_date")
     campaign.end_date = _optional_string(payload, "end_date")
-    campaign.details_json = json.dumps({"display_name": display_name})
+    campaign.details_json = json.dumps({"display_name": display_name, "promotion_type": promotion_type})
 
     offers = payload.get("offers", []) or []
     if not isinstance(offers, list):

@@ -11,6 +11,7 @@ import {
   createCampaignForBusiness,
   createChatSession,
   fetchArtifacts,
+  fetchAdminAppSettings,
   fetchBackendHealth,
   fetchCampaignComponents,
   fetchStartupStatus,
@@ -20,6 +21,7 @@ import {
   postChatMessage,
   renderArtifact,
   resolveStartup,
+  saveCampaign,
   syncYamlData,
   updateCampaignForBusiness,
   updateBusiness,
@@ -34,6 +36,7 @@ import {
   type CampaignComponent,
   type CampaignComponentItem,
   type CampaignRecord,
+  type CampaignSaveResponse,
   type ChatHistoryItem,
   type HealthResponse,
   type StartupStatusReport,
@@ -56,6 +59,10 @@ export default function HomePage() {
   const [artifacts, setArtifacts] = useState<ArtifactItem[]>([]);
   const [rendering, setRendering] = useState(false);
   const [renderStatus, setRenderStatus] = useState<string | null>(null);
+  const [gitSaving, setGitSaving] = useState(false);
+  const [gitSaveStatus, setGitSaveStatus] = useState<string | null>(null);
+  const [gitSaveConfirm, setGitSaveConfirm] = useState<CampaignSaveResponse | null>(null);
+  const [gitCommitMessage, setGitCommitMessage] = useState("");
   const [previewArtifactId, setPreviewArtifactId] = useState<number | null>(null);
   const [previewRendering, setPreviewRendering] = useState(false);
   const [previewStatus, setPreviewStatus] = useState<string | null>(null);
@@ -94,7 +101,9 @@ export default function HomePage() {
     campaign_key: "",
     title: "",
     objective: "",
+    promotion_type: "sales" as "sales" | "storybook",
   });
+  const [defaultPromotionType, setDefaultPromotionType] = useState<"sales" | "storybook">("sales");
   const [campaignMode, setCampaignMode] = useState<"list" | "create" | "edit">("list");
   const [campaignComponents, setCampaignComponents] = useState<CampaignComponent[]>([]);
   const [activeComponentKey, setActiveComponentKey] = useState<string | null>(null);
@@ -109,6 +118,30 @@ export default function HomePage() {
   async function handleEditComponent(component: CampaignComponent): Promise<void> {
     setEditingComponent({ ...component });
   }
+
+  useEffect(() => {
+    let active = true;
+    async function loadPromotionDefaults() {
+      try {
+        const settings = await fetchAdminAppSettings();
+        if (!active) return;
+        setDefaultPromotionType(settings.default_promotion_type);
+        setCampaignForm((prev) =>
+          prev.campaign_name === "" && prev.campaign_key === "" && prev.title === "" && prev.objective === ""
+            ? { ...prev, promotion_type: settings.default_promotion_type }
+            : prev
+        );
+      } catch {
+        if (!active) return;
+        setDefaultPromotionType("sales");
+      }
+    }
+
+    void loadPromotionDefaults();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function handleSaveComponent(event: React.FormEvent): Promise<void> {
     event.preventDefault();
@@ -257,7 +290,7 @@ export default function HomePage() {
     setPreviewRendering(true);
     setPreviewStatus(reason ? `Updating preview (${reason})...` : "Updating preview...");
     try {
-      const generated = await renderArtifact(campaignId, "flyer");
+      const generated = await renderArtifact(campaignId, "flyer", true);
       if (generated.length > 0) {
         setPreviewArtifactId(generated[0].id);
       }
@@ -397,6 +430,7 @@ export default function HomePage() {
       campaign_key: selected.campaign_key ?? "",
       title: selected.title,
       objective: selected.objective ?? "",
+      promotion_type: selected.promotion_type ?? "sales",
     });
   }, [campaigns, selectedCampaignId, campaignMode]);
 
@@ -647,6 +681,7 @@ export default function HomePage() {
         campaign_key: campaignForm.campaign_key || undefined,
         title: campaignForm.title,
         objective: campaignForm.objective || undefined,
+        promotion_type: campaignForm.promotion_type,
       });
       const updatedCampaigns = [...campaigns, created].sort((a, b) => a.campaign_name.localeCompare(b.campaign_name));
       setCampaigns(updatedCampaigns);
@@ -658,6 +693,7 @@ export default function HomePage() {
         campaign_key: created.campaign_key ?? "",
         title: created.title,
         objective: created.objective ?? "",
+        promotion_type: created.promotion_type ?? "sales",
       });
       await regenerateCampaignPreview(created.id, "campaign created");
     } catch (caught) {
@@ -678,6 +714,7 @@ export default function HomePage() {
       const updated = await updateCampaignForBusiness(selectedBusinessId, selectedCampaignId, {
         title: campaignForm.title,
         objective: campaignForm.objective || undefined,
+        promotion_type: campaignForm.promotion_type,
       });
       const nextCampaigns = campaigns.map((item) => (item.id === updated.id ? updated : item));
       setCampaigns(nextCampaigns);
@@ -686,6 +723,7 @@ export default function HomePage() {
         campaign_key: updated.campaign_key ?? "",
         title: updated.title,
         objective: updated.objective ?? "",
+        promotion_type: updated.promotion_type ?? "sales",
       });
       await regenerateCampaignPreview(updated.id, "campaign updated");
     } catch (caught) {
@@ -741,6 +779,7 @@ export default function HomePage() {
         campaign_key: cloned.campaign_key ?? "",
         title: cloned.title,
         objective: cloned.objective ?? "",
+        promotion_type: cloned.promotion_type ?? "sales",
       });
       setCollisionMatches([]);
       await regenerateCampaignPreview(cloned.id, "campaign cloned");
@@ -894,6 +933,52 @@ export default function HomePage() {
       setRenderStatus(`Artifact generation failed: ${message}`);
     } finally {
       setRendering(false);
+    }
+  }
+
+  function describeGitSaveResult(result: CampaignSaveResponse): string {
+    if (result.saved) {
+      return result.auto_commit.performed
+        ? "Saved as a new version and pushed to the configured Git repository."
+        : "No staged changes were committed.";
+    }
+    if (result.reason === "changes_detected") {
+      const count = result.changed_files?.length ?? 0;
+      return `${count} changed ${count === 1 ? "file" : "files"} found. Confirm to save this as a new version.`;
+    }
+    if (result.reason === "no_changes") {
+      return "The current version is identical to the last saved Git version. There are no changes to save.";
+    }
+    if (result.reason === "commit_on_save_disabled") {
+      return "Git saving is disabled because COMMIT_ON_SAVE is false.";
+    }
+    if (result.reason === "git_config_incomplete") {
+      return "Git settings are incomplete. Open Admin to configure the repository and author.";
+    }
+    return "Save did not create a new version.";
+  }
+
+  async function handleGitSave(dryRun: boolean): Promise<void> {
+    if (selectedCampaignId == null) {
+      setGitSaveStatus("Select a campaign before saving to Git.");
+      return;
+    }
+
+    setGitSaving(true);
+    setGitSaveStatus(null);
+    try {
+      const result = await saveCampaign(selectedCampaignId, gitCommitMessage || undefined, dryRun);
+      if (dryRun && result.reason === "changes_detected") {
+        setGitSaveConfirm(result);
+      } else {
+        setGitSaveConfirm(null);
+      }
+      setGitSaveStatus(describeGitSaveResult(result));
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Save failed";
+      setGitSaveStatus(`Save failed: ${message}`);
+    } finally {
+      setGitSaving(false);
     }
   }
 
@@ -1248,6 +1333,7 @@ export default function HomePage() {
                 campaign_key: "",
                 title: "",
                 objective: "",
+                promotion_type: defaultPromotionType,
               });
             }}
           >
@@ -1293,6 +1379,22 @@ export default function HomePage() {
                 required
               />
             </label>
+            <label className="stacked-label" htmlFor="campaign-promotion-type">
+              <span>Promotion type</span>
+              <select
+                id="campaign-promotion-type"
+                value={campaignForm.promotion_type}
+                onChange={(event) =>
+                  setCampaignForm((prev) => ({
+                    ...prev,
+                    promotion_type: event.target.value === "storybook" ? "storybook" : "sales",
+                  }))
+                }
+              >
+                <option value="sales">Sales</option>
+                <option value="storybook">Storybook</option>
+              </select>
+            </label>
             <label className="stacked-label" htmlFor="campaign-objective">
               <span>Objective (optional)</span>
               <input
@@ -1332,6 +1434,22 @@ export default function HomePage() {
                 required
               />
             </label>
+            <label className="stacked-label" htmlFor="campaign-promotion-type-edit">
+              <span>Promotion type</span>
+              <select
+                id="campaign-promotion-type-edit"
+                value={campaignForm.promotion_type}
+                onChange={(event) =>
+                  setCampaignForm((prev) => ({
+                    ...prev,
+                    promotion_type: event.target.value === "storybook" ? "storybook" : "sales",
+                  }))
+                }
+              >
+                <option value="sales">Sales</option>
+                <option value="storybook">Storybook</option>
+              </select>
+            </label>
             <label className="stacked-label" htmlFor="campaign-objective-edit">
               <span>Objective (optional)</span>
               <input
@@ -1340,7 +1458,7 @@ export default function HomePage() {
                 onChange={(event) => setCampaignForm((prev) => ({ ...prev, objective: event.target.value }))}
               />
             </label>
-            <button type="submit">Save Campaign</button>
+            <button type="submit">Save Campaign Details</button>
           </form>
         ) : null}
 
@@ -1475,6 +1593,44 @@ export default function HomePage() {
           Sync From Data Directory
         </button>
         {syncStatus ? <p>{syncStatus}</p> : null}
+      </section>
+
+      <section className="card section-gap">
+        <h2>Source Control</h2>
+        <label className="stacked-label" htmlFor="git-commit-message">
+          <span>Version note (optional)</span>
+          <input
+            id="git-commit-message"
+            value={gitCommitMessage}
+            onChange={(event) => setGitCommitMessage(event.target.value)}
+            placeholder="Save campaign update"
+          />
+        </label>
+        <button type="button" onClick={() => void handleGitSave(true)} disabled={gitSaving || selectedCampaignId == null}>
+          {gitSaving ? "Checking..." : "Save to Git"}
+        </button>
+        {gitSaveStatus ? <p className="save-status">{gitSaveStatus}</p> : null}
+        {gitSaveConfirm ? (
+          <div className="save-confirm">
+            <p>The current campaign differs from the saved Git version. Save these changes as a new version?</p>
+            <ul>
+              {(gitSaveConfirm.changed_files ?? []).slice(0, 8).map((file) => (
+                <li key={file}>{file}</li>
+              ))}
+            </ul>
+            {(gitSaveConfirm.changed_files?.length ?? 0) > 8 ? (
+              <p>{(gitSaveConfirm.changed_files?.length ?? 0) - 8} more files changed.</p>
+            ) : null}
+            <div className="button-row">
+              <button type="button" onClick={() => void handleGitSave(false)} disabled={gitSaving}>
+                Save as New Version
+              </button>
+              <button type="button" className="secondary-button" onClick={() => setGitSaveConfirm(null)} disabled={gitSaving}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section className="card section-gap">

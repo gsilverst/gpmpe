@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 from ..config import resolve_config
 from ..dependencies import get_db_session, require_business
 from ..schemas import (
+    AdminAppSettingsRequest,
+    AdminAppSettingsResponse,
     AdminUserInviteRequest,
     AdminUserResponse,
     BusinessImportS3Request,
@@ -21,9 +23,11 @@ from ..services.business_import import (
 )
 from ..services.auth import actor_from_request, invite_app_user, list_app_users, require_admin_principal
 from ..services.runtime_settings import (
+    get_admin_app_settings,
     get_business_git_settings,
     get_runtime_git_settings,
     list_admin_audit_logs,
+    upsert_admin_app_settings,
     upsert_business_git_settings,
     upsert_runtime_git_settings,
 )
@@ -60,6 +64,25 @@ def read_git_settings(
 ) -> RuntimeGitSettingsResponse:
     require_admin_principal(db, request)
     return get_runtime_git_settings(db, resolve_config())
+
+
+@router.get("/app-settings", response_model=AdminAppSettingsResponse)
+def read_app_settings(
+    request: Request,
+    db: Session = Depends(get_db_session),
+) -> AdminAppSettingsResponse:
+    return get_admin_app_settings(db)
+
+
+@router.put("/app-settings", response_model=AdminAppSettingsResponse)
+def update_app_settings(
+    request: Request,
+    payload: AdminAppSettingsRequest,
+    db: Session = Depends(get_db_session),
+    x_gpmpe_actor: str | None = Header(default=None),
+) -> AdminAppSettingsResponse:
+    actor = actor_from_request(db, request, x_gpmpe_actor)
+    return upsert_admin_app_settings(db, payload, actor=actor)
 
 
 @router.put("/git-settings", response_model=RuntimeGitSettingsResponse)

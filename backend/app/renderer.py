@@ -61,6 +61,7 @@ _DEFAULT_RENDER_LAYOUT: dict[str, Any] = {
         "discount-strip": {"render_region": "discount", "render_mode": "discount-panel"},
         "image-only": {"render_region": "artwork", "render_mode": "image-only"},
         "image": {"render_region": "artwork", "render_mode": "image-only"},
+        "scene": {"render_region": "page", "render_mode": "image-caption-page"},
         "legal-note": {"render_region": "legal", "render_mode": "legal-text"},
     },
     "typography": {
@@ -182,6 +183,19 @@ def _hex(val: str | None, fallback: str = "#000000") -> colors.Color:
         return colors.HexColor("#000000")
 
 
+def _json_object(raw: str | None) -> dict[str, Any]:
+    try:
+        payload = json.loads(raw or "{}")
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _promotion_type_from_details(details: dict[str, Any]) -> str:
+    value = str(details.get("promotion_type") or "sales").strip().lower()
+    return value if value in {"sales", "storybook"} else "sales"
+
+
 def _palette(ctx: dict[str, Any]) -> dict[str, Any]:
     theme = ctx.get("theme", {})
     ev = ctx.get("effective_values", {})
@@ -273,6 +287,13 @@ def _components_by_region(ctx: dict[str, Any], layout: dict[str, Any]) -> dict[s
         component.setdefault("render_mode", defaults.get("render_mode"))
         grouped.setdefault(region, []).append(component)
     return grouped
+
+
+def _is_storybook_context(ctx: dict[str, Any]) -> bool:
+    template = ctx.get("template") or {}
+    template_kind = str(template.get("template_kind") or "").strip().lower()
+    promotion_type = str(ctx.get("promotion_type") or "").strip().lower()
+    return promotion_type == "storybook" or template_kind == "storybook"
 
 
 def _region_components(
@@ -517,6 +538,124 @@ def _draw_image_only_component(
         preserveAspectRatio=preserve_aspect,
         mask="auto",
     )
+
+
+def _draw_storybook_scene(
+    pdf: Any,
+    ctx: dict[str, Any],
+    component: dict[str, Any],
+    *,
+    scene_index: int,
+    data_dir: Path | None,
+) -> None:
+    style = component.get("style") or {}
+    ev = ctx.get("effective_values", {})
+    title = str(ctx.get("title") or "").strip()
+    promotion_subtitle = str(ev.get("subtitle") or ctx.get("objective") or "").strip()
+    scene_title = str(component.get("display_title") or "").strip()
+    caption = str(component.get("description_text") or component.get("subtitle") or "").strip()
+
+    bg = _hex(str(style.get("background_color") or ev.get("color_bg") or "#FFFDF8"), "#FFFDF8")
+    ink = _hex(str(style.get("text_color") or "#241A2F"), "#241A2F")
+    accent = _hex(str(style.get("accent_color") or ev.get("accent") or "#5C2F7F"), "#5C2F7F")
+
+    pdf.setFillColor(bg)
+    pdf.rect(0, 0, _PW, _PH, stroke=0, fill=1)
+
+    top_y = _PH - float(style.get("top_margin") or 42)
+    title_y = top_y
+    if scene_index == 0 and title:
+        _draw_wrapped_centered(
+            pdf,
+            title,
+            _PW / 2,
+            title_y,
+            _PW - 80,
+            str(style.get("title_font") or "Helvetica-Bold"),
+            float(style.get("title_size") or 24),
+            float(style.get("title_leading") or 28),
+            accent,
+        )
+        title_y -= float(style.get("title_block_height") or 58)
+        if scene_title:
+            _draw_wrapped_centered(
+                pdf,
+                scene_title,
+                _PW / 2,
+                title_y,
+                _PW - 96,
+                str(style.get("subtitle_font") or "Helvetica-Bold"),
+                float(style.get("subtitle_size") or 15),
+                float(style.get("subtitle_leading") or 18),
+                ink,
+            )
+        elif promotion_subtitle:
+            _draw_wrapped_centered(
+                pdf,
+                promotion_subtitle,
+                _PW / 2,
+                title_y,
+                _PW - 96,
+                str(style.get("subtitle_font") or "Helvetica-Bold"),
+                float(style.get("subtitle_size") or 14),
+                float(style.get("subtitle_leading") or 17),
+                ink,
+            )
+    elif scene_title:
+        _draw_wrapped_centered(
+            pdf,
+            scene_title,
+            _PW / 2,
+            title_y,
+            _PW - 96,
+            str(style.get("title_font") or "Helvetica-Bold"),
+            float(style.get("scene_title_size") or 22),
+            float(style.get("scene_title_leading") or 26),
+            accent,
+        )
+
+    image_region = {
+        "x": float(style.get("image_x") or 54),
+        "y": float(style.get("image_y") or 214),
+        "w": float(style.get("image_w") or 504),
+        "h": float(style.get("image_h") or 504),
+    }
+    _draw_image_only_component(pdf, ctx, component, image_region, data_dir)
+
+    if caption:
+        _draw_wrapped_centered(
+            pdf,
+            caption,
+            _PW / 2,
+            float(style.get("caption_top_y") or 170),
+            float(style.get("caption_w") or (_PW - 92)),
+            str(style.get("caption_font") or "Helvetica-Bold"),
+            float(style.get("caption_size") or 17),
+            float(style.get("caption_leading") or 21),
+            ink,
+        )
+
+
+def render_storybook(ctx: dict[str, Any], data_dir: Path | None = None) -> bytes:
+    components = [
+        component
+        for component in ctx.get("components", [])
+        if component.get("component_kind") == "scene"
+        or component.get("render_mode") == "image-caption-page"
+    ]
+    if not components:
+        raise ValueError("Storybook promotions require at least one scene component")
+
+    buf = BytesIO()
+    pdf = rl_canvas.Canvas(buf, pagesize=letter)
+    pdf.setTitle(ctx.get("title") or "Storybook")
+
+    for index, component in enumerate(components):
+        _draw_storybook_scene(pdf, ctx, component, scene_index=index, data_dir=data_dir)
+        pdf.showPage()
+
+    pdf.save()
+    return buf.getvalue()
 
 
 def _draw_wrapped_centered(pdf: Any, text: str | None, cx: float, top_y: float,
@@ -1318,7 +1457,7 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
     row = connection.execute(
         """
         SELECT c.id, c.campaign_name, c.campaign_key, c.title, c.objective, c.footnote_text,
-               c.status, c.start_date, c.end_date,
+               c.status, c.start_date, c.end_date, c.details_json,
                b.display_name AS business_display_name,
                b.legal_name   AS business_legal_name,
                b.id           AS business_id
@@ -1332,6 +1471,7 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
         raise ValueError(f"Campaign {campaign_id} not found")
 
     business_id = row["business_id"]
+    campaign_details = _json_object(row["details_json"])
 
     theme = connection.execute(
         """
@@ -1406,15 +1546,15 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
     template_name = None
     template: dict[str, Any] = {"layout": {}}
     if binding is not None:
-        defaults = json.loads(binding["default_values_json"] or "{}")
-        overrides = json.loads(binding["override_values_json"] or "{}")
+        defaults = _json_object(binding["default_values_json"])
+        overrides = _json_object(binding["override_values_json"])
         effective = {**defaults, **overrides}
         template_name = binding["template_name"]
         template = {
             "template_name": binding["template_name"],
             "template_kind": binding["template_kind"],
             "size_spec": binding["size_spec"],
-            "layout": json.loads(binding["layout_json"] or "{}"),
+            "layout": _json_object(binding["layout_json"]),
             "default_values": defaults,
             "override_values": overrides,
         }
@@ -1437,7 +1577,7 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
                 "component_kind": component["component_kind"],
                 "render_region": component["render_region"],
                 "render_mode": component["render_mode"],
-                "style": json.loads(component["style_json"] or "{}"),
+                "style": _json_object(component["style_json"]),
                 "display_title": component["display_title"],
                 "background_color": component["background_color"],
                 "header_accent_color": component["header_accent_color"],
@@ -1448,7 +1588,7 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
                 "items": [
                     {
                         **dict(item),
-                        "style": json.loads(item["style_json"] or "{}"),
+                        "style": _json_object(item["style_json"]),
                     }
                     for item in items
                 ],
@@ -1461,6 +1601,7 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
         "campaign_id": campaign_id,
         "campaign_name": row["campaign_name"],
         "title": row["title"],
+        "promotion_type": _promotion_type_from_details(campaign_details),
         "objective": row["objective"],
         "campaign_footnote_text": row["footnote_text"],
         "start_date": row["start_date"],
@@ -1474,7 +1615,7 @@ def _collect_render_context(connection: sqlite3.Connection, campaign_id: int) ->
         "assets": [
             {
                 **dict(asset),
-                "metadata": json.loads(asset["metadata_json"] or "{}"),
+                "metadata": _json_object(asset["metadata_json"]),
             }
             for asset in assets
         ],
@@ -1490,6 +1631,7 @@ def _collect_render_context_session(db: Session, campaign_id: int) -> dict[str, 
     if campaign is None:
         raise ValueError(f"Campaign {campaign_id} not found")
 
+    campaign_details = _json_object(campaign.details_json)
     business = campaign.business
     default_theme = next(
         (
@@ -1518,15 +1660,15 @@ def _collect_render_context_session(db: Session, campaign_id: int) -> dict[str, 
     template_name = None
     template: dict[str, Any] = {"layout": {}}
     if binding is not None:
-        defaults = json.loads(binding.template.default_values_json or "{}")
-        overrides = json.loads(binding.override_values_json or "{}")
+        defaults = _json_object(binding.template.default_values_json)
+        overrides = _json_object(binding.override_values_json)
         effective = {**defaults, **overrides}
         template_name = binding.template.template_name
         template = {
             "template_name": binding.template.template_name,
             "template_kind": binding.template.template_kind,
             "size_spec": binding.template.size_spec,
-            "layout": json.loads(binding.template.layout_json or "{}"),
+            "layout": _json_object(binding.template.layout_json),
             "default_values": defaults,
             "override_values": overrides,
         }
@@ -1552,7 +1694,7 @@ def _collect_render_context_session(db: Session, campaign_id: int) -> dict[str, 
                 "component_kind": component.component_kind,
                 "render_region": component.render_region,
                 "render_mode": component.render_mode,
-                "style": json.loads(component.style_json or "{}"),
+                "style": _json_object(component.style_json),
                 "display_title": component.display_title,
                 "background_color": component.background_color,
                 "header_accent_color": component.header_accent_color,
@@ -1572,7 +1714,7 @@ def _collect_render_context_session(db: Session, campaign_id: int) -> dict[str, 
                         "description_text": item.description_text,
                         "terms_text": item.terms_text,
                         "display_order": item.display_order,
-                        "style": json.loads(item.style_json or "{}"),
+                        "style": _json_object(item.style_json),
                     }
                     for item in items
                 ],
@@ -1585,6 +1727,7 @@ def _collect_render_context_session(db: Session, campaign_id: int) -> dict[str, 
         "campaign_id": campaign_id,
         "campaign_name": campaign.campaign_name,
         "title": campaign.title,
+        "promotion_type": _promotion_type_from_details(campaign_details),
         "objective": campaign.objective,
         "campaign_footnote_text": campaign.footnote_text,
         "start_date": campaign.start_date,
@@ -1626,7 +1769,7 @@ def _collect_render_context_session(db: Session, campaign_id: int) -> dict[str, 
                 "source_path": asset.source_path,
                 "width": asset.width,
                 "height": asset.height,
-                "metadata": json.loads(asset.metadata_json or "{}"),
+                "metadata": _json_object(asset.metadata_json),
             }
             for asset in assets
         ],
@@ -1642,6 +1785,9 @@ def _collect_render_context_session(db: Session, campaign_id: int) -> dict[str, 
 # ---------------------------------------------------------------------------
 
 def render_flyer(ctx: dict[str, Any], data_dir: Path | None = None) -> bytes:
+    if _is_storybook_context(ctx):
+        return render_storybook(ctx, data_dir=data_dir)
+
     palette = _palette(ctx)
     layout = _layout(ctx)
     grouped = _components_by_region(ctx, layout)
@@ -1695,6 +1841,8 @@ def render_flyer(ctx: dict[str, Any], data_dir: Path | None = None) -> bytes:
 def render_flyer_nup(ctx: dict[str, Any], images_per_page: int, data_dir: Path | None = None) -> bytes:
     if images_per_page < 2:
         raise ValueError("images_per_page must be >= 2")
+    if _is_storybook_context(ctx):
+        raise ValueError("N-up storybook rendering is not supported yet")
 
     palette = _palette(ctx)
     layout = _layout(ctx)
@@ -1808,6 +1956,8 @@ def render_campaign_artifact(
 ) -> list[dict[str, Any]]:
     """Generates and registers campaign artifacts (PDFs) with strict company-campaign naming."""
     ctx = _collect_render_context(connection, campaign_id)
+    if _is_storybook_context(ctx):
+        images_per_page = None
 
     if artifact_type not in {"flyer", "poster"}:
         raise ValueError(f"Unsupported artifact_type '{artifact_type}'")
@@ -1919,6 +2069,8 @@ def render_campaign_artifact_session(
 ) -> list[dict[str, Any]]:
     """Generates and registers campaign artifacts using the SQLAlchemy session path."""
     ctx = _collect_render_context_session(db, campaign_id)
+    if _is_storybook_context(ctx):
+        images_per_page = None
 
     if artifact_type not in {"flyer", "poster"}:
         raise ValueError(f"Unsupported artifact_type '{artifact_type}'")

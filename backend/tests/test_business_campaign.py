@@ -39,6 +39,7 @@ def test_create_new_campaign_for_new_business(monkeypatch, tmp_path: Path) -> No
     assert payload["business_id"] == business_id
     assert payload["campaign_name"] == "Mothers Day"
     assert payload["campaign_key"] is None
+    assert payload["promotion_type"] == "sales"
 
 
 def test_get_business_and_campaign_detail_endpoints(monkeypatch, tmp_path: Path) -> None:
@@ -68,6 +69,47 @@ def test_get_business_and_campaign_detail_endpoints(monkeypatch, tmp_path: Path)
     campaign_detail = client.get(f"/businesses/{business_id}/campaigns/{campaign_id}")
     assert campaign_detail.status_code == 200
     assert campaign_detail.json()["campaign_name"] == "Spring"
+    assert campaign_detail.json()["promotion_type"] == "sales"
+
+
+def test_campaign_promotion_type_can_be_created_and_updated(monkeypatch, tmp_path: Path) -> None:
+    client = _make_client(monkeypatch, tmp_path)
+
+    business_id = client.post(
+        "/businesses",
+        json={
+            "legal_name": "Story Co",
+            "display_name": "Story",
+            "timezone": "America/New_York",
+        },
+    ).json()["id"]
+
+    created = client.post(
+        f"/businesses/{business_id}/campaigns",
+        json={
+            "campaign_name": "Orthopedic Story",
+            "title": "Don't Just Chase the Pain",
+            "promotion_type": "storybook",
+        },
+    )
+
+    assert created.status_code == 201
+    campaign_id = created.json()["id"]
+    assert created.json()["promotion_type"] == "storybook"
+
+    yaml_path = tmp_path / "yaml-data-test" / "Story" / "promotions" / "Orthopedic-Story" / "Orthopedic-Story.yaml"
+    payload = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+    assert payload["promotion_type"] == "storybook"
+
+    updated = client.patch(
+        f"/businesses/{business_id}/campaigns/{campaign_id}",
+        json={"title": "Story Updated", "promotion_type": "sales"},
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["promotion_type"] == "sales"
+    payload = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+    assert payload["promotion_type"] == "sales"
 
 
 def test_create_new_campaign_for_existing_business(monkeypatch, tmp_path: Path) -> None:

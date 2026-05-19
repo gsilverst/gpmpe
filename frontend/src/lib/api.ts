@@ -87,10 +87,13 @@ export type CampaignSaveResponse = {
   saved: boolean;
   reason?: string;
   files?: string[];
+  changed_files?: string[];
   auto_commit: {
     enabled: boolean;
     performed: boolean;
     commit_id: string | null;
+    push_enabled?: boolean;
+    settings_source?: string;
   };
 };
 
@@ -117,6 +120,7 @@ export type CampaignRecord = {
   title: string;
   objective: string | null;
   status: string;
+  promotion_type: "sales" | "storybook";
   start_date: string | null;
   end_date: string | null;
 };
@@ -175,6 +179,11 @@ export type RuntimeGitSettingsPayload = {
   credential_provider: "local" | "aws";
   credential_reference?: string | null;
   credential_secret?: string | null;
+};
+
+export type AdminAppSettings = {
+  default_promotion_type: "sales" | "storybook";
+  updated_at: string | null;
 };
 
 export type AdminAuditLog = {
@@ -375,22 +384,14 @@ export async function fetchDataManagerCampaignDetail(
 export async function saveCampaign(
   campaignId: number,
   commitMessage?: string,
+  dryRun = false,
   baseUrl = apiBaseUrl()
 ): Promise<CampaignSaveResponse> {
-  const response = await fetch(`${baseUrl}/campaigns/${campaignId}/save`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify({ commit_message: commitMessage?.trim() || undefined }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
-  }
-
-  return (await response.json()) as CampaignSaveResponse;
+  return postJson<CampaignSaveResponse>(
+    `/campaigns/${campaignId}/save`,
+    { commit_message: commitMessage?.trim() || undefined, dry_run: dryRun },
+    baseUrl
+  );
 }
 
 export type ArtifactItem = {
@@ -522,6 +523,7 @@ export async function createCampaignForBusiness(
     campaign_key?: string;
     title: string;
     objective?: string;
+    promotion_type?: "sales" | "storybook";
     status?: string;
     start_date?: string;
     end_date?: string;
@@ -537,6 +539,7 @@ export async function updateCampaignForBusiness(
   payload: {
     title?: string;
     objective?: string;
+    promotion_type?: "sales" | "storybook";
     status?: string;
     start_date?: string;
     end_date?: string;
@@ -597,6 +600,40 @@ export async function syncYamlData(baseUrl = apiBaseUrl()): Promise<DataSyncResp
 
 export async function fetchRuntimeGitSettings(baseUrl = apiBaseUrl()): Promise<RuntimeGitSettings> {
   return fetchJson<RuntimeGitSettings>("/admin/git-settings", baseUrl);
+}
+
+export async function fetchAdminAppSettings(baseUrl = apiBaseUrl()): Promise<AdminAppSettings> {
+  return fetchJson<AdminAppSettings>("/admin/app-settings", baseUrl);
+}
+
+export async function updateAdminAppSettings(
+  payload: Pick<AdminAppSettings, "default_promotion_type">,
+  baseUrl = apiBaseUrl()
+): Promise<AdminAppSettings> {
+  const response = await fetch(`${baseUrl}/admin/app-settings`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "X-GPMPE-Actor": "admin-ui",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const errorData = await response.json();
+      if (typeof errorData?.detail === "string") {
+        detail = ` - ${errorData.detail}`;
+      }
+    } catch {
+      // Ignore JSON parse failures for non-JSON error responses.
+    }
+    throw new ApiError(response.status, `Request failed: ${response.status}${detail}`);
+  }
+
+  return (await response.json()) as AdminAppSettings;
 }
 
 export async function updateRuntimeGitSettings(

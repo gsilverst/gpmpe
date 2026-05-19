@@ -5,13 +5,16 @@ import React, { useEffect, useState } from "react";
 
 import {
   fetchAdminAuditLogs,
+  fetchAdminAppSettings,
   fetchAdminUsers,
   fetchBusinessGitSettings,
   fetchRuntimeGitSettings,
   inviteAdminUser,
   listBusinesses,
   updateBusinessGitSettings,
+  updateAdminAppSettings,
   updateRuntimeGitSettings,
+  type AdminAppSettings,
   type AdminAuditLog,
   type AdminUser,
   type BusinessRecord,
@@ -76,6 +79,7 @@ export default function AdminPage() {
   const [businesses, setBusinesses] = useState<BusinessRecord[]>([]);
   const [selectedBusinessId, setSelectedBusinessId] = useState<string>("global");
   const [settings, setSettings] = useState<RuntimeGitSettings | null>(null);
+  const [appSettings, setAppSettings] = useState<AdminAppSettings>({ default_promotion_type: "sales", updated_at: null });
   const [form, setForm] = useState<FormState>(emptyForm);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [inviteForm, setInviteForm] = useState(emptyInviteForm);
@@ -89,13 +93,15 @@ export default function AdminPage() {
     setLoading(true);
     setError(null);
     try {
-      const [loadedSettings, loadedAudit] = await Promise.all([
+      const [loadedSettings, loadedAppSettings, loadedAudit] = await Promise.all([
         fetchRuntimeGitSettings(),
+        fetchAdminAppSettings(),
         fetchAdminAuditLogs(),
       ]);
       setBusinesses(await listBusinesses());
       setUsers(await fetchAdminUsers());
       setSettings(loadedSettings);
+      setAppSettings(loadedAppSettings);
       setForm(toForm(loadedSettings));
       setAuditLogs(loadedAudit);
     } catch (caught) {
@@ -153,6 +159,25 @@ export default function AdminPage() {
       setStatus("Settings saved.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Failed to save admin settings");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleAppSettingsSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setStatus(null);
+    setError(null);
+    try {
+      const updated = await updateAdminAppSettings({
+        default_promotion_type: appSettings.default_promotion_type,
+      });
+      setAppSettings(updated);
+      setAuditLogs(await fetchAdminAuditLogs());
+      setStatus("Application settings saved.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Failed to save application settings");
     } finally {
       setSaving(false);
     }
@@ -285,6 +310,37 @@ export default function AdminPage() {
             </li>
           ))}
         </ul>
+      </section>
+
+      <section className="card section-gap">
+        <div className="section-header-row">
+          <div>
+            <h2>Promotion Defaults</h2>
+            <small>Choose the default promotion type used when a new promotion is created.</small>
+          </div>
+        </div>
+
+        <form onSubmit={handleAppSettingsSubmit} className="admin-settings-form">
+          <label className="stacked-label">
+            <span>Default promotion type</span>
+            <select
+              value={appSettings.default_promotion_type}
+              onChange={(event) =>
+                setAppSettings({
+                  ...appSettings,
+                  default_promotion_type: event.target.value === "storybook" ? "storybook" : "sales",
+                })
+              }
+            >
+              <option value="sales">Sales</option>
+              <option value="storybook">Storybook</option>
+            </select>
+          </label>
+
+          <button type="submit" disabled={saving}>
+            {saving ? "Saving..." : "Save promotion defaults"}
+          </button>
+        </form>
       </section>
 
       <section className="card section-gap">

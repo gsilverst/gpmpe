@@ -760,6 +760,97 @@ def test_render_flyer_draws_image_only_component(monkeypatch, tmp_path: Path) ->
     assert {"x": 100.0, "y": 120.0, "w": 200.0, "h": 80.0} in images
 
 
+def test_render_storybook_uses_one_page_per_scene(monkeypatch, tmp_path: Path) -> None:
+    from PIL import Image
+    from reportlab.pdfgen import canvas as canvas_module
+
+    image_dir = tmp_path / "acme" / "promotions" / "storybook-test" / "assets"
+    image_dir.mkdir(parents=True)
+    Image.new("RGB", (1024, 1024), "#F8E66D").save(image_dir / "scene-1.png")
+    Image.new("RGB", (1024, 1024), "#D7F0FF").save(image_dir / "scene-2.png")
+
+    images: list[dict[str, float]] = []
+    pages: list[bool] = []
+    original_draw_image = canvas_module.Canvas.drawImage
+    original_show_page = canvas_module.Canvas.showPage
+
+    def _capture_image(self, image, x, y, *args, **kwargs):
+        width = kwargs.get("width")
+        height = kwargs.get("height")
+        if width is None and len(args) >= 1:
+            width = args[0]
+        if height is None and len(args) >= 2:
+            height = args[1]
+        images.append(
+            {
+                "x": float(x),
+                "y": float(y),
+                "w": float(width or 0.0),
+                "h": float(height or 0.0),
+            }
+        )
+        return original_draw_image(self, image, x, y, *args, **kwargs)
+
+    def _capture_show_page(self):
+        pages.append(True)
+        return original_show_page(self)
+
+    monkeypatch.setattr(canvas_module.Canvas, "drawImage", _capture_image)
+    monkeypatch.setattr(canvas_module.Canvas, "showPage", _capture_show_page)
+
+    ctx = {
+        "campaign_id": 92,
+        "campaign_name": "storybook-test",
+        "promotion_type": "storybook",
+        "title": "Move Better",
+        "objective": "Orthopedic massage storyboard",
+        "campaign_footnote_text": None,
+        "start_date": None,
+        "end_date": None,
+        "business_display_name": "ACME",
+        "business_legal_name": "ACME LLC",
+        "theme": {
+            "primary_color": "#5E3A82",
+            "secondary_color": "#6E4A8E",
+            "accent_color": "#E0559A",
+        },
+        "location": None,
+        "contacts": [],
+        "offers": [],
+        "assets": [],
+        "components": [
+            {
+                "component_key": "scene-1",
+                "component_kind": "scene",
+                "style": {"image_path": "assets/scene-1.png", "fit": "cover"},
+                "display_title": "During the race",
+                "description_text": "The discomfort shows up before the finish line.",
+                "display_order": 0,
+                "items": [],
+            },
+            {
+                "component_key": "scene-2",
+                "component_kind": "scene",
+                "style": {"image_path": "assets/scene-2.png", "fit": "cover"},
+                "display_title": None,
+                "description_text": "Care focuses on the source.",
+                "display_order": 1,
+                "items": [],
+            },
+        ],
+        "effective_values": {"accent": "#5C2F7F", "color_bg": "#FFFDF8"},
+        "template_name": "storybook-image-caption",
+        "template": {"template_kind": "storybook", "layout": {}},
+    }
+
+    pdf_bytes = render_flyer(ctx, data_dir=tmp_path)
+
+    assert pdf_bytes.startswith(b"%PDF")
+    assert len(pages) == 2
+    assert len(images) == 2
+    assert all(image == {"x": 54.0, "y": 214.0, "w": 504.0, "h": 504.0} for image in images)
+
+
 def test_render_flyer_uses_print_safe_featured_subtitle_style(monkeypatch) -> None:
     from app import renderer as renderer_module
 

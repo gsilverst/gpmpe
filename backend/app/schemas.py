@@ -55,6 +55,7 @@ class CampaignCreate(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     objective: str | None = Field(default=None, max_length=1000)
     footnote_text: str | None = Field(default=None, max_length=2000)
+    promotion_type: Literal["sales", "storybook"] = "sales"
     status: Literal["draft", "active", "paused", "completed", "archived"] = "draft"
     start_date: str | None = None
     end_date: str | None = None
@@ -64,6 +65,7 @@ class CampaignUpdate(BaseModel):
     title: str | None = Field(default=None, max_length=300)
     objective: str | None = Field(default=None, max_length=1000)
     footnote_text: str | None = Field(default=None, max_length=2000)
+    promotion_type: Literal["sales", "storybook"] | None = None
     status: Literal["draft", "active", "paused", "completed", "archived"] | None = None
     start_date: str | None = None
     end_date: str | None = None
@@ -184,6 +186,7 @@ class ComponentItemUpdate(BaseModel):
 
 class CampaignSaveRequest(BaseModel):
     commit_message: str | None = Field(default=None, max_length=500)
+    dry_run: bool = False
 
 
 class ArtifactRenderRequest(BaseModel):
@@ -207,6 +210,15 @@ class RuntimeGitSettingsRequest(BaseModel):
     credential_provider: Literal["local", "aws"] = "local"
     credential_reference: str | None = Field(default=None, max_length=1000)
     credential_secret: str | None = Field(default=None, max_length=10000)
+
+
+class AdminAppSettingsRequest(BaseModel):
+    default_promotion_type: Literal["sales", "storybook"] = "sales"
+
+
+class AdminAppSettingsResponse(BaseModel):
+    default_promotion_type: Literal["sales", "storybook"] = "sales"
+    updated_at: str | None = None
 
 
 class BusinessImportS3Request(BaseModel):

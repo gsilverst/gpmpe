@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..config import resolve_config
 from ..dependencies import get_db_session, require_campaign
-from ..git_store import GitStoreError, auto_commit_paths
+from ..git_store import GitStoreError, auto_commit_paths, changed_paths_for_paths
 from ..models import GeneratedArtifact
 from ..renderer import render_campaign_artifact_session
 from ..schemas import ArtifactRenderRequest, ArtifactResponse, CampaignSaveRequest
@@ -17,6 +17,33 @@ from ..services.runtime_settings import effective_git_settings
 from ..services.yaml_persistence import persist_campaign_yaml_session_or_raise
 
 router = APIRouter()
+
+
+def _campaign_save_paths(
+    campaign: Any,
+    *,
+    data_dir: Path,
+    business_file: Path,
+    campaign_file: Path,
+) -> list[Path]:
+    paths: dict[Path, None] = {
+        business_file: None,
+        campaign_file: None,
+    }
+    for asset in campaign.assets:
+        source_path = (asset.source_path or "").strip()
+        if not source_path:
+            continue
+        path = Path(source_path)
+        candidates = [path] if path.is_absolute() else [
+            data_dir / source_path,
+            data_dir / campaign.business.display_name.lower() / source_path,
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                paths[candidate] = None
+                break
+    return list(paths.keys())
 
 
 @router.post("/campaigns/{campaign_id}/save")
@@ -50,15 +77,43 @@ def save_campaign(
     business_file: Path
     campaign_file: Path
     business_file, campaign_file = persist_campaign_yaml_session_or_raise(db, config, campaign_id)
+    paths = _campaign_save_paths(
+        campaign,
+        data_dir=config.data_dir,
+        business_file=business_file,
+        campaign_file=campaign_file,
+    )
     repo_root = git_settings.repo_path
     default_message = f"Save campaign {campaign_id} YAML"
     commit_message = (request.commit_message or default_message).strip()
     if commit_message == "":
         raise HTTPException(status_code=400, detail="commit_message cannot be empty")
     try:
+        changed_files = changed_paths_for_paths(
+            repo_root,
+            paths,
+            user_name=git_settings.user_name,
+            user_email=git_settings.user_email,
+            lock_timeout_seconds=git_settings.lock_timeout_seconds,
+        )
+        if request.dry_run or not changed_files:
+            return {
+                "campaign_id": campaign_id,
+                "saved": False,
+                "reason": "changes_detected" if changed_files else "no_changes",
+                "files": [str(path) for path in paths],
+                "changed_files": changed_files,
+                "auto_commit": {
+                    "enabled": True,
+                    "performed": False,
+                    "commit_id": None,
+                    "push_enabled": git_settings.push_enabled,
+                    "settings_source": git_settings.source,
+                },
+            }
         commit_id = auto_commit_paths(
             repo_root,
-            [business_file, campaign_file],
+            paths,
             commit_message,
             user_name=git_settings.user_name,
             user_email=git_settings.user_email,
@@ -76,7 +131,8 @@ def save_campaign(
     return {
         "campaign_id": campaign_id,
         "saved": auto_commit_performed,
-        "files": [str(business_file), str(campaign_file)],
+        "files": [str(path) for path in paths],
+        "changed_files": changed_files,
         "auto_commit": {
             "enabled": True,
             "performed": auto_commit_performed,

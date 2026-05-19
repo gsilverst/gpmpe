@@ -28,6 +28,32 @@ def test_admin_git_settings_default_to_config_values(monkeypatch, tmp_path: Path
     assert payload["credential_configured"] is False
 
 
+def test_admin_app_settings_default_and_update(monkeypatch, tmp_path: Path) -> None:
+    data_dir = tmp_path / "data-dir"
+    data_dir.mkdir()
+    config_path = write_isolated_config(tmp_path, test_data_dir=data_dir)
+
+    with make_test_client(monkeypatch, config_path) as client:
+        default_response = client.get("/admin/app-settings")
+        update_response = client.put(
+            "/admin/app-settings",
+            headers={"X-GPMPE-Actor": "test-admin"},
+            json={"default_promotion_type": "storybook"},
+        )
+        audit_response = client.get("/admin/audit-logs")
+
+    assert default_response.status_code == 200
+    assert default_response.json()["default_promotion_type"] == "sales"
+
+    assert update_response.status_code == 200
+    assert update_response.json()["default_promotion_type"] == "storybook"
+
+    audit_items = audit_response.json()["items"]
+    assert audit_items[0]["actor"] == "test-admin"
+    assert audit_items[0]["action"] == "admin_app_settings.update"
+    assert audit_items[0]["metadata"]["default_promotion_type"] == "storybook"
+
+
 def test_admin_git_settings_save_metadata_secret_and_audit(monkeypatch, tmp_path: Path) -> None:
     data_dir = tmp_path / "data-dir"
     data_dir.mkdir()

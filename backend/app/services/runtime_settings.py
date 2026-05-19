@@ -7,12 +7,19 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from ..config import AppConfig
-from ..models import AdminAuditLog, RuntimeGitSettings
-from ..schemas import RuntimeGitSettingsRequest, RuntimeGitSettingsResponse
+from ..models import AdminAuditLog, AppMeta, RuntimeGitSettings
+from ..schemas import (
+    AdminAppSettingsRequest,
+    AdminAppSettingsResponse,
+    RuntimeGitSettingsRequest,
+    RuntimeGitSettingsResponse,
+)
 from .secret_store import SecretStoreError, secret_store_for_config
 
 
 GLOBAL_SCOPE = "global"
+DEFAULT_PROMOTION_TYPE_KEY = "default_promotion_type"
+PROMOTION_TYPES = {"sales", "storybook"}
 
 
 @dataclass(frozen=True)
@@ -34,6 +41,11 @@ def _clean_optional(value: str | None) -> str | None:
         return None
     stripped = value.strip()
     return stripped or None
+
+
+def _normalize_promotion_type(value: str | None) -> str:
+    normalized = (value or "sales").strip().lower()
+    return normalized if normalized in PROMOTION_TYPES else "sales"
 
 
 def _business_scope(business_id: int) -> str:
@@ -99,6 +111,43 @@ def _settings_response(
 def get_runtime_git_settings(db: Session, config: AppConfig) -> RuntimeGitSettingsResponse:
     settings = db.query(RuntimeGitSettings).filter(RuntimeGitSettings.scope == GLOBAL_SCOPE).first()
     return _settings_response(config, settings)
+
+
+def get_admin_app_settings(db: Session) -> AdminAppSettingsResponse:
+    row = db.query(AppMeta).filter(AppMeta.key == DEFAULT_PROMOTION_TYPE_KEY).first()
+    return AdminAppSettingsResponse(
+        default_promotion_type=_normalize_promotion_type(row.value if row else None),  # type: ignore[arg-type]
+        updated_at=None,
+    )
+
+
+def upsert_admin_app_settings(
+    db: Session,
+    payload: AdminAppSettingsRequest,
+    *,
+    actor: str,
+) -> AdminAppSettingsResponse:
+    promotion_type = _normalize_promotion_type(payload.default_promotion_type)
+    row = db.query(AppMeta).filter(AppMeta.key == DEFAULT_PROMOTION_TYPE_KEY).first()
+    if row is None:
+        row = AppMeta(key=DEFAULT_PROMOTION_TYPE_KEY, value=promotion_type)
+        db.add(row)
+    else:
+        row.value = promotion_type
+
+    db.add(
+        AdminAuditLog(
+            actor=actor,
+            action="admin_app_settings.update",
+            scope=GLOBAL_SCOPE,
+            metadata_json=json.dumps(
+                {"default_promotion_type": promotion_type},
+                sort_keys=True,
+            ),
+        )
+    )
+    db.commit()
+    return AdminAppSettingsResponse(default_promotion_type=promotion_type, updated_at=None)
 
 
 def get_business_git_settings(db: Session, config: AppConfig, business_id: int) -> RuntimeGitSettingsResponse:
