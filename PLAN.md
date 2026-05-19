@@ -238,10 +238,31 @@ Relevant test coverage:
 ### Step 21b: Version-Control-Aware Save and Restore UX (TODO)
 Objective:
 - Treat the promotion Save action as meaningful only when version control for the business data repository is configured.
+- Clarify the user-facing save model in documentation and UI copy. Distinguish
+  at minimum:
+  - editing/saving campaign details inside the current database draft,
+  - generating or replacing local artifact output files,
+  - saving the campaign/business object as a new version in the configured
+    source-control repository.
 - Disable/grey out the campaign Save button when the administrator has not configured the required business-specific Git repository path, author identity, and credential reference/secret. If a business does not have its own Git settings, allow administrators to configure global/default Git settings as a fallback for shared credentials across businesses.
 - Surface a clear non-technical message that saving requires administrator-configured version control, without exposing Git implementation details to regular users.
 - Treat Git credentials as administrator-managed service credentials, not signed-in user credentials. End-user authorship should be recorded as explicit version metadata associated with each object save.
 - Add a nice-to-have campaign-level version restore flow that lets a user choose an older marketing campaign version by date/time and restore it as the current campaign state.
+- Add campaign version tagging. Users should be able to assign meaningful
+  version tags to important saved versions, similar in spirit to Docker image
+  tags, so a campaign can be restored by a memorable label such as
+  `may-flowers-print-run`, `approved-by-redza`, or `orthopedic-storybook-v1`
+  rather than by guessing a date or commit.
+- Decide the source-control organization needed for object-level restores:
+  identify where campaign YAML, assets, version metadata, and tags should live
+  so a tagged campaign can be recovered directly from Git and written back as
+  the current YAML/database state.
+- Prefer supporting restore from tagged campaign versions first. Restoring from
+  any historical Git commit is useful for power users, but tagged versions are
+  likely to be much more understandable for regular campaign users.
+- If both restore modes are supported, present them differently: "restore a
+  named saved version" for normal users and "advanced restore from Git history"
+  for administrators or technical users.
 - Hide Git details such as commit IDs, branch names, and repository mechanics from regular campaign users.
 - When a restored campaign is modified and saved, commit it as a new linear version of the campaign rather than creating a branch.
 - Keep campaign version restore scoped to marketing campaigns only for regular users.
@@ -263,6 +284,9 @@ Objective:
 ### Step 21d: Friendly Chatbot Renderer-Style Commands (TODO)
 Objective:
 - Upgrade the chatbot from explicit style-key edits toward natural style intent commands such as "make the featured subtitle darker", "make the item durations bolder", or "increase the subtitle size".
+- Expand chatbot support by promotion type. `sales` promotions should retain
+  offer/section/style-oriented commands, while `storybook` promotions need a
+  scene-oriented language for narrative pages, captions, and generated images.
 - Map friendly visual intents to approved renderer parameters in `style_json`, `layout_json`, or template override values while keeping the stored data explicit.
 - Support both component-level style edits and item-level style edits, including typography controls such as subtitle font, subtitle size, subtitle color, duration font, duration color, and related print-readability settings.
 - Add a shared named-color catalog with canonical names, color families, hex values, and optional aliases so users can say "deep forest" or "emerald" instead of memorizing hex codes.
@@ -273,8 +297,22 @@ Objective:
 - Normalize named color choices to stored canonical values while preserving the user-facing color name in responses where helpful, so users can remember what they selected.
 - Add validation and helpful error messages for supported font names, numeric sizes, color values, and style scopes so users do not need to know internal JSON keys.
 - Keep advanced explicit commands such as `set <component> style <key> to <value>` available for power users and debugging.
+- Define a shared storybook/chat vocabulary and user guide so the chatbot and
+  user agree on terms such as promotion, storybook, scene, page, image, caption,
+  header, footer, title, subtitle, and sequence/order.
+- Add storybook chat commands such as:
+  - "add a scene after scene 2",
+  - "set scene 3 caption to ...",
+  - "move the treatment scene before the recovery scene",
+  - "replace the image in scene 2",
+  - "make scene 1 more dramatic but keep the same caption",
+  - "generate a new image for the recovery scene using the rabbit reference".
 - Add neutral tests and user-guide examples for common print-readability adjustments without relying on proprietary campaign data.
 - Update `docs/USER_GUIDE_CHAT.md` with a detailed named-color section, including palette discovery examples, direct named-color edits, relative lighter/darker shade examples, boundary/clarification behavior, and before/after-style confirmations.
+- Update chatbot user documentation for both `sales` and `storybook`
+  promotion types, including the distinct command vocabulary, supported edits,
+  image-generation workflows, and examples of safe confirmations before
+  replacing important assets.
 
 ### Step 21e: Component Type Model Review (TODO)
 Objective:
@@ -316,6 +354,9 @@ Objective:
 - Use the Merci orthopedic storyboard as the private proving example, but implement the feature with neutral sample data so it belongs to the generic engine.
 - Keep the UX simple for non-technical users: "add a page", "set the page image", "write the caption", "move this page before/after another page".
 - Update chat commands so users can create and edit page-level image-caption components through natural language.
+- For storybook promotions, make scene/page concepts first-class in the user
+  experience. The user should not need to know internal component keys to say
+  "scene 2", "the treatment scene", or "the last page caption".
 - Update the GUI so a promotion can show page components as ordered pages, not only as sales sections/items.
 - Ensure page-level components support social-media-oriented outputs, including future PNG/page-image export for carousel posts.
 - Document how this shifts GPMPE from price-oriented flyer generation toward broader promotional storytelling and social-media campaign creation.
@@ -349,12 +390,24 @@ Objective:
 ### Step 21e.2: Chat-Driven Image Generation for Promotional Assets (TODO)
 Objective:
 - Add an administrator-configured image-generation API credential, stored through the existing secret-provider model rather than in normal application tables.
+- Add administrator-configured LLM/image provider settings, including API key,
+  model/provider selection where appropriate, usage limits, and any other
+  runtime settings needed to enable the chatbot to create and edit campaign
+  imagery.
 - Allow authorized users to ask the chat interface to generate or iterate promotional images for campaigns, storyboards, social posts, and page-level image-caption components.
+- For storybook promotions, support the end-to-end image workflow used during
+  the orthopedic rabbit storyboard work: generate scene concepts, iterate
+  specific visual details, preserve approved characters/assets, select a final
+  image, attach it to the scene, and save the resulting campaign/assets to the
+  business repository.
 - Store generated image assets in the business data repository under explicit asset paths so they can be versioned with the campaign data.
 - Require generated assets to be attached to a business/campaign context before save, rather than leaving important assets only in temporary runtime storage.
 - Record image-generation prompts and selected output paths in version metadata or campaign asset metadata where useful for later review and iteration.
 - Provide a user-friendly workflow for choosing between generated variants, replacing an existing image, or saving a new versioned image.
 - Keep provider details and raw API keys hidden from regular users; expose simple admin setup and regular-user creative controls.
+- Provide administrator documentation for configuring chatbot and
+  image-generation providers, storing credentials, selecting defaults, and
+  explaining what regular users can do once the resources are configured.
 - Add guardrails for brand-sensitive work, including use of approved logos/assets as references where appropriate and warnings when exact logo/text fidelity requires compositing or vector/source assets rather than generative repainting.
 
 ### Step 21f: Business Card Artifact Support (TODO)
@@ -375,6 +428,19 @@ Objective:
 - Keep `docs/AWS_DEPLOYMENT_RUNBOOK.md` current with the deployment steps, console setup details, AWS service configuration, validation checks, rollback notes, and lessons learned during the migration.
 - Maintain a worked AWS staging deployment example based on the successful first deployment, including concrete non-secret resource names, validation steps, business bootstrap flow, confirmed capabilities, limitations, and lessons learned for deployment owners who need more help than a terse reference runbook provides.
 - Keep `docs/USER_GUIDE_CHAT.md` current for chatbot workflows, supported natural-language commands, editing examples, limitations, and troubleshooting.
+- Add a user guide section introducing promotion types:
+  - `sales`: offer/price/date oriented flyers and promotions,
+  - `storybook`: ordered scene/page narratives for social media, education, and
+    brand storytelling.
+- Update the sales-promotion guide to reflect the evolved component/style/save
+  machinery, including how sections, items, captions/notes, preview generation,
+  explicit exports, and Save-to-Git differ.
+- Add a storybook-promotion guide covering scenes, images, optional headers,
+  captions/footers, ordering, preview/download behavior, and chat commands for
+  creating or revising storybook pages.
+- Add an administrator guide covering Git repository setup, credential/secret
+  setup, promotion defaults, chatbot/image-generation API-key setup, user
+  access defaults, and the meaning of each operational save/sync/restore action.
 - As new automated test cases are added, update the relevant plan/design sections to reference those tests under their "Relevant test coverage" notes, and remove or revise planned-test bullets once implemented.
 - Before open-source publication, write or rewrite the final requirements document based on the actual completed implementation rather than the historical project trajectory.
 - Before open-source publication, write or rewrite a detailed design document covering the final architecture, data model, API boundaries, authorization model, versioning model, rendering pipeline, deployment model, and extension points.
